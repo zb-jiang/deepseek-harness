@@ -906,10 +906,10 @@ export function apply(ctx: Context) {              // 加载时调用
 - insert:
     - id: hello
       # 注意：必须是绝对路径！把下面换成你的真实路径
-      name: 'path/to/deepseek-harness/scratch-plugin/src/hello-plugin.ts'
+      name: 'file:///D:/works/deepseek-harness/scratch-plugin/src/hello-plugin.ts'
 ```
 
-> **Windows 路径提醒**：官方文档要求**绝对路径**。Windows 下用 `d:/path/to/...`（正斜杠）或 `d:\path\to\...` 都行，但 YAML 里反斜杠最好别直接写（会被当转义），**推荐用正斜杠**。先在仓库根目录跑 `pwd` 看看你的真实路径，替换进去。
+> **Windows 路径提醒（重要）**：插件行的 `name` 会被当作 ESM 模块地址直接 `import`。macOS/Linux 写普通绝对路径即可（`/works/deepseek-harness/...`）；**Windows 下盘符路径（`d:/...`）不是合法的模块地址，必须加 `file:///` 前缀**（三个斜杠），如 `file:///D:/works/...`。直接写 `d:/...` 会报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（详见附录 A.3）。YAML 里别用反斜杠（会被当转义）；路径含空格时把空格写成 `%20`。
 
 ### 步骤 4：挂上 patch 启动
 
@@ -960,7 +960,7 @@ export function apply(ctx: Context) {
 - 三种形态：函数（常用）/ 对象 / 类（要提供服务时用）。
 - **自动清理**：通过 `ctx` 注册的东西卸载时自动撤销；手动资源用 `ctx.effect()` 返回收尾函数。
 - **声明依赖**：`inject = ['tools', ...]`，框架保证依赖就绪后才跑 `apply`。
-- 用 `--patch 一个 cordis.yml` 把本地插件挂进 DSH；`name` 必须是**绝对路径**。
+- 用 `--patch 一个 cordis.yml` 把本地插件挂进 DSH；`name` 必须是**绝对路径**（Windows 下用 `file:///` 前缀，如 `file:///D:/works/...`）。
 
 但 hello-plugin 只会打印日志，还不会"干活"。第 6 章，我们让管家学会一件新本事——注册一个真工具，让大脑能调用它。
 
@@ -1073,7 +1073,7 @@ sequenceDiagram
 ```yaml
 - insert:
     - id: greet
-      name: 'path/to/deepseek-harness/scratch-plugin/src/greet-tool.ts'
+      name: 'file:///D:/works/deepseek-harness/scratch-plugin/src/greet-tool.ts'
 ```
 
 启动：
@@ -1230,7 +1230,7 @@ export function apply(ctx: Context, config: Config) {
 ```yaml
 - insert:
     - id: greet
-      name: 'path/to/deepseek-harness/scratch-plugin/src/greet-tool.ts'
+      name: 'file:///D:/works/deepseek-harness/scratch-plugin/src/greet-tool.ts'
       config:                          # 这里拧旋钮
         greeting: '你好'
         maxRetries: 5
@@ -1474,7 +1474,7 @@ export function apply(ctx: Context, config: Config) {   // 第7章：收 config
 ```yaml
 - insert:
     - id: study-reminder
-      name: 'path/to/deepseek-harness/study-reminder/src/index.ts'
+      name: 'file:///D:/works/deepseek-harness/study-reminder/src/index.ts'
       config:                  # 第7章：拧旋钮
         maxReminders: 20       # 这台机器上只许存 20 条
         # defaultLeadMinutes 用默认 30
@@ -1774,7 +1774,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
 pnpm dsh web --patch ./study-reminder/cordis.yml
 ```
 
-**步骤 2**：在网页里让管家建 3 条提醒、列一次清单。
+**步骤 2**：在网页里让管家建 3 条提醒、列一次清单：“帮我安排这周的学习提醒：周一复习数学第三章，周三交语文作业，周五背 30 个英语单词。然后列出来给我看。”。
 
 **步骤 3**：`Ctrl+C` 彻底关掉进程。
 
@@ -1997,7 +1997,7 @@ DeepSeek官方的 [打包与安装插件](https://deepseek-harness.github.io/dee
 ## A.2 Windows 注意事项
 
 - **Node 版本**：要 `^22.19` 或 `>=24`。`node -v` 查。
-- **路径斜杠**：`cordis.yml` 里插件的 `name` 用**绝对路径**，**推荐正斜杠** `d:/works/...`；YAML 里反斜杠会被当转义，别直接写。先 `pwd` 看真实路径再填。
+- **路径写法（重要）**：`cordis.yml` 里插件行的 `name` 会被直接 `import`，macOS/Linux 用普通绝对路径（如 `/works/deepseek-harness/...`）；**Windows 下必须加 `file:///` 前缀**（三个斜杠），如 `file:///D:/works/deepseek-harness/study-reminder/src/index.ts`。直接写 `d:/...` 会报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`。路径含空格时写成 `%20`。
 - **PowerShell 设环境变量**：临时设用 `$env:DEEPSEEK_API_KEY = "sk-..."`（只对当前终端会话有效）。永久推荐用 `.env` 文件（仓库根目录，已被 git 忽略）。
 - **Python SDK**：DSH 的 Python SDK 不支持 Windows，Windows 用户用 **Web UI 或 CLI** 即可（本教程全程用这俩）。
 - **关终端 vs 关网页**：关浏览器标签页不影响管家；`Ctrl+C` 关掉跑 `dsh web` 的终端才真的停。

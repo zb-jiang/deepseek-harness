@@ -38,6 +38,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'llm/retry-started',
   'permission/preset',
   'plan/mode',
+  'reminder/change',   // ← 8.6.4 实验登记（正式姿势：做成 packages/ 包后跑 gen-persistence-catalog）
   'request/context',
   'request/header',
   'sandbox/mode',

@@ -1,0 +1,6 @@
+- insert:
+    - id: study-reminder
+      name: 'file:///D:/works/deepseek-harness/study-reminder/src/index.ts'
+      config:                  # 第7章：拧旋钮
+        maxReminders: 20       # 这台机器上只许存 20 条
+        # defaultLeadMinutes 用默认 30
