@@ -909,7 +909,7 @@ export function apply(ctx: Context) {              // 加载时调用
       name: 'file:///D:/works/deepseek-harness/scratch-plugin/src/hello-plugin.ts'
 ```
 
-> **Windows 路径提醒（重要）**：插件行的 `name` 会被当作 ESM 模块地址直接 `import`。macOS/Linux 写普通绝对路径即可（`/works/deepseek-harness/...`）；**Windows 下盘符路径（`d:/...`）不是合法的模块地址，必须加 `file:///` 前缀**（三个斜杠），如 `file:///D:/works/...`。直接写 `d:/...` 会报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（详见附录 A.3）。YAML 里别用反斜杠（会被当转义）；路径含空格时把空格写成 `%20`。
+> **Windows 路径提醒（重要）**：插件行的 `name` 会被当作 ESM 模块地址直接 `import`。macOS/Linux 写普通绝对路径即可（`/works/deepseek-harness/...`）；**Windows 必须加 `file:///` 前缀**（三个斜杠），如 `file:///D:/works/...`。
 
 ### 步骤 4：挂上 patch 启动
 
@@ -1997,7 +1997,7 @@ DeepSeek官方的 [打包与安装插件](https://deepseek-harness.github.io/dee
 ## A.2 Windows 注意事项
 
 - **Node 版本**：要 `^22.19` 或 `>=24`。`node -v` 查。
-- **路径写法（重要）**：`cordis.yml` 里插件行的 `name` 会被直接 `import`，macOS/Linux 用普通绝对路径（如 `/works/deepseek-harness/...`）；**Windows 下必须加 `file:///` 前缀**（三个斜杠），如 `file:///D:/works/deepseek-harness/study-reminder/src/index.ts`。直接写 `d:/...` 会报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`。路径含空格时写成 `%20`。
+- **路径写法（重要）**：`cordis.yml` 里插件行的 `name` 会被直接 `import`，macOS/Linux 用普通绝对路径（如 `/works/deepseek-harness/...`）；**Windows 下必须加 `file:///` 前缀**（三个斜杠），如 `file:///D:/works/deepseek-harness/study-reminder/src/index.ts`。
 - **PowerShell 设环境变量**：临时设用 `$env:DEEPSEEK_API_KEY = "sk-..."`（只对当前终端会话有效）。永久推荐用 `.env` 文件（仓库根目录，已被 git 忽略）。
 - **Python SDK**：DSH 的 Python SDK 不支持 Windows，Windows 用户用 **Web UI 或 CLI** 即可（本教程全程用这俩）。
 - **关终端 vs 关网页**：关浏览器标签页不影响管家；`Ctrl+C` 关掉跑 `dsh web` 的终端才真的停。
