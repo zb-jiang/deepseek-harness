@@ -4,9 +4,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 
 export const name = 'study-reminder'
-export const inject = ['tools', 'sessions']   // 第5章：多依赖一个 sessions 服务
+export const inject = ['tools', 'sessions']
 
-// 第7章：Config 接口 + schema（不变）
 export interface Reminder {
   id: number
   title: string
@@ -21,7 +20,6 @@ export const Config: Schema<Config> = Schema.object({
   defaultLeadMinutes: Schema.number().default(30),
 })
 
-// ===== 8.6 新增：事件负载 + 登记词汇 + 重放函数 =====
 
 /** 一次提醒变动 = 一条事件。version 字段留给将来结构演进。 */
 export type ReminderChange =
