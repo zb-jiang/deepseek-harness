@@ -70,6 +70,10 @@ export function SidebarRoot({
   const everWide = useRef(!collapsed)
   if (!collapsed) everWide.current = true
 
+  const nav = renderSlot('sidebar.nav', { wide })
+  const enterpriseLayout = typeof document !== 'undefined'
+    && document.documentElement.dataset.dshEnterpriseProfile === 'true'
+
   // Scrollbars in the column follow the pointer (.quietBars rebinds them
   // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
   // leaves. A pointer that returns within that window cancels the pending
@@ -130,7 +134,7 @@ export function SidebarRoot({
       <div className={css.logoRow}>
         {/* Expanded, the wordmark doubles as a New Session shortcut; the
             collapsed rail's logo is the expand toggle below instead. */}
-        {wide && (
+        {wide && !enterpriseLayout && (
           <button
             type="button"
             className={clsx(css.brand, css.wide)}
@@ -139,6 +143,11 @@ export function SidebarRoot({
           >
             <BrandWordmark />
           </button>
+        )}
+        {wide && enterpriseLayout && (
+          <div className={clsx(css.brandStatic, css.wide)}>
+            <BrandWordmark />
+          </div>
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
@@ -157,25 +166,50 @@ export function SidebarRoot({
       </div>
 
       {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
-        <button
-          type="button"
-          className={css.newSession}
-          aria-label={t('session.new.label')}
-          onClick={() => { startSession() }}
-        >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
-        </button>
-      </Tooltip>
+      {!enterpriseLayout && (
+        <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
+          <button
+            type="button"
+            className={css.newSession}
+            aria-label={t('session.new.label')}
+            onClick={() => { startSession() }}
+          >
+            <IconNewChatOutline16 size={wide ? 14 : 18} />
+            {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          </button>
+        </Tooltip>
+      )}
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}
       <div className={css.regionArea}>
-        {renderSlot('sidebar.workspaces', {
-          wide,
-          expandSidebar: () => { if (collapsed) toggleSidebar() },
-        })}
+        {!enterpriseLayout ? (
+          renderSlot('sidebar.workspaces', {
+            wide,
+            expandSidebar: () => { if (collapsed) toggleSidebar() },
+          })
+        ) : (
+          <div className={css.regionSplit}>
+            <div className={css.navArea}>{nav}</div>
+            <div className={css.workspacesArea}>
+              <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
+                <button
+                  type="button"
+                  className={css.newSession}
+                  aria-label={t('session.new.label')}
+                  onClick={() => { startSession() }}
+                >
+                  <IconNewChatOutline16 size={wide ? 14 : 18} />
+                  {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+                </button>
+              </Tooltip>
+              {renderSlot('sidebar.workspaces', {
+                wide,
+                expandSidebar: () => { if (collapsed) toggleSidebar() },
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer actions stack above Settings in both sidebar widths. */}

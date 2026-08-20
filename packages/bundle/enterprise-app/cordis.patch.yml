@@ -1,0 +1,26 @@
+# The dsh-enterprise-app bundle patch: enterprise platform-user governance
+# layer over dsh-web-app. Applied after dsh-web-app's patch; rows here
+# insert the platform-user seam, its Supabase provider, and the HTTP API
+# routes that expose governance operations to the browser surface.
+
+- insert:
+    # 平台用户治理 Service Definition（提供 ctx.platformUsers）。
+    - id: platform-user
+      name: '@deepseek-ai/dsh-platform-user'
+
+    # Supabase-backed provider，从环境变量读取凭据。
+    - id: platform-user-supabase
+      name: '@deepseek-ai/dsh-platform-user-supabase'
+      config:
+        url: !!js process.env.SUPABASE_URL ?? ''
+        serviceRoleKey: !!js process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+        anonKey: !!js process.env.SUPABASE_ANON_KEY ?? ''
+        usersTable: platform_users
+        auditTable: audit_events
+
+    # HTTP API 路由，注册 /api/enterprise/platform-users 前缀路由。
+    - id: platform-user-api
+      name: '@deepseek-ai/dsh-platform-user-api'
+
+    - id: ui-enterprise
+      name: '@deepseek-ai/dsh-client-ui-enterprise'

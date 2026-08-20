@@ -1,0 +1,437 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.navButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.navButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.navButtonActive {
+  background: var(--dsw-alias-button-floating-fill);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.navPending {
+  padding: 8px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.authPageRoot {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(15, 23, 42, 0.08), transparent 28%),
+    linear-gradient(180deg, #f8fafc, #eef2ff 52%, #f8fafc);
+}
+
+.authPageShell {
+  width: min(1040px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 420px);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.authHero {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 32px;
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.72));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+}
+
+.authBadge {
+  display: inline-flex;
+  align-self: flex-start;
+  height: 28px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.authBrand {
+  margin-top: 18px;
+}
+
+.authPageCard {
+  width: 100%;
+  padding: 24px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+}
+
+.authPageHeader {
+  margin-bottom: 18px;
+}
+
+.authPageTitle {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+}
+
+.authPageSubtitle {
+  margin-top: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 560px;
+}
+
+.authFeatureList {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.authFeatureItem {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.authFeatureTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.authFeatureText {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.authCardTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+}
+
+.authCardSubtitle {
+  margin-top: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.navUser {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.navUserLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.logoutButton {
+  flex: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 8px;
+  height: 24px;
+  padding: 0 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.logoutButton:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}
+
+.authPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0 0;
+}
+
+.authTabs {
+  display: flex;
+  gap: 4px;
+}
+
+.authTab {
+  flex: 1;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: rgba(248, 250, 252, 0.9);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 12px;
+  height: 38px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.authTab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.authTabActive {
+  background: var(--dsw-alias-button-floating-fill);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.authForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.authError {
+  color: #e5484d;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.overlayRoot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  z-index: 20;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.panel {
+  position: relative;
+  height: 100%;
+  width: min(980px, 92vw);
+  background: var(--dsw-alias-bg-base);
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  display: flex;
+  flex-direction: column;
+}
+
+.panelHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.panelTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.closeButton {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 10px;
+  height: 30px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}
+
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.actionButton {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 10px;
+  height: 28px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.actionButton:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}
+
+.actionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hint {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.fieldRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.textInput {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  padding: 0 12px;
+  background: rgba(248, 250, 252, 0.78);
+  color: var(--dsw-alias-label-primary);
+}
+
+.authTextInput {
+  height: 48px;
+  padding: 0 14px;
+}
+
+.textInput:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.18);
+}
+
+.authSubmitButton {
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.authSubmitButton:hover {
+  background: linear-gradient(180deg, #1d4ed8, #1e40af);
+}
+
+.authBlockedActions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.authSecondaryButton {
+  align-self: flex-start;
+  min-width: 120px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.roleOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.7);
+}
+
+.table td:last-child {
+  min-width: 220px;
+}
+
+.table td:last-child .actions {
+  justify-content: flex-start;
+}
+
+.table td:last-child button {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .authPageShell {
+    grid-template-columns: 1fr;
+  }
+
+  .authHero {
+    padding: 24px;
+  }
+}
