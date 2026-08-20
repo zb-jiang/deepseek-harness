@@ -11,7 +11,6 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../ui-slots" },
     { "path": "../ui-primitives" },
-    { "path": "../web-react" },
     { "path": "../runtime" },
     { "path": "../ui-layout" },
     { "path": "../ui-sidebar" },
