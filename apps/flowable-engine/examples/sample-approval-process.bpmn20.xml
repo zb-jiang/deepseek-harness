@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:dsh="http://dsh.ai/bpmn"
+             targetNamespace="http://dsh.ai/bpmn/examples">
+
+  <process id="dshSampleApproval" name="DSH 示例审批流程" isExecutable="true">
+
+    <startEvent id="startEvent" name="开始"/>
+
+    <userTask id="approveTask" name="审批"
+              flowable:candidateGroups="role-approver-uuid">
+      <extensionElements>
+        <dsh:assignmentRule candidateRoleId="role-approver-uuid" taskStrategy="single"/>
+        <dsh:inputSchema>{"type":"object","properties":{"applicationSummary":{"type":"string"},"amount":{"type":"number"}},"required":["applicationSummary"]}</dsh:inputSchema>
+        <dsh:outputSchema>{"type":"object","properties":{"conclusion":{"type":"string","enum":["approved","rejected"]},"comment":{"type":"string"}},"required":["conclusion"]}</dsh:outputSchema>
+        <dsh:systemPrompt>你是企业审批助手。根据申请人提交的申请摘要和金额,给出审批建议(approved/rejected)并附简短说明。</dsh:systemPrompt>
+        <dsh:userPrompt>请审批以下申请:申请摘要={{upstream.applicationSummary}},金额={{upstream.amount}} 元。请按 outputSchema 给出 JSON 结论。</dsh:userPrompt>
+        <dsh:skillRef>approval-helper</dsh:skillRef>
+        <dsh:skillRef>compliance-check</dsh:skillRef>
+        <dsh:actionPolicy>
+          <dsh:timeoutPolicy duration="PT24H" escalateToRoleId="role-manager-uuid"/>
+          <dsh:sodRule type="not-applicant"/>
+        </dsh:actionPolicy>
+      </extensionElements>
+    </userTask>
+
+    <!--
+      async=true:引擎不阻塞主流程线程,改由 async-executor 线程池异步执行 Job。
+      LLM 调用耗时长(数十秒到分钟级),不阻塞流程实例推进线程,避免占用引擎同步线程。
+      失败时 Job 进入异常重试(次数/间隔由 flowable:failedJobRetryTimeCycle 控制,此处 R5/PT5M 即最多重试 5 次,间隔 5 分钟)。
+      详参见 §9.3 自动节点失败处理策略。
+    -->
+    <serviceTask id="autoArchiveTask" name="自动归档"
+                 flowable:delegateExpression="${dshServiceTaskDelegate}"
+                 flowable:async="true"
+                 flowable:failedJobRetryTimeCycle="R5/PT5M"/>
+
+    <endEvent id="endEvent" name="结束"/>
+
+    <sequenceFlow sourceRef="startEvent" targetRef="approveTask"/>
+    <sequenceFlow sourceRef="approveTask" targetRef="autoArchiveTask"/>
+    <sequenceFlow sourceRef="autoArchiveTask" targetRef="endEvent"/>
+
+  </process>
+</definitions>
