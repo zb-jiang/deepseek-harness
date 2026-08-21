@@ -1,0 +1,80 @@
+<svg viewBox="0 0 820 540" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="permGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eef2ff"/><stop offset="1" stop-color="#e0e7ff"/>
+    </linearGradient>
+    <linearGradient id="routeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ecfdf5"/><stop offset="1" stop-color="#d1fae5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 主标题 -->
+  <text x="410" y="34" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">BPM 中角色 / 人员的关系模式</text>
+  <text x="410" y="58" text-anchor="middle" font-size="13" fill="#475569">跨两个层面:权限层(RBAC 标准)· 运行时路由层(任务怎么分到人)</text>
+
+  <!-- 分隔线 -->
+  <line x1="410" y1="80" x2="410" y2="520" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 4"/>
+
+  <!-- 左栏标题:权限层 -->
+  <rect x="30" y="82" width="360" height="34" rx="8" fill="#6366f1"/>
+  <text x="210" y="104" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">权限层关系(RBAC 标准)</text>
+
+  <!-- 左卡 1:角色继承 -->
+  <rect x="30" y="128" width="360" height="92" rx="10" fill="url(#permGrad)" stroke="#c7d2fe" stroke-width="1"/>
+  <text x="46" y="152" font-size="14" font-weight="700" fill="#3730a3">① 角色继承 RBAC1(树状层级)</text>
+  <text x="46" y="174" font-size="11.5" fill="#475569">上级自动继承下级权限,可处理下级待办</text>
+  <text x="46" y="191" font-size="11.5" fill="#475569">偏序继承(允许多继承)/ 受限继承(树结构)</text>
+  <text x="46" y="208" font-size="11" fill="#6366f1" font-style="italic">场景:总经理 → 经理 → 业务员;用户分级</text>
+
+  <!-- 左卡 2:职责分离 -->
+  <rect x="30" y="232" width="360" height="92" rx="10" fill="url(#permGrad)" stroke="#c7d2fe" stroke-width="1"/>
+  <text x="46" y="256" font-size="14" font-weight="700" fill="#3730a3">② 职责分离 SoD(RBAC2)</text>
+  <text x="46" y="278" font-size="11.5" fill="#475569">互斥角色防舞弊:一人不能同时持互斥角色</text>
+  <text x="46" y="295" font-size="11.5" fill="#475569">静态 SSD(分配时禁止)/ 动态 DSD(可持但不可同激活)</text>
+  <text x="46" y="312" font-size="11" fill="#6366f1" font-style="italic">场景:审批人 ≠ 申请人;会计 ≠ 审计员</text>
+
+  <!-- 左卡 3:基数与先决 -->
+  <rect x="30" y="336" width="360" height="92" rx="10" fill="url(#permGrad)" stroke="#c7d2fe" stroke-width="1"/>
+  <text x="46" y="360" font-size="14" font-weight="700" fill="#3730a3">③ 基数约束 / 先决角色</text>
+  <text x="46" y="382" font-size="11.5" fill="#475569">角色用户数受限(VP 限 1 人)、用户角色数受限</text>
+  <text x="46" y="399" font-size="11.5" fill="#475569">先决条件:高级角色需先持有低级角色</text>
+  <text x="46" y="416" font-size="11" fill="#6366f1" font-style="italic">场景:副总须先有经理;敏感角色限额</text>
+
+  <!-- 左栏注脚 -->
+  <text x="210" y="448" text-anchor="middle" font-size="11" fill="#64748b">→ 决定"谁能做什么"的静态授权关系</text>
+
+  <!-- 右栏标题:运行时路由 -->
+  <rect x="430" y="82" width="360" height="34" rx="8" fill="#10b981"/>
+  <text x="610" y="104" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">运行时路由关系(任务分配)</text>
+
+  <!-- 右卡 1:委托代理 -->
+  <rect x="430" y="128" width="360" height="68" rx="10" fill="url(#routeGrad)" stroke="#a7f3d0" stroke-width="1"/>
+  <text x="446" y="152" font-size="14" font-weight="700" fill="#065f46">④ 委托 / 代理 Delegation</text>
+  <text x="446" y="172" font-size="11.5" fill="#475569">临时全权授权他人代办,带时间区间</text>
+  <text x="446" y="188" font-size="11" fill="#059669" font-style="italic">场景:请假,期间任务自动转交受托人</text>
+
+  <!-- 右卡 2:超时升级 -->
+  <rect x="430" y="208" width="360" height="68" rx="10" fill="url(#routeGrad)" stroke="#a7f3d0" stroke-width="1"/>
+  <text x="446" y="232" font-size="14" font-weight="700" fill="#065f46">⑤ 超时升级 Escalation</text>
+  <text x="446" y="252" font-size="11.5" fill="#475569">超时未处理自动升级到上级或指定人</text>
+  <text x="446" y="268" font-size="11" fill="#059669" font-style="italic">场景:24h 未审批 → 自动转 VP</text>
+
+  <!-- 右卡 3:组织层级路由 -->
+  <rect x="430" y="288" width="360" height="68" rx="10" fill="url(#routeGrad)" stroke="#a7f3d0" stroke-width="1"/>
+  <text x="446" y="312" font-size="14" font-weight="700" fill="#065f46">⑥ 组织层级路由(动态解析)</text>
+  <text x="446" y="332" font-size="11.5" fill="#475569">运行时"找申请人的直属上级"审批</text>
+  <text x="446" y="348" font-size="11" fill="#059669" font-style="italic">场景:费用报销 → 申请人 manager 审批</text>
+
+  <!-- 右卡 4:共享池轮询 -->
+  <rect x="430" y="368" width="360" height="68" rx="10" fill="url(#routeGrad)" stroke="#a7f3d0" stroke-width="1"/>
+  <text x="446" y="392" font-size="14" font-weight="700" fill="#065f46">⑦ 共享池 / 轮询 Shared Pool</text>
+  <text x="446" y="412" font-size="11.5" fill="#475569">一组人共享任务池认领,或轮流分配</text>
+  <text x="446" y="428" font-size="11" fill="#059669" font-style="italic">场景:客服工单轮询;候选组认领</text>
+
+  <!-- 右栏注脚 -->
+  <text x="610" y="448" text-anchor="middle" font-size="11" fill="#64748b">→ 决定"任务此刻分给谁"的动态关系</text>
+
+  <!-- 底部说明 -->
+  <text x="410" y="478" text-anchor="middle" font-size="11" fill="#94a3b8">Flowable OSS 原生支持:① 的扁平权限(无继承)、④ claim/delegate、⑦ candidateGroup 认领</text>
+  <text x="410" y="495" text-anchor="middle" font-size="11" fill="#94a3b8">需自定义:① 角色树展开、② SoD 校验、⑤ 升级、⑥ 组织路由(本仓库 SPEC 已含 ④ 转交)</text>
+</svg>

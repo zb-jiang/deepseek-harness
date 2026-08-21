@@ -1,0 +1,162 @@
+<style>
+:root {
+  --brand: #7c3aed;
+  --accent: #0ea5e9;
+  --warn: #f59e0b;
+  --ok: #10b981;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-caption: #94a3b8;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --weight-medium: 500;
+  --weight-strong: 600;
+}
+:root[data-widget-theme="dark"] {
+  --brand: #a78bfa;
+  --accent: #38bdf8;
+  --warn: #fbbf24;
+  --ok: #34d399;
+  --surface: #1e293b;
+  --surface-muted: #0f172a;
+  --border: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-caption: #64748b;
+}
+.arch5 { width: 100%; font-family: var(--font-sans); }
+.arch5 .header { fill: var(--text); font-size: 15px; font-weight: var(--weight-strong); }
+.arch5 .zone-tag { fill: var(--text-caption); font-size: 11px; font-weight: var(--weight-strong); letter-spacing: 1.5px; }
+.arch5 .node { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
+.arch5 .node-brand { fill: var(--surface); stroke: var(--brand); stroke-width: 2; }
+.arch5 .node-accent { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.arch5 .node-warn { fill: var(--surface); stroke: var(--warn); stroke-width: 2; }
+.arch5 .node-ok { fill: var(--surface); stroke: var(--ok); stroke-width: 2; }
+.arch5 .title { fill: var(--text); font-size: 14px; font-weight: var(--weight-strong); }
+.arch5 .sub { fill: var(--text-muted); font-size: 12px; }
+.arch5 .cap { fill: var(--text-caption); font-size: 11px; }
+.arch5 .cap-brand { fill: var(--brand); font-size: 11px; font-weight: var(--weight-medium); }
+.arch5 .cap-accent { fill: var(--accent); font-size: 11px; font-weight: var(--weight-medium); }
+.arch5 .cap-warn { fill: var(--warn); font-size: 11px; font-weight: var(--weight-medium); }
+.arch5 .cap-ok { fill: var(--ok); font-size: 11px; font-weight: var(--weight-medium); }
+.arch5 .zone { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+.arch5 .zone-srv { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
+.arch5 .conn { fill: none; stroke: var(--text-muted); stroke-width: 1.5; stroke-linecap: round; }
+.arch5 .conn-brand { fill: none; stroke: var(--brand); stroke-width: 1.5; stroke-linecap: round; }
+.arch5 .conn-accent { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linecap: round; }
+.arch5 .conn-warn { fill: none; stroke: var(--warn); stroke-width: 1.5; stroke-linecap: round; }
+.arch5 .conn-ok { fill: none; stroke: var(--ok); stroke-width: 1.5; stroke-linecap: round; }
+.arch5 .conn-dash { stroke-dasharray: 5 3; }
+.arch5 .conn-lbl { fill: var(--text-muted); font-size: 10px; }
+.arch5 .conn-lbl-brand { fill: var(--brand); font-size: 10px; }
+.arch5 .conn-lbl-accent { fill: var(--accent); font-size: 10px; }
+.arch5 .conn-lbl-warn { fill: var(--warn); font-size: 10px; }
+.arch5 .conn-lbl-ok { fill: var(--ok); font-size: 10px; }
+.arch5 .legend-box { fill: var(--surface-muted); stroke: var(--border); stroke-width: 1; }
+</style>
+
+<svg class="arch5" data-dynamic-ui-widget data-template="dsh-enterprise-architecture-v5" viewBox="0 0 800 620" width="100%" height="auto" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a5-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L7 4 L1 7 Z" fill="#64748b"/>
+    </marker>
+    <marker id="a5-arrow-brand" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L7 4 L1 7 Z" fill="#7c3aed"/>
+    </marker>
+    <marker id="a5-arrow-accent" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L7 4 L1 7 Z" fill="#0ea5e9"/>
+    </marker>
+    <marker id="a5-arrow-warn" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L7 4 L1 7 Z" fill="#f59e0b"/>
+    </marker>
+    <marker id="a5-arrow-ok" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L7 4 L1 7 Z" fill="#10b981"/>
+    </marker>
+  </defs>
+
+  <text class="header" x="400" y="28" text-anchor="middle">DSH 企业级应用平台 — 架构 v5(认证直连 Supabase,无中介)</text>
+
+  <rect class="zone" x="20" y="50" width="760" height="130" rx="8"/>
+  <text class="zone-tag" x="35" y="68">员工 PC(可关机)— 每员工一台</text>
+
+  <rect class="zone-srv" x="20" y="200" width="760" height="200" rx="8"/>
+  <text class="zone-tag" x="35" y="218" fill="#0ea5e9">企业服务器(常驻,不可关机)</text>
+
+  <rect class="zone" x="20" y="420" width="760" height="100" rx="8"/>
+  <text class="zone-tag" x="35" y="438">Supabase(认证中心 + 统一存储)</text>
+
+  <rect class="node-warn" x="260" y="85" width="280" height="85" rx="8"/>
+  <text class="title" x="400" y="110" text-anchor="middle">DSH Electron APP</text>
+  <text class="sub" x="400" y="130" text-anchor="middle">Electron 壳 + enterprise profile(本地 host)</text>
+  <text class="cap-warn" x="400" y="148" text-anchor="middle">本地 LLM key + skill + workspace + AI chat</text>
+  <text class="cap" x="400" y="162" text-anchor="middle">浏览器连 127.0.0.1:3080(同机)</text>
+
+  <rect class="node" x="40" y="230" width="170" height="105" rx="8"/>
+  <text class="title" x="125" y="255" text-anchor="middle">Web Console 后端</text>
+  <text class="sub" x="125" y="277" text-anchor="middle">Java Spring Boot</text>
+  <text class="cap" x="125" y="297" text-anchor="middle">apps/web-console/</text>
+  <text class="cap" x="125" y="315" text-anchor="middle">管理面:流程设计/治理</text>
+  <text class="cap" x="125" y="329" text-anchor="middle">Supabase SDK 直连</text>
+
+  <rect class="node-brand" x="235" y="230" width="150" height="105" rx="8"/>
+  <text class="title" x="310" y="255" text-anchor="middle">Flowable 7 引擎</text>
+  <text class="sub" x="310" y="277" text-anchor="middle">Java Spring Boot</text>
+  <text class="cap" x="310" y="297" text-anchor="middle">流程驱动 + REST API</text>
+  <text class="cap-brand" x="310" y="317" text-anchor="middle">◆ 核心焦点</text>
+  <text class="cap" x="310" y="329" text-anchor="middle">独立进程</text>
+
+  <rect class="node-accent" x="410" y="230" width="200" height="105" rx="8"/>
+  <text class="title" x="510" y="255" text-anchor="middle">服务器端 DSH</text>
+  <text class="sub" x="510" y="277" text-anchor="middle">web profile(常驻 daemon)</text>
+  <text class="cap" x="510" y="297" text-anchor="middle">webserver + agent + LLM</text>
+  <text class="cap" x="510" y="315" text-anchor="middle">+ skill + MCP(需挂载)</text>
+  <text class="cap-accent" x="510" y="329" text-anchor="middle">▲ 自动节点执行</text>
+
+  <rect class="node" x="635" y="230" width="100" height="105" rx="8"/>
+  <text class="title" x="685" y="255" text-anchor="middle">外部系统</text>
+  <text class="sub" x="685" y="277" text-anchor="middle">CRM/ERP</text>
+  <text class="cap" x="685" y="297" text-anchor="middle">MCP 接入</text>
+  <text class="cap" x="685" y="315" text-anchor="middle">主数据</text>
+  <text class="cap" x="685" y="329" text-anchor="middle">不动</text>
+
+  <rect class="node-ok" x="200" y="450" width="400" height="60" rx="8"/>
+  <text class="title" x="400" y="475" text-anchor="middle">Supabase(Auth + Postgres)</text>
+  <text class="cap-ok" x="400" y="495" text-anchor="middle">认证中心(JWT 签发) · platform_users · ACT_* · 治理元数据</text>
+
+  <rect class="legend-box" x="640" y="540" width="140" height="70" rx="8"/>
+  <text class="cap" x="710" y="558" text-anchor="middle">图例</text>
+  <line x1="655" y1="572" x2="675" y2="572" stroke="#10b981" stroke-width="1.5"/>
+  <text class="conn-lbl-ok" x="680" y="576">认证(直连 Supabase)</text>
+  <line x1="655" y1="588" x2="675" y2="588" stroke="#7c3aed" stroke-width="1.5"/>
+  <text class="conn-lbl-brand" x="680" y="592">流程驱动</text>
+  <line x1="655" y1="604" x2="675" y2="604" stroke="#f59e0b" stroke-width="1.5"/>
+  <text class="conn-lbl-warn" x="680" y="608">客户端请求</text>
+
+  <path class="conn-ok" d="M 400 170 L 280 450" marker-end="url(#a5-arrow-ok)"/>
+  <text class="conn-lbl-ok" x="320" y="310" text-anchor="middle">认证+用户治理</text>
+  <text class="conn-lbl-ok" x="320" y="323" text-anchor="middle">直连 Supabase</text>
+
+  <path class="conn-warn" d="M 400 170 L 310 230" marker-end="url(#a5-arrow-warn)"/>
+  <text class="conn-lbl-warn" x="380" y="205" text-anchor="middle">查待办/提交</text>
+  <text class="conn-lbl-warn" x="380" y="218" text-anchor="middle">(带 Supabase JWT)</text>
+
+  <path class="conn-ok" d="M 125 335 L 200 450" marker-end="url(#a5-arrow-ok)"/>
+  <text class="conn-lbl-ok" x="155" y="400" text-anchor="middle">认证+治理元数据</text>
+  <text class="conn-lbl-ok" x="155" y="413" text-anchor="middle">直连 Supabase</text>
+
+  <path class="conn" d="M 210 282 L 235 282" marker-end="url(#a5-arrow)"/>
+  <text class="conn-lbl" x="222" y="275" text-anchor="middle">REST</text>
+  <text class="conn-lbl" x="222" y="294" text-anchor="middle">部署</text>
+
+  <path class="conn-brand conn-dash" d="M 385 300 L 410 300" marker-end="url(#a5-arrow-brand)"/>
+  <text class="conn-lbl-brand" x="397" y="320" text-anchor="middle">自动节点</text>
+  <text class="conn-lbl-brand" x="397" y="333" text-anchor="middle">回调 loopback</text>
+
+  <path class="conn-accent" d="M 610 282 L 635 282" marker-end="url(#a5-arrow-accent)"/>
+  <text class="conn-lbl-accent" x="622" y="275" text-anchor="middle">MCP</text>
+
+  <path class="conn-brand" d="M 310 335 L 310 450" marker-end="url(#a5-arrow-brand)"/>
+  <text class="conn-lbl-brand" x="330" y="400" text-anchor="middle">ACT_* 表</text>
+</svg>
