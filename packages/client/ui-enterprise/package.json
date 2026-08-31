@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-enterprise",
-  "description": "Enterprise UI: left navigation + admin overlay pages (platform users, roles, audit, settings)",
+  "description": "Enterprise UI: auth gate with direct Supabase login/register + pending/blocked status pages",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -45,6 +45,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
     "clsx": "^2.0.0"
   },
   "peerDependencies": {

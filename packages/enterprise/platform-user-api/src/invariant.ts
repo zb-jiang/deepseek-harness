@@ -15,8 +15,9 @@ export const name = 'platform-user-api-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: route disposer is returned from ctx.effect in apply,
- * guaranteeing fiber unload synchronously removes the registered route.
+ * No runtime invariant: the auth route disposer is returned from ctx.effect
+ * in apply, guaranteeing fiber unload synchronously removes the registered
+ * route.
  */
 const install: InvariantInstaller = () => {}
 

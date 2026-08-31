@@ -8,7 +8,7 @@
     "src"
   ],
   "references": [
-    { "path": "../../identity/platform-user" },
+    { "path": "../platform-user" },
     { "path": "../../host/webserver" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

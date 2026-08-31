@@ -10,44 +10,35 @@ import org.flowable.bpmn.model.UserTask;
 import org.springframework.stereotype.Component;
 
 /**
- * 从 Flowable {@link UserTask} 的 extensionElements 解析 DSH 特有元数据为
- * {@link DshExtensionProperties} POJO。
+ * 从 Flowable UserTask 的 extensionElements 解析 DSH 特有元数据为 DshExtensionProperties POJO。
  *
- * <p>BPMN XML 期望格式(SPEC §4.8):
- * <pre>{@code
+ * BPMN XML 期望格式:
  * <bpmn:userTask id="approveTask" name="审批">
  *   <bpmn:extensionElements>
  *     <dsh:assignmentRule candidateRoleId="role-uuid" taskStrategy="single" />
- *     <dsh:inputSchema>{"type":"object",...}</dsh:inputSchema>
  *     <dsh:outputSchema>{"type":"object","required":["conclusion"]}</dsh:outputSchema>
  *     <dsh:systemPrompt>你是审批助手...</dsh:systemPrompt>
- *     <dsh:userPrompt>请审批:{{upstream.summary}}</dsh:userPrompt>
+ *     <dsh:userPrompt>请审批:{{execution.summary}}</dsh:userPrompt>
  *     <dsh:skillRef>approval-helper</dsh:skillRef>
  *     <dsh:skillRef>compliance-check</dsh:skillRef>
  *     <dsh:actionPolicy>
  *       <dsh:timeoutPolicy duration="PT24H" escalateToRoleId="manager-role-id" />
  *       <dsh:sodRule type="not-applicant" />
  *     </dsh:actionPolicy>
- *     <dsh:routingRule expression="output.conclusion=='approved'?'flow_ok':'flow_reject'" />
  *   </bpmn:extensionElements>
  * </bpmn:userTask>
- * }</pre>
  *
- * <p>解析时按 local name(不带 namespace prefix)取 extensionElements map 的 key;
- * dsh 子元素的 attributes 同样按 local name 取(无 namespace 区分),
- * 因为 dsh: 子元素的 attribute 在 XML 中通常不带 namespace prefix。
+ * 已移除:dsh:inputSchema(改为直接从 process variables 树读取)、
+ * dsh:routingRule(改为走 SequenceFlow 原生 conditionExpression)。
  */
 @Component
 public class DshBpmnExtensionParser {
 
-    /** DSH 自定义 namespace,用于和 BPMN standard 区分;此处仅作标记,实际解析按 local name。 */
+    /** DSH 自定义 namespace。 */
     public static final String DSH_NAMESPACE = "http://dsh.ai/bpmn";
 
     /**
-     * 解析 UserTask 的 dsh: extensionElements 为 POJO;无 dsh 元素时返回 {@code null}。
-     *
-     * @param userTask Flowable UserTask model 对象(来自 BpmnModel 缓存)
-     * @return DSH 元数据 POJO,或 {@code null}
+     * 解析 UserTask 的 dsh: extensionElements 为 POJO;无 dsh 元素时返回 null。
      */
     public DshExtensionProperties parse(UserTask userTask) {
         Map<String, List<ExtensionElement>> elements = userTask.getExtensionElements();
@@ -56,13 +47,11 @@ public class DshBpmnExtensionParser {
         }
         return new DshExtensionProperties(
             parseAssignmentRule(elements.get("assignmentRule")),
-            parseTextElement(elements.get("inputSchema")),
             parseTextElement(elements.get("outputSchema")),
             parseTextElement(elements.get("systemPrompt")),
             parseTextElement(elements.get("userPrompt")),
             parseSkillRefs(elements.get("skillRef")),
-            parseActionPolicy(elements.get("actionPolicy")),
-            parseRoutingRule(elements.get("routingRule"))
+            parseActionPolicy(elements.get("actionPolicy"))
         );
     }
 
@@ -134,18 +123,6 @@ public class DshBpmnExtensionParser {
             }
         }
         return List.copyOf(result);
-    }
-
-    private DshExtensionProperties.RoutingRule parseRoutingRule(List<ExtensionElement> elements) {
-        if (elements == null || elements.isEmpty()) {
-            return null;
-        }
-        ExtensionElement e = elements.get(0);
-        String expr = getAttribute(e, "expression");
-        if (expr == null || expr.isBlank()) {
-            expr = e.getElementText();
-        }
-        return expr == null || expr.isBlank() ? null : new DshExtensionProperties.RoutingRule(expr.trim());
     }
 
     /**

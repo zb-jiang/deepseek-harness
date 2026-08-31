@@ -1,0 +1,135 @@
+package com.dsh.console.app;
+
+import com.dsh.console.app.dto.ApplicationDto;
+import com.dsh.console.app.dto.CreateApplicationRequest;
+import com.dsh.console.app.dto.UpdateApplicationRequest;
+import com.dsh.console.audit.AuditService;
+import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.security.AuthContext;
+import com.dsh.console.security.PlatformRole;
+import com.dsh.console.user.UserJdbcRepository;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 应用治理业务编排。
+ *
+ * <p>V1 角色边界:
+ * <ul>
+ *   <li>{@code system_admin}:全部应用 CRUD。</li>
+ *   <li>{@code app_admin}:仅能操作自己所属应用(app_admin_user_ids 包含自己),且不能创建新应用。</li>
+ * </ul>
+ *
+ * <p>校验在 {@link #checkCanAccessApp} 完成,由 Controller 调用。
+ */
+@Service
+public class ApplicationService {
+
+    private final ApplicationJdbcRepository appRepository;
+    private final UserJdbcRepository userRepository;
+    private final AuditService auditService;
+
+    private static final String DEFAULT_ICON_BASE64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTUiIHN0cm9rZS13aWR0aD0iMiI+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBhdGggZD0iTTIxIDE1bC01LTUtMTYgMTYiLz48L3N2Zz4=";
+
+    public ApplicationService(ApplicationJdbcRepository appRepository,
+                              UserJdbcRepository userRepository,
+                              AuditService auditService) {
+        this.appRepository = appRepository;
+        this.userRepository = userRepository;
+        this.auditService = auditService;
+    }
+
+    public ApplicationDto getById(UUID appId) {
+        return appRepository.findById(appId)
+            .orElseThrow(() -> new NotFoundException("应用不存在: " + appId));
+    }
+
+    public List<ApplicationDto> listForUser(AuthContext auth, String statusFilter, int offset, int limit) {
+        if (auth.isSystemAdmin()) {
+            return appRepository.list(statusFilter, offset, limit);
+        }
+        // app_admin 只看自己管理的应用
+        return listManagedApps(auth.platformUserId());
+    }
+
+    /**
+     * 查询指定用户管理的所有应用(用于 app_admin 数据隔离)。
+     */
+    public List<ApplicationDto> listManagedApps(UUID userId) {
+        return appRepository.listByAdminUser(userId);
+    }
+
+    @Transactional
+    public ApplicationDto create(CreateApplicationRequest request, UUID creatorId) {
+        // 校验所有 admin 用户存在且 active
+        for (UUID adminId : request.appAdminUserIds()) {
+            userRepository.findById(adminId)
+                .filter(u -> "active".equalsIgnoreCase(u.status()))
+                .orElseThrow(() -> new IllegalArgumentException("管理员用户不存在或非 active: " + adminId));
+        }
+        String icon = (request.icon() == null || request.icon().isBlank())
+            ? DEFAULT_ICON_BASE64 : request.icon();
+        UUID appId = appRepository.create(
+            request.name(),
+            request.description(),
+            icon,
+            request.appAdminUserIds().toArray(new UUID[0]),
+            creatorId);
+        auditService.record("APP_CREATE", "application", null, creatorId,
+            java.util.Map.of("appId", appId, "name", request.name()));
+        return getById(appId);
+    }
+
+    @Transactional
+    public ApplicationDto update(UUID appId, UpdateApplicationRequest request, UUID updaterId) {
+        int rows = appRepository.update(appId, request.name(), request.description(),
+            request.icon(),
+            request.appAdminUserIds() == null ? new UUID[0] : request.appAdminUserIds().toArray(new UUID[0]));
+        if (rows == 0) {
+            throw new IllegalStateException("应用更新失败:应用不存在或状态非 draft/active");
+        }
+        auditService.record("APP_UPDATE", "application", null, updaterId,
+            java.util.Map.of("appId", appId, "name", request.name()));
+        return getById(appId);
+    }
+
+    @Transactional
+    public ApplicationDto activate(UUID appId, UUID activatorId) {
+        int rows = appRepository.activate(appId);
+        if (rows == 0) {
+            throw new IllegalStateException("应用激活失败:状态非 draft");
+        }
+        auditService.record("APP_ACTIVATE", "application", null, activatorId,
+            java.util.Map.of("appId", appId));
+        return getById(appId);
+    }
+
+    @Transactional
+    public ApplicationDto archive(UUID appId, UUID archiverId) {
+        int rows = appRepository.archive(appId, archiverId);
+        if (rows == 0) {
+            throw new IllegalStateException("应用归档失败:状态已是 archived");
+        }
+        auditService.record("APP_ARCHIVE", "application", null, archiverId,
+            java.util.Map.of("appId", appId));
+        return getById(appId);
+    }
+
+    /**
+     * 校验当前用户是否能操作指定应用。
+     *
+     * <p>system_admin 全部能;app_admin 仅当 app_admin_user_ids 包含自己;否则抛 AccessDenied。
+     */
+    public void checkCanAccessApp(AuthContext auth, UUID appId) {
+        if (auth.isSystemAdmin()) {
+            return;
+        }
+        ApplicationDto app = getById(appId);
+        if (app.appAdminUserIds() == null || !app.appAdminUserIds().contains(auth.platformUserId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                "用户不是应用 " + appId + " 的管理员");
+        }
+    }
+}

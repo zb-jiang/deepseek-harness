@@ -1,0 +1,79 @@
+package com.dsh.console.common;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientException;
+
+/**
+ * 全局异常处理。
+ *
+ * <p>把业务异常与框架异常统一包装为 {@link ApiResponse} 返回,前端按 code 分发处理。
+ */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /** 业务异常:返回 400。 */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException e) {
+        log.warn("Business exception: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ApiResponse.fail(ApiError.of("BUSINESS_ERROR", e.getMessage())));
+    }
+
+    /** 业务 not found:返回 404。 */
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(NotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ApiResponse.fail(ApiError.of("NOT_FOUND", e.getMessage())));
+    }
+
+    /** 权限不足:返回 403。 */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(ApiResponse.fail(ApiError.of("FORBIDDEN", e.getMessage())));
+    }
+
+    /** 请求体校验失败:返回 400。 */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ApiResponse.fail(new ApiError("VALIDATION_ERROR",
+                "请求体校验失败",
+                e.getBindingResult().getFieldErrors().stream()
+                    .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+                    .toList())));
+    }
+
+    /** Flowable REST 调用失败:返回 502。 */
+    @ExceptionHandler(RestClientException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRestClient(RestClientException e) {
+        log.error("Flowable REST call failed", e);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+            .body(ApiResponse.fail(ApiError.of("FLOWABLE_REST_ERROR",
+                "调用流程引擎失败:" + e.getMessage())));
+    }
+
+    /** 兜底:返回 500。 */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleAny(Exception e) {
+        log.error("Unhandled exception", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(ApiResponse.fail(ApiError.of("INTERNAL_ERROR", "服务器内部错误")));
+    }
+
+    /** 自定义 not found 业务异常。 */
+    public static class NotFoundException extends RuntimeException {
+        public NotFoundException(String message) {
+            super(message);
+        }
+    }
+}

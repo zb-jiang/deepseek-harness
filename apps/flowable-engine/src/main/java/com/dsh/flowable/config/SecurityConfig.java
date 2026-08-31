@@ -1,20 +1,18 @@
 package com.dsh.flowable.config;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 
 /**
  * Spring Security 配置:Supabase JWT 本地验证。
@@ -42,33 +40,33 @@ public class SecurityConfig {
     }
 
     /**
-     * 用 Supabase JWT Secret 构造 NimbusJwtDecoder,验证 HS256 签名。
+     * 用 Supabase JWKS URI 构造 NimbusJwtDecoder,支持 ES256/RS256 等非对称算法。
      *
-     * <p>secret encoding 由 {@link SupabaseJwtProperties#jwtSecretEncoding()} 决定:
-     * <ul>
-     *   <li>{@code utf8}(默认):raw 字符串直接转 UTF-8 bytes(self-hosted Supabase)。</li>
-     *   <li>{@code base64}:Supabase cloud 项目 secret 是 base64 编码,需先 decode。</li>
-     * </ul>
+     * <p>Supabase 已迁移到新的 JWT Signing Keys(参见 dashboard Settings → JWT Keys),
+     * 默认使用 ECDSA(ES256)签名,不再用 Legacy JWT Secret 的 HS256。
+     * 通过 {@code /.well-known/jwks.json} 动态获取公钥验证。</p>
      */
     @Bean
     public JwtDecoder jwtDecoder() {
-        byte[] secretBytes = switch (properties.jwtSecretEncoding()) {
-            case "base64" -> Base64.getDecoder().decode(properties.jwtSecret());
-            default -> properties.jwtSecret().getBytes(StandardCharsets.UTF_8);
-        };
-        SecretKeySpec key = new SecretKeySpec(secretBytes, "HmacSHA256");
-        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key)
-            .macAlgorithm(MacAlgorithm.HS256)
-            .build();
-        // 默认校验器校验 exp + iss,iss 设为 Supabase Project URL
+        JwtDecoder decoder = JwtDecoders.fromIssuerLocation(properties.jwtIssuer());
         OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(properties.jwtIssuer());
-        decoder.setJwtValidator(withIssuer);
+        if (decoder instanceof NimbusJwtDecoder nimbus) {
+            nimbus.setJwtValidator(withIssuer);
+        }
         return decoder;
     }
 
     /**
-     * 安全过滤链:无状态、CSRF 关闭、所有 REST 端点要求认证。
+     * 安全过滤链:无状态、CSRF 关闭、健康检查放行、其余端点要求认证。
      *
+     * <p>路径规则用 {@link AntPathRequestMatcher} 而非字符串形式:本应用有两个 servlet
+     * (Spring MVC 的 {@code /} + Flowable REST 的 {@code /process-api/*}),
+     * 字符串 requestMatchers 会被构造成 MvcRequestMatcher,多 servlet 场景下
+     * Spring Security 无法推断 servlet path,请求时直接抛 IllegalArgumentException。
+     * AntPathRequestMatcher 与 servlet 数量无关。
+     *
+     * <p>{@code /actuator/health} 免认证供部署探活(load balancer / k8s probe);
+     * 其余 actuator 端点默认不暴露(application.yml 未开 exposure),无需单独规则。
      * <p>{@code /process-api/**} 是 Flowable 官方 REST 端点(参见 Flowable 文档),
      * {@code /dsh/**} 是 DSH 自定义薄封装端点。
      */
@@ -78,9 +76,10 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/process-api/**", "/dsh/**").authenticated()
-                .anyRequest().authenticated()
-            )
+                .requestMatchers(AntPathRequestMatcher.antMatcher("/actuator/health")).permitAll()
+                .requestMatchers(AntPathRequestMatcher.antMatcher("/process-api/**")).authenticated()
+                .requestMatchers(AntPathRequestMatcher.antMatcher("/dsh/**")).authenticated()
+                .anyRequest().authenticated())
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {}));
         return http.build();
     }

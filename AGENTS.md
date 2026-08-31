@@ -17,6 +17,7 @@ This repository is maintained as an enterprise-oriented downstream of DSH.
 5. When evaluating a change, distinguish clearly between:
    - upstream sync changes that update DSH itself;
    - local enterprise customization that must remain isolated to `enterprise` profile.
+6. New enterprise packages live under `packages/enterprise/` (and `apps/` for standalone apps), which is absent from upstream `https://github.com/deepseek-ai/deepseek-harness.git` so periodic sync stays conflict-free. Shared groups (`identity`, `client`, `bundle`) exist upstream; an enterprise package may live in one only if its subpackage name is clearly enterprise-scoped (e.g. `enterprise-app`, `ui-enterprise`) so the path is absent upstream. Non-scoped names in a shared group (e.g. `platform-user` in `identity/`) are migrated into `packages/enterprise/`.
 
 ## Repository layout
 
@@ -30,8 +31,8 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/; group
   goal/                same-session goal persistence and lifecycle
   schedule/            session-local scheduled follow-ups
   feedback/            human feedback
-  identity/            shared identity and platform-user governance
-  enterprise/          enterprise platform application layer
+  identity/            shared identity (anonymous-user-id)
+  enterprise/          enterprise platform layer; enterprise packages live here (absent upstream, conflict-free on sync)
   llm/                 LLM capability family and provider adapters
   e2b/                 E2B providers
   subprocess/          subprocess capability family
