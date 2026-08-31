@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>V1 角色边界:
  * <ul>
  *   <li>{@code system_admin}:全部应用 CRUD。</li>
- *   <li>{@code app_admin}:仅能操作自己所属应用(app_admin_user_ids 包含自己),且不能创建新应用。</li>
+ *   <li>{@code app_admin}:可创建应用,并可操作自己创建或被分配的应用。</li>
  * </ul>
  *
  * <p>校验在 {@link #checkCanAccessApp} 完成,由 Controller 调用。
@@ -62,9 +62,16 @@ public class ApplicationService {
     }
 
     @Transactional
-    public ApplicationDto create(CreateApplicationRequest request, UUID creatorId) {
+    public ApplicationDto create(CreateApplicationRequest request, UUID creatorId, boolean isSystemAdmin) {
+        List<UUID> adminIds = new java.util.ArrayList<>(request.appAdminUserIds());
+        if (!isSystemAdmin) {
+            // app_admin 创建应用必须把自己加入管理员列表,确保能管理自己创建的应用
+            if (!adminIds.contains(creatorId)) {
+                adminIds.add(creatorId);
+            }
+        }
         // 校验所有 admin 用户存在且 active
-        for (UUID adminId : request.appAdminUserIds()) {
+        for (UUID adminId : adminIds) {
             userRepository.findById(adminId)
                 .filter(u -> "active".equalsIgnoreCase(u.status()))
                 .orElseThrow(() -> new IllegalArgumentException("管理员用户不存在或非 active: " + adminId));
@@ -75,7 +82,7 @@ public class ApplicationService {
             request.name(),
             request.description(),
             icon,
-            request.appAdminUserIds().toArray(new UUID[0]),
+            adminIds.toArray(new UUID[0]),
             creatorId);
         auditService.record("APP_CREATE", "application", null, creatorId,
             java.util.Map.of("appId", appId, "name", request.name()));
@@ -84,9 +91,12 @@ public class ApplicationService {
 
     @Transactional
     public ApplicationDto update(UUID appId, UpdateApplicationRequest request, UUID updaterId) {
-        int rows = appRepository.update(appId, request.name(), request.description(),
-            request.icon(),
-            request.appAdminUserIds() == null ? new UUID[0] : request.appAdminUserIds().toArray(new UUID[0]));
+        String icon = (request.icon() == null || request.icon().isBlank())
+            ? DEFAULT_ICON_BASE64 : request.icon();
+        // null 表示不更新该字段;空数组才表示清空
+        UUID[] adminIds = request.appAdminUserIds() == null
+            ? null : request.appAdminUserIds().toArray(new UUID[0]);
+        int rows = appRepository.update(appId, request.name(), request.description(), icon, adminIds);
         if (rows == 0) {
             throw new IllegalStateException("应用更新失败:应用不存在或状态非 draft/active");
         }

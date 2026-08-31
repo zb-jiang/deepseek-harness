@@ -12,7 +12,9 @@ import {
   Tabs,
   Tag,
   Typography,
+  Upload,
 } from 'antd'
+import type { UploadFile, UploadProps } from 'antd/es/upload'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -56,15 +58,28 @@ export default function AppDetailPage() {
   const navigate = useNavigate()
 
   const [app, setApp] = useState<ApplicationDto | null>(null)
+  const [users, setUsers] = useState<UserDto[]>([])
   const [, setLoading] = useState(false)
   const [editAppOpen, setEditAppOpen] = useState(false)
   const [editAppForm] = Form.useForm<UpdateApplicationRequest>()
+  const [iconFileList, setIconFileList] = useState<UploadFile[]>([])
+
+  const userMap = useMemo(() => {
+    const m = new Map<string, UserDto>()
+    for (const u of users) m.set(u.id, u)
+    return m
+  }, [users])
 
   const loadApp = useCallback(async () => {
     if (!appId) return
     setLoading(true)
     try {
-      setApp(await appsApi.get(appId))
+      const [appData, userList] = await Promise.all([
+        appsApi.get(appId),
+        usersApi.list({ status: 'active', limit: 500 }).catch(() => []),
+      ])
+      setApp(appData)
+      setUsers(userList ?? [])
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载应用失败')
     } finally {
@@ -87,9 +102,26 @@ export default function AppDetailPage() {
       })
       message.success(`已更新 ${updated.name}`)
       setEditAppOpen(false)
+      setIconFileList([])
       setApp(updated)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
+    }
+  }
+
+  const handleIconChange: UploadProps['onChange'] = ({ fileList }) => {
+    // 始终只保留最后一个文件,实现替换效果;不显示删除按钮,通过重新选择替换
+    const latest = fileList.slice(-1)
+    setIconFileList(latest)
+    const file = latest[0]?.originFileObj
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        editAppForm.setFieldValue('icon', reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    } else {
+      editAppForm.setFieldValue('icon', undefined)
     }
   }
 
@@ -133,6 +165,15 @@ export default function AppDetailPage() {
                 description: app.description ?? undefined,
                 icon: app.icon ?? undefined,
               })
+              setIconFileList(app.icon
+                ? [{
+                  uid: '-1',
+                  name: 'icon',
+                  status: 'done',
+                  url: app.icon,
+                  thumbUrl: app.icon,
+                }]
+                : [])
               setEditAppOpen(true)
             }}>编辑</Button>
             {app.status !== 'archived' && (
@@ -153,7 +194,14 @@ export default function AppDetailPage() {
           { key: 'description', label: '描述', children: app?.description ?? '-' },
           { key: 'status', label: '状态', children: app ? <Tag color={app.status === 'active' ? 'green' : 'default'}>{app.status}</Tag> : '-' },
           { key: 'createdAt', label: '创建时间', children: app?.createdAt ? dayjs(app.createdAt).format('YYYY-MM-DD HH:mm') : '-' },
-          { key: 'admins', label: '管理员', children: (app?.appAdminUserIds ?? []).map(id => <Tag key={id}>{shortId(id)}</Tag>) },
+          {
+            key: 'admins',
+            label: '管理员',
+            children: (app?.appAdminUserIds ?? []).map((id) => {
+              const u = userMap.get(id)
+              return <Tag key={id}>{u ? u.displayName || u.loginName : shortId(id)}</Tag>
+            }),
+          },
         ]}
       />
 
@@ -196,9 +244,30 @@ export default function AppDetailPage() {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="icon" label="图标 URL">
-            <Input placeholder="可空" />
+          <Form.Item label="图标">
+            <Upload
+              accept="image/*"
+              maxCount={1}
+              listType="picture-card"
+              showUploadList={{ showPreviewIcon: false, showRemoveIcon: false }}
+              fileList={iconFileList}
+              beforeUpload={() => false}
+              onChange={handleIconChange}
+            >
+              <div style={{ color: '#999' }}>
+                <PlusOutlined />
+                <div style={{ marginTop: 4, fontSize: 12 }}>
+                  {iconFileList.length === 0 ? '选择图片' : '替换图片'}
+                </div>
+              </div>
+            </Upload>
+            <Form.Item name="icon" hidden>
+              <Input />
+            </Form.Item>
           </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            点击图片即可重新上传替换;不允许删除图标。
+          </Typography.Paragraph>
         </Form>
       </Modal>
     </div>
@@ -234,7 +303,11 @@ function RolesTab({ appId }: { appId: string }) {
   const submitCreate = async () => {
     const values = await createForm.validateFields()
     try {
-      await rolesApi.create(appId, values)
+      await rolesApi.create(appId, {
+        name: values.name,
+        description: values.description,
+        parentRoleId: values.parentRoleId || null,
+      })
       message.success(`已创建角色 ${values.name}`)
       setCreateOpen(false)
       createForm.resetFields()
@@ -248,7 +321,11 @@ function RolesTab({ appId }: { appId: string }) {
     if (!editTarget) return
     const values = await editForm.validateFields()
     try {
-      await rolesApi.update(appId, editTarget.id, values)
+      await rolesApi.update(appId, editTarget.id, {
+        name: values.name,
+        description: values.description,
+        parentRoleId: values.parentRoleId || null,
+      })
       message.success(`已更新 ${values.name}`)
       setEditTarget(null)
       void load()
@@ -256,6 +333,10 @@ function RolesTab({ appId }: { appId: string }) {
       message.error(e instanceof Error ? e.message : '更新失败')
     }
   }
+
+  const parentRoleOptions = data
+    .filter(r => !editTarget || r.id !== editTarget.id)
+    .map(r => ({ label: r.name, value: r.id }))
 
   const handleDisable = async (role: AppRoleDto) => {
     try {
@@ -286,7 +367,16 @@ function RolesTab({ appId }: { appId: string }) {
       key: 'status',
       render: v => <Tag color={ROLE_STATUS_COLOR[v] ?? 'default'}>{v}</Tag>,
     },
-    { title: '父角色', dataIndex: 'parentRoleId', key: 'parentRoleId', render: v => shortId(v) },
+    {
+      title: '父角色',
+      dataIndex: 'parentRoleId',
+      key: 'parentRoleId',
+      render: (v) => {
+        if (!v) return '-'
+        const parent = data.find(r => r.id === v)
+        return parent ? parent.name : shortId(v)
+      },
+    },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
@@ -307,6 +397,7 @@ function RolesTab({ appId }: { appId: string }) {
               editForm.setFieldsValue({
                 name: role.name,
                 description: role.description ?? undefined,
+                parentRoleId: role.parentRoleId ?? undefined,
               })
               setEditTarget(role)
             }}
@@ -351,8 +442,15 @@ function RolesTab({ appId }: { appId: string }) {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
           </Form.Item>
+          <Form.Item name="parentRoleId" label="父角色">
+            <Select
+              allowClear
+              options={parentRoleOptions}
+              placeholder="选择父角色(可选)"
+            />
+          </Form.Item>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-            V1 不支持跨应用继承,父角色可选且必须同应用(spec §5.3 规则 2)。
+            父角色可选且必须属于同一应用;上级角色继承下级角色权限。
           </Typography.Paragraph>
         </Form>
       </Modal>
@@ -369,6 +467,13 @@ function RolesTab({ appId }: { appId: string }) {
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="parentRoleId" label="父角色">
+            <Select
+              allowClear
+              options={parentRoleOptions}
+              placeholder="选择父角色(可选)"
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -84,20 +84,47 @@ public class ApplicationJdbcRepository {
             .single();
     }
 
+    /**
+     * 部分更新应用字段。
+     *
+     * <p>null 表示该字段不更新;空数组仅对 {@code appAdminUserIds} 表示清空管理员。</p>
+     */
     public int update(UUID id, String name, String description, String icon,
                       UUID[] appAdminUserIds) {
-        return jdbcClient.sql("""
-            UPDATE public.applications
-            SET name = :name, description = :description, icon = :icon,
-                app_admin_user_ids = :appAdminUserIds
-            WHERE id = :id AND status IN ('draft', 'active')
-            """)
-            .param("id", id)
-            .param("name", name)
-            .param("description", description)
-            .param("icon", icon)
-            .param("appAdminUserIds", appAdminUserIds)
-            .update();
+        var sql = new StringBuilder("UPDATE public.applications SET ");
+        var params = new java.util.HashMap<String, Object>();
+        params.put("id", id);
+        var sets = new java.util.ArrayList<String>();
+
+        if (name != null && !name.isBlank()) {
+            sets.add("name = :name");
+            params.put("name", name);
+        }
+        if (description != null) {
+            sets.add("description = :description");
+            params.put("description", description);
+        }
+        if (icon != null) {
+            sets.add("icon = :icon");
+            params.put("icon", icon);
+        }
+        if (appAdminUserIds != null) {
+            sets.add("app_admin_user_ids = :appAdminUserIds");
+            params.put("appAdminUserIds", appAdminUserIds);
+        }
+
+        if (sets.isEmpty()) {
+            return 0;
+        }
+
+        sql.append(String.join(", ", sets));
+        sql.append(" WHERE id = :id AND status IN ('draft', 'active')");
+
+        var statement = jdbcClient.sql(sql.toString());
+        for (var entry : params.entrySet()) {
+            statement = statement.param(entry.getKey(), entry.getValue());
+        }
+        return statement.update();
     }
 
     /**

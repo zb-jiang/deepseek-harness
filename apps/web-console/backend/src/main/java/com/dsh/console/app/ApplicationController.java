@@ -23,7 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 应用治理 REST 端点。
  *
- * <p>创建应用仅 {@code system_admin};查/更新/激活/归档 {@code system_admin} 或 {@code app_admin}
+ * <p>创建应用 {@code system_admin} 或 {@code app_admin};
+ * 查/更新/激活/归档 {@code system_admin} 或 {@code app_admin}
  * (后者仅限自己所属应用,由 {@link ApplicationService#checkCanAccessApp} 校验)。
  */
 @RestController
@@ -61,13 +62,15 @@ public class ApplicationController {
     }
 
     /**
-     * 创建应用(仅 system_admin)。
+     * 创建应用(system_admin 或 app_admin)。
+     *
+     * <p>app_admin 创建的应用会自动把自己加入应用管理员列表。
      */
     @PostMapping
-    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
     public ApiResponse<ApplicationDto> create(@Valid @RequestBody CreateApplicationRequest body,
                                               @AuthenticationPrincipal AuthContext auth) {
-        return ApiResponse.ok(applicationService.create(body, auth.platformUserId()));
+        return ApiResponse.ok(applicationService.create(body, auth.platformUserId(), auth.isSystemAdmin()));
     }
 
     /**

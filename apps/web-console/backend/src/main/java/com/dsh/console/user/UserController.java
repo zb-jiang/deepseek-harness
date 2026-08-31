@@ -51,8 +51,11 @@ public class UserController {
 
     /**
      * 列用户(可按 status 过滤)。
+     *
+     * <p>system_admin 可拉全部用户;app_admin 拉取用户用于给应用添加成员。
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
     public ApiResponse<List<UserDto>> list(
         @RequestParam(required = false) String status,
         @RequestParam(defaultValue = "0") int offset,

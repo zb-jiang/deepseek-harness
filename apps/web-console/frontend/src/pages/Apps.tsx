@@ -3,7 +3,7 @@ import { App, Button, Form, Input, Modal, Select, Space, Table, Tag, Typography,
 import type { ColumnsType } from 'antd/es/table'
 import type { UploadFile, UploadProps } from 'antd/es/upload'
 import dayjs from 'dayjs'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   type ApplicationDto,
@@ -42,6 +42,8 @@ export default function AppsPage() {
   const { me } = useAuth()
   const roles = me?.roles ?? []
   const isSystemAdmin = roles.includes(PLATFORM_ROLE.SYSTEM_ADMIN)
+  const isAppAdmin = roles.includes(PLATFORM_ROLE.APP_ADMIN)
+  const canCreate = isSystemAdmin || isAppAdmin
   const [data, setData] = useState<ApplicationDto[]>([])
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
@@ -61,7 +63,7 @@ export default function AppsPage() {
       const admins = (list ?? []).filter(u => isAdminRole(u.platformRoles))
       setUsers(admins)
     } catch (e) {
-      // 静默失败:app_admin 无权拉用户,创建应用按钮隐藏即可
+      // 静默失败
       // biome-ignore lint/suspicious/noConsole: 启动期诊断
       console.warn('[apps] load users failed', e)
     }
@@ -105,8 +107,10 @@ export default function AppsPage() {
   }
 
   const handleIconChange: UploadProps['onChange'] = ({ fileList }) => {
-    setIconFileList(fileList)
-    const file = fileList[0]?.originFileObj
+    // 始终只保留最后一个文件,实现替换效果;不显示删除按钮,通过重新选择替换
+    const latest = fileList.slice(-1)
+    setIconFileList(latest)
+    const file = latest[0]?.originFileObj
     if (file) {
       const reader = new FileReader()
       reader.onload = () => {
@@ -132,10 +136,20 @@ export default function AppsPage() {
     }
   }
 
-  const userOptions = users.map(u => ({
-    label: `${u.displayName || u.loginName} (${u.email})`,
-    value: u.id,
-  }))
+  const userOptions = useMemo(() => {
+    const options = users.map(u => ({
+      label: `${u.displayName || u.loginName} (${u.email})`,
+      value: u.id,
+    }))
+    if (isAppAdmin && !isSystemAdmin && me?.platformUserId) {
+      // app_admin 创建应用时也要能在下拉框中看到自己的展示名
+      options.push({
+        label: `${me.displayName || me.loginName || '我'} (${me.email})`,
+        value: me.platformUserId,
+      })
+    }
+    return options
+  }, [users, isAppAdmin, isSystemAdmin, me])
 
   const columns: ColumnsType<ApplicationDto> = [
     {
@@ -161,11 +175,6 @@ export default function AppsPage() {
       dataIndex: 'status',
       key: 'status',
       render: (v: string) => <Tag color={STATUS_COLOR[v] ?? 'default'}>{STATUS_TEXT[v] ?? v}</Tag>,
-    },
-    {
-      title: '管理员数',
-      key: 'adminCount',
-      render: (_, app) => (app.appAdminUserIds?.length ?? 0),
     },
     {
       title: '创建时间',
@@ -197,7 +206,15 @@ export default function AppsPage() {
     },
   ]
 
-  const canCreate = isSystemAdmin && users.length > 0
+  const openCreateModal = () => {
+    createForm.resetFields()
+    setIconFileList([])
+    if (isAppAdmin && !isSystemAdmin && me?.platformUserId) {
+      // app_admin 创建应用时默认把自己设为管理员(后端也会强制加入)
+      createForm.setFieldsValue({ appAdminUserIds: [me.platformUserId] })
+    }
+    setCreateOpen(true)
+  }
 
   return (
     <div>
@@ -215,7 +232,7 @@ export default function AppsPage() {
         />
         <Button onClick={() => load()}>刷新</Button>
         {canCreate && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
             新建应用
           </Button>
         )}
@@ -251,11 +268,18 @@ export default function AppsPage() {
               <Upload
                 accept="image/*"
                 maxCount={1}
+                listType="picture-card"
+                showUploadList={{ showPreviewIcon: false, showRemoveIcon: false }}
                 fileList={iconFileList}
                 beforeUpload={() => false}
                 onChange={handleIconChange}
               >
-                <Button>选择本地图片</Button>
+                <div style={{ color: '#999' }}>
+                  <PlusOutlined />
+                  <div style={{ marginTop: 4, fontSize: 12 }}>
+                    {iconFileList.length === 0 ? '选择图片' : '替换图片'}
+                  </div>
+                </div>
               </Upload>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 未上传时系统自动使用默认图标
@@ -276,8 +300,14 @@ export default function AppsPage() {
               placeholder="选择应用管理员(可多选)"
               showSearch
               optionFilterProp="label"
+              disabled={isAppAdmin && !isSystemAdmin}
             />
           </Form.Item>
+          {isAppAdmin && !isSystemAdmin && (
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+              应用管理员创建应用时自动成为该应用管理员。
+            </Typography.Paragraph>
+          )}
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
             创建后应用处于 draft 状态;激活后才能创建流程定义(spec §6.2 应用状态机)。
           </Typography.Paragraph>

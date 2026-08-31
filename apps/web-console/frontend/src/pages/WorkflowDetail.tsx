@@ -29,6 +29,7 @@ import {
   workflowsApi,
 } from '../api/workflows'
 import { rolesApi } from '../api/roles'
+import { appsApi, type ApplicationDto } from '../api/apps'
 import BpmnModeler from '../bpmn/BpmnModeler'
 import { setDshRoleOptions } from '../bpmn/DshPropertiesProvider'
 
@@ -97,6 +98,7 @@ export default function WorkflowDetailPage() {
   const navigate = useNavigate()
 
   const [wf, setWf] = useState<WorkflowDefinitionDto | null>(null)
+  const [app, setApp] = useState<ApplicationDto | null>(null)
   const [editMetaOpen, setEditMetaOpen] = useState(false)
   const [metaForm] = Form.useForm<Pick<CreateWorkflowRequest, 'name' | 'description'>>()
 
@@ -114,6 +116,13 @@ export default function WorkflowDetailPage() {
       setBpmnXml(data.draftBpmnXml ?? DEFAULT_BPMN_XML)
       setXmlDirty(false)
       setValidation(null)
+      // 加载所属应用信息,用于显示应用名
+      try {
+        const appData = await appsApi.get(data.appId)
+        setApp(appData)
+      } catch {
+        setApp(null)
+      }
       // 角色列表注入 properties panel 的候选角色下拉(应用隔离:仅本应用角色)
       try {
         const roles = await rolesApi.listByApp(data.appId)
@@ -244,7 +253,7 @@ export default function WorkflowDetailPage() {
         style={{ background: '#fff', marginBottom: 16 }}
         items={[
           { key: 'id', label: 'ID', children: wf?.id ?? '-' },
-          { key: 'appId', label: '所属应用', children: wf?.appId ?? '-' },
+          { key: 'appId', label: '所属应用', children: app?.name ?? wf?.appId ?? '-' },
           { key: 'name', label: '名称', children: wf?.name ?? '-' },
           { key: 'description', label: '描述', children: wf?.description ?? '-' },
           {
