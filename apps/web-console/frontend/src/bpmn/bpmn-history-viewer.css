@@ -1,0 +1,25 @@
+/*
+ * 历史活动路径图高亮(对齐主流 BPM 平台审计视图案例样式)。
+ *
+ * - 已完成节点:绿色描边 + 淡绿填充
+ * - 进行中节点:蓝色描边 + 淡蓝填充
+ * - 已走过的 sequenceFlow 连线:绿色描边加粗
+ * 未走过的元素保持 bpmn-js 默认黑白外观。
+ */
+
+.dsh-history-viewer .dsh-hist-completed:not(.djs-connection) .djs-visual > :nth-child(1) {
+  fill: #d9f7be !important;
+  stroke: #52c41a !important;
+  stroke-width: 2px !important;
+}
+
+.dsh-history-viewer .dsh-hist-completed.djs-connection .djs-visual > :nth-child(1) {
+  stroke: #52c41a !important;
+  stroke-width: 2.5px !important;
+}
+
+.dsh-history-viewer .dsh-hist-running:not(.djs-connection) .djs-visual > :nth-child(1) {
+  fill: #bae0ff !important;
+  stroke: #1677ff !important;
+  stroke-width: 2px !important;
+}

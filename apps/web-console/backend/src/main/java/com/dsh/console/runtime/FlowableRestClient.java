@@ -175,6 +175,103 @@ public class FlowableRestClient {
     }
 
     /**
+     * 查单个历史实例(runtime 不存在时的详情回退)。
+     *
+     * <p>调引擎 {@code GET /dsh/history/process-instances?processInstanceId=},引擎按过滤
+     * 条件返回数组;不存在返回 {@code null}(引擎端点不返回 404)。
+     */
+    public JsonNode getHistoricProcessInstance(String instanceId) {
+        JsonNode list = flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/dsh/history/process-instances")
+                .queryParam("processInstanceId", instanceId)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+        if (list == null || !list.isArray() || list.isEmpty()) {
+            return null;
+        }
+        return list.get(0);
+    }
+
+    /**
+     * 列历史实例(含运行中,按发起时间倒序)。
+     *
+     * <p>调引擎 {@code GET /dsh/history/process-instances},返回 plain JSON 数组
+     * (非 Flowable REST 的 {@code {"data":[...]}} 包装)。
+     *
+     * @param processDefinitionId 可选;按 procdef id 过滤(部署版本级)
+     * @param finished            可选;{@code true} 只看已完成,{@code false} 只看运行中
+     * @param page                页码(0-based,引擎端点语义)
+     * @param size                单页条数
+     */
+    public JsonNode listHistoricProcessInstances(String processDefinitionId, Boolean finished,
+                                                 int page, int size) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> {
+                uriBuilder.path("/dsh/history/process-instances");
+                if (processDefinitionId != null && !processDefinitionId.isBlank()) {
+                    uriBuilder.queryParam("processDefinitionId", processDefinitionId);
+                }
+                if (finished != null) {
+                    uriBuilder.queryParam("finished", finished);
+                }
+                uriBuilder.queryParam("page", Math.max(0, page));
+                uriBuilder.queryParam("size", Math.max(1, size));
+                return uriBuilder.build();
+            })
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
+     * 查实例历史变量(上下文变量当前/最终值)。
+     *
+     * <p>调引擎 {@code GET /dsh/history/variables?processInstanceId=},返回 plain JSON 数组。
+     */
+    public JsonNode listHistoricVariables(String instanceId) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/dsh/history/variables")
+                .queryParam("processInstanceId", instanceId)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
+     * 查实例历史活动(执行路径回溯,含 sequenceFlow)。
+     *
+     * <p>调引擎 {@code GET /dsh/history/activities?processInstanceId=},返回 plain JSON 数组。
+     */
+    public JsonNode listHistoricActivities(String instanceId) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/dsh/history/activities")
+                .queryParam("processInstanceId", instanceId)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
+     * 查实例历史任务(实例级审计,返回该实例全部任务)。
+     *
+     * <p>调引擎 {@code GET /dsh/history/tasks?processInstanceId=}:引擎在带实例范围时
+     * 不按当前用户过滤。返回 plain JSON 数组。
+     */
+    public JsonNode listHistoricTasks(String instanceId) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/dsh/history/tasks")
+                .queryParam("processInstanceId", instanceId)
+                .queryParam("size", 200)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
      * Map 变量转 Flowable REST 变量数组格式。
      *
      * <p>Flowable REST 变量是 {@code [{"name":"k","value":"v"}]} 数组,不是 Map。

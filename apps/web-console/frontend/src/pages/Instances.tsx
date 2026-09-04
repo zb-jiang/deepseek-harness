@@ -15,6 +15,8 @@ export default function InstancesPage() {
   const [apps, setApps] = useState<ApplicationDto[]>([])
   const [loading, setLoading] = useState(false)
   const [appIdFilter, setAppIdFilter] = useState<string | undefined>()
+  // 状态过滤:running=运行中;finished=已完成;undefined=全部
+  const [statusFilter, setStatusFilter] = useState<string | undefined>()
 
   const appMap = useMemo(() => {
     const m = new Map<string, ApplicationDto>()
@@ -34,14 +36,19 @@ export default function InstancesPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const list = await instancesApi.list({ appId: appIdFilter, start: 0, size: 200 })
+      const list = await instancesApi.list({
+        appId: appIdFilter,
+        finished: statusFilter === 'running' ? false : statusFilter === 'finished' ? true : undefined,
+        start: 0,
+        size: 200,
+      })
       setData(list ?? [])
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载实例失败')
     } finally {
       setLoading(false)
     }
-  }, [appIdFilter, message])
+  }, [appIdFilter, statusFilter, message])
 
   useEffect(() => {
     void loadApps()
@@ -139,6 +146,17 @@ export default function InstancesPage() {
           options={appOptions}
           showSearch
           optionFilterProp="label"
+        />
+        <Select
+          placeholder="按状态过滤"
+          style={{ width: 140 }}
+          value={statusFilter}
+          onChange={v => setStatusFilter(v)}
+          allowClear
+          options={[
+            { value: 'running', label: '运行中' },
+            { value: 'finished', label: '已完成' },
+          ]}
         />
         <Button onClick={() => load()}>刷新</Button>
         <Button

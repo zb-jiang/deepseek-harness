@@ -3,7 +3,10 @@ package com.dsh.console.runtime;
 import com.dsh.console.app.ApplicationService;
 import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
+import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.runtime.dto.HistoricActivityDto;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
+import com.dsh.console.runtime.dto.ProcessVariableDto;
 import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
 import com.dsh.console.runtime.dto.TaskDto;
@@ -16,9 +19,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,15 +36,18 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>启动实例:校验 workflow_definition 已发布 + 应用访问权限;注入应用隔离三变量
  *       {@code dsh_applicant_user_id} / {@code dsh_app_id} / {@code dsh_workflow_definition_id}
  *       (spec §7.7.4 + §13.4);调 Flowable REST。</li>
- *   <li>列实例:V1 只列运行中实例(runtime);appId 非空时按应用过滤(app_admin 必须指定 appId)。</li>
- *   <li>查实例详情:从 procdefId 反查 workflow_definitions 补齐 appId / workflowDefinitionId。</li>
- *   <li>列实例任务:透传 Flowable runtime tasks。</li>
+ *   <li>列实例:{@code finished=false} 走 runtime(保留 suspended 标志);其余走引擎
+ *       历史查询(含全部/已完成),对齐主流 BPM 平台的实例历史视图。</li>
+ *   <li>查实例详情/变量/活动/BPMN XML:runtime 不存在时回退历史(已结束实例可见),
+ *       供详情页展示历史实例与其上下文变量终值。</li>
+ *   <li>列实例任务:运行中走 runtime tasks;已结束回退历史任务。</li>
  *   <li>终止实例:管理员干预,记审计(spec §11.2)。</li>
  *   <li>完成任务:V1 简化的人工干预通道,不做输出校验(spec §8.8 在 DSH task-api 层)。</li>
  * </ul>
  *
  * <p>应用隔离(spec §13.4):所有写操作和查详情都校验当前用户能访问目标 workflow_definition
- * 所属的应用(system_admin 全部;app_admin 仅自己管理应用)。
+ * 所属的应用(system_admin 全部;app_admin 仅自己管理应用)。历史实例的 procdefId 若
+ * 无法反查 workflow_definition(旧版本部署已被新发布覆盖),仅 system_admin 可见。
  */
 @Service
 public class ProcessInstanceService {
@@ -115,17 +123,27 @@ public class ProcessInstanceService {
     }
 
     /**
-     * 列运行中实例。
+     * 列实例(状态可过滤)。
      *
-     * <p>给 {@code appId} 时只列该应用下的实例;不给时 system_admin 查全部,
+     * <p>{@code finished=false} 走 runtime 查询(保留 suspended 标志);{@code finished=true}
+     * 只看已结束;不传看全部(运行中 + 已结束,历史表在实例启动时即写入)。
+     * 给 {@code appId} 时只列该应用下的实例;不给时 system_admin 查全部,
      * app_admin 自动汇总自己管理的所有应用下的实例。
      */
-    public List<ProcessInstanceDto> list(UUID appIdFilter, String procdefIdFilter,
+    public List<ProcessInstanceDto> list(UUID appIdFilter, String procdefIdFilter, Boolean finished,
                                          int start, int size, AuthContext auth) {
+        if (Boolean.FALSE.equals(finished)) {
+            return listRuntime(appIdFilter, procdefIdFilter, start, size, auth);
+        }
+        return listHistoric(appIdFilter, procdefIdFilter, finished, start, size, auth);
+    }
+
+    private List<ProcessInstanceDto> listRuntime(UUID appIdFilter, String procdefIdFilter,
+                                                 int start, int size, AuthContext auth) {
         // procdefIdFilter 非空:反查 workflow_definition 校验应用权限
         if (procdefIdFilter != null) {
             WorkflowDefinitionDto wf = workflowRepository.findByProcdefId(procdefIdFilter)
-                .orElseThrow(() -> new com.dsh.console.common.GlobalExceptionHandler.NotFoundException(
+                .orElseThrow(() -> new NotFoundException(
                     "procdefId 未对应任何 published workflow_definition: " + procdefIdFilter));
             applicationService.checkCanAccessApp(auth, wf.appId());
             JsonNode resp = flowableRestClient.listRuntimeProcessInstances(procdefIdFilter, start, size);
@@ -153,6 +171,54 @@ public class ProcessInstanceService {
         return all;
     }
 
+    /**
+     * 列历史实例(全部/已完成),按应用归属过滤。
+     *
+     * <p>引擎历史查询按发起时间倒序。procdefId 可解析时走引擎端 procdef 过滤;
+     * 按应用聚合时拉全量后本地过滤——旧版本 procdef(已被新发布覆盖)实例的 appId
+     * 为 null,system_admin 可见(流程名/定义信息由引擎补齐),app_admin 不可见。
+     */
+    private List<ProcessInstanceDto> listHistoric(UUID appIdFilter, String procdefIdFilter,
+                                                  Boolean finished, int start, int size,
+                                                  AuthContext auth) {
+        if (procdefIdFilter != null) {
+            WorkflowDefinitionDto wf = workflowRepository.findByProcdefId(procdefIdFilter)
+                .orElseThrow(() -> new NotFoundException(
+                    "procdefId 未对应任何 published workflow_definition: " + procdefIdFilter));
+            applicationService.checkCanAccessApp(auth, wf.appId());
+            JsonNode resp = flowableRestClient.listHistoricProcessInstances(
+                procdefIdFilter, finished, toPage(start, size), size);
+            return parseHistoricInstanceList(resp, wf);
+        }
+
+        if (appIdFilter != null) {
+            applicationService.checkCanAccessApp(auth, appIdFilter);
+        }
+        JsonNode resp = flowableRestClient.listHistoricProcessInstances(
+            null, finished, toPage(start, size), size);
+        List<ProcessInstanceDto> all = parseHistoricInstanceList(resp, null);
+
+        Set<UUID> visibleAppIds = null;
+        if (!auth.isSystemAdmin()) {
+            visibleAppIds = new HashSet<>();
+            for (ApplicationDto app : applicationService.listManagedApps(auth.platformUserId())) {
+                visibleAppIds.add(app.id());
+            }
+        }
+        List<ProcessInstanceDto> result = new ArrayList<>();
+        for (ProcessInstanceDto dto : all) {
+            if (visibleAppIds != null
+                    && (dto.appId() == null || !visibleAppIds.contains(dto.appId()))) {
+                continue;
+            }
+            if (appIdFilter != null && !appIdFilter.equals(dto.appId())) {
+                continue;
+            }
+            result.add(dto);
+        }
+        return result;
+    }
+
     private List<ProcessInstanceDto> listInstancesByApp(UUID appId, int start, int size) {
         List<WorkflowDefinitionDto> wfs = workflowRepository.listPublishedByApp(appId);
         List<ProcessInstanceDto> all = new ArrayList<>();
@@ -165,33 +231,89 @@ public class ProcessInstanceService {
     }
 
     /**
-     * 查运行中实例详情。
+     * 查实例详情(runtime 优先,已结束回退历史)。
      */
     public ProcessInstanceDto getById(String instanceId, AuthContext auth) {
-        JsonNode instance = flowableRestClient.getRuntimeProcessInstance(instanceId);
-        if (instance == null) {
-            throw new com.dsh.console.common.GlobalExceptionHandler.NotFoundException(
-                "流程实例不存在: " + instanceId);
-        }
-        WorkflowDefinitionDto wf = resolveWorkflowDefinition(instance);
-        applicationService.checkCanAccessApp(auth, wf.appId());
+        JsonNode instance = requireAccessibleInstance(instanceId, auth);
+        WorkflowDefinitionDto wf = workflowRepository
+            .findByProcdefId(instance.path("processDefinitionId").asText())
+            .orElse(null);
         return toDto(instance, wf, new java.util.HashMap<>());
     }
 
     /**
-     * 列实例当前任务(runtime tasks)。
+     * 列实例任务(运行中走 runtime tasks;已结束回退历史任务,含完成时间/终止原因)。
      */
     public List<TaskDto> listTasks(String instanceId, AuthContext auth) {
-        JsonNode instance = flowableRestClient.getRuntimeProcessInstance(instanceId);
-        if (instance == null) {
-            throw new com.dsh.console.common.GlobalExceptionHandler.NotFoundException(
-                "流程实例不存在: " + instanceId);
+        JsonNode instance = requireAccessibleInstance(instanceId, auth);
+        if (textOrNull(instance, "endTime") == null) {
+            return parseTaskList(flowableRestClient.listTasksByProcessInstance(instanceId));
         }
-        WorkflowDefinitionDto wf = resolveWorkflowDefinition(instance);
-        applicationService.checkCanAccessApp(auth, wf.appId());
+        return parseHistoricTaskList(flowableRestClient.listHistoricTasks(instanceId));
+    }
 
-        JsonNode resp = flowableRestClient.listTasksByProcessInstance(instanceId);
-        return parseTaskList(resp);
+    /**
+     * 列实例上下文变量(历史变量统一视图:运行中返回当前值,已结束返回终值)。
+     */
+    public List<ProcessVariableDto> listVariables(String instanceId, AuthContext auth) {
+        requireAccessibleInstance(instanceId, auth);
+        JsonNode resp = flowableRestClient.listHistoricVariables(instanceId);
+        List<ProcessVariableDto> result = new ArrayList<>();
+        if (resp == null || !resp.isArray()) {
+            return result;
+        }
+        for (JsonNode node : resp) {
+            result.add(new ProcessVariableDto(
+                textOrNull(node, "variableName"),
+                textOrNull(node, "variableTypeName"),
+                node.path("value"),
+                parseTime(node, "createTime"),
+                parseTime(node, "lastUpdatedTime")
+            ));
+        }
+        return result;
+    }
+
+    /**
+     * 列实例历史活动(执行路径回溯,含 sequenceFlow,按进入时间升序)。
+     */
+    public List<HistoricActivityDto> listActivities(String instanceId, AuthContext auth) {
+        requireAccessibleInstance(instanceId, auth);
+        JsonNode resp = flowableRestClient.listHistoricActivities(instanceId);
+        List<HistoricActivityDto> result = new ArrayList<>();
+        if (resp == null || !resp.isArray()) {
+            return result;
+        }
+        Map<String, String> nameCache = new java.util.HashMap<>();
+        for (JsonNode node : resp) {
+            String assignee = textOrNull(node, "assignee");
+            result.add(new HistoricActivityDto(
+                textOrNull(node, "id"),
+                textOrNull(node, "activityId"),
+                textOrNull(node, "activityName"),
+                textOrNull(node, "activityType"),
+                assignee,
+                resolveUserDisplayName(assignee, nameCache),
+                parseTime(node, "startTime"),
+                parseTime(node, "endTime"),
+                node.path("durationInMillis").isNumber()
+                    ? node.path("durationInMillis").asLong()
+                    : null
+            ));
+        }
+        return result;
+    }
+
+    /**
+     * 取实例部署版 BPMN XML(活动路径图渲染用;旧版本部署引擎仍保留资源)。
+     */
+    public String getBpmnXml(String instanceId, AuthContext auth) {
+        JsonNode instance = requireAccessibleInstance(instanceId, auth);
+        String procdefId = textOrNull(instance, "processDefinitionId");
+        if (procdefId == null) {
+            throw new NotFoundException("实例缺少 processDefinitionId,无法取 BPMN XML: " + instanceId);
+        }
+        return flowableRestClient.getProcessDefinitionBpmnXml(procdefId);
     }
 
     /**
@@ -257,6 +379,35 @@ public class ProcessInstanceService {
             "procdefId 未对应任何 workflow_definition(数据不一致): " + procdefId));
     }
 
+    /**
+     * 查实例(runtime 优先,已结束回退历史)并校验应用访问权限。
+     *
+     * <p>procdefId 无法反查 workflow_definition(旧版本部署已被新发布覆盖)时,
+     * 应用归属无法判定,仅 system_admin 可见。
+     *
+     * @throws NotFoundException 实例不存在(运行中与历史都查不到),或 app_admin 访问不可归属实例
+     */
+    private JsonNode requireAccessibleInstance(String instanceId, AuthContext auth) {
+        JsonNode instance;
+        try {
+            instance = flowableRestClient.getRuntimeProcessInstance(instanceId);
+        } catch (NotFoundException e) {
+            instance = flowableRestClient.getHistoricProcessInstance(instanceId);
+        }
+        if (instance == null) {
+            throw new NotFoundException("流程实例不存在(runtime/history): " + instanceId);
+        }
+        WorkflowDefinitionDto wf = workflowRepository
+            .findByProcdefId(instance.path("processDefinitionId").asText())
+            .orElse(null);
+        if (wf != null) {
+            applicationService.checkCanAccessApp(auth, wf.appId());
+        } else if (!auth.isSystemAdmin()) {
+            throw new NotFoundException("流程实例不可访问(procdef 无法归属应用): " + instanceId);
+        }
+        return instance;
+    }
+
     private List<ProcessInstanceDto> parseInstanceList(JsonNode resp) {
         List<ProcessInstanceDto> result = new ArrayList<>();
         if (resp == null) {
@@ -291,6 +442,28 @@ public class ProcessInstanceService {
         return result;
     }
 
+    /**
+     * 解析引擎历史实例响应(plain JSON 数组,非 Flowable REST 的 {@code data} 包装)。
+     *
+     * @param wfFilter 非 null 时所有实例视为该流程定义(procdef 过滤路径);
+     *                 null 时逐实例按 procdefId 反查(可能为 null,旧版本部署)
+     */
+    private List<ProcessInstanceDto> parseHistoricInstanceList(JsonNode resp,
+                                                               WorkflowDefinitionDto wfFilter) {
+        List<ProcessInstanceDto> result = new ArrayList<>();
+        if (resp == null || !resp.isArray()) {
+            return result;
+        }
+        Map<String, String> nameCache = new java.util.HashMap<>();
+        for (JsonNode node : resp) {
+            WorkflowDefinitionDto wf = wfFilter != null ? wfFilter
+                : workflowRepository.findByProcdefId(node.path("processDefinitionId").asText())
+                    .orElse(null);
+            result.add(toDto(node, wf, nameCache));
+        }
+        return result;
+    }
+
     private List<TaskDto> parseTaskList(JsonNode resp) {
         List<TaskDto> result = new ArrayList<>();
         if (resp == null) {
@@ -315,7 +488,37 @@ public class ProcessInstanceService {
                 textOrNull(node, "processInstanceId"),
                 textOrNull(node, "processDefinitionId"),
                 textOrNull(node, "taskDefinitionKey"),
-                textOrNull(node, "description")
+                textOrNull(node, "description"),
+                null,
+                null
+            ));
+        }
+        return result;
+    }
+
+    /** 解析引擎历史任务响应(plain JSON 数组),统一到 {@link TaskDto}(补 endTime/deleteReason)。 */
+    private List<TaskDto> parseHistoricTaskList(JsonNode resp) {
+        List<TaskDto> result = new ArrayList<>();
+        if (resp == null || !resp.isArray()) {
+            return result;
+        }
+        Map<String, String> nameCache = new java.util.HashMap<>();
+        for (JsonNode node : resp) {
+            String assignee = textOrNull(node, "assignee");
+            result.add(new TaskDto(
+                textOrNull(node, "id"),
+                textOrNull(node, "name"),
+                assignee,
+                resolveUserDisplayName(assignee, nameCache),
+                null,
+                parseTime(node, "startTime"),
+                null,
+                textOrNull(node, "processInstanceId"),
+                textOrNull(node, "processDefinitionId"),
+                textOrNull(node, "taskDefinitionKey"),
+                null,
+                parseTime(node, "endTime"),
+                textOrNull(node, "deleteReason")
             ));
         }
         return result;
@@ -341,6 +544,9 @@ public class ProcessInstanceService {
             return null;
         }
         String startUserId = textOrNull(node, "startUserId");
+        OffsetDateTime endTime = parseTime(node, "endTime");
+        // runtime 响应带 ended 字段;引擎历史响应无 ended,按 endTime 非空判定已结束
+        boolean ended = node.path("ended").asBoolean(false) || endTime != null;
         return new ProcessInstanceDto(
             textOrNull(node, "id"),
             textOrNull(node, "businessKey"),
@@ -352,13 +558,18 @@ public class ProcessInstanceService {
             resolveUserDisplayName(startUserId, nameCache),
             parseTime(node, "startTime"),
             node.path("suspended").asBoolean(false),
-            node.path("ended").asBoolean(false),
+            ended,
             textOrNull(node, "deleteReason"),
-            parseTime(node, "endTime"),
+            endTime,
             wf == null ? null : wf.id(),
             wf == null ? null : wf.appId(),
             wf == null ? null : wf.name()
         );
+    }
+
+    /** start/size 分页参数转引擎历史端点的 page 页码(0-based)。 */
+    private static int toPage(int start, int size) {
+        return size <= 0 ? 0 : Math.max(0, start) / size;
     }
 
     private static String textOrNull(JsonNode node, String field) {

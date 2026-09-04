@@ -3,6 +3,7 @@ package com.dsh.flowable.api;
 import com.dsh.flowable.listener.DshExtensionProperties;
 import com.dsh.flowable.listener.DshTaskListener;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.Date;
@@ -14,6 +15,7 @@ import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.variable.api.history.HistoricVariableInstance;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -34,8 +36,9 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>覆盖范围(V1):
  * <ul>
  *   <li>{@code GET /dsh/history/tasks}:查历史任务(可选按实例/处理人/完成状态过滤)。</li>
- *   <li>{@code GET /dsh/history/process-instances}:查历史实例(可选按发起人/状态/key 过滤)。</li>
+ *   <li>{@code GET /dsh/history/process-instances}:查历史实例(可选按实例 id/定义 id/发起人/状态/key 过滤)。</li>
  *   <li>{@code GET /dsh/history/activities}:查历史活动(按实例 id 必填,回溯流程走过的全部节点)。</li>
+ *   <li>{@code GET /dsh/history/variables}:查历史变量(按实例 id 必填,实例上下文变量当前/最终值)。</li>
  * </ul>
  *
  * <p><b>历史级别</b>:由 {@link com.dsh.flowable.config.FlowableConfig} 配置 {@code HistoryLevel.FULL},
@@ -86,12 +89,11 @@ public class DshHistoryController {
         @RequestParam(name = "size", defaultValue = "50") int size,
         @AuthenticationPrincipal Jwt jwt
     ) {
-        // 便捷入口:不传 assignee 时默认查当前 JWT 用户的历史任务("我处理过的")
-        // 如果前端想查全部历史(管理员视图),显式传 assignee=__all__ 表示不要按 user 过滤
+        // 便捷入口:不传 assignee 且不带实例范围时,默认查当前 JWT 用户的历史任务("我处理过的");
+        // 带 processInstanceId 时是实例级审计查询,返回该实例全部任务,不按用户过滤
         String effectiveAssignee = assignee;
-        if (effectiveAssignee == null && jwt != null) {
-            // V1 默认按当前用户过滤,避免一次性拉全企业历史;管理员可显式传 assignee=__all__
-            // 但 __all__ 不在 assignee 字段语义内,此处简化:不传 assignee 即查当前用户
+        if (effectiveAssignee == null && jwt != null
+                && (processInstanceId == null || processInstanceId.isBlank())) {
             effectiveAssignee = jwt.getSubject();
         }
 
@@ -118,11 +120,14 @@ public class DshHistoryController {
     }
 
     /**
-     * 查历史流程实例,可按发起人/状态/key 过滤。
+     * 查历史流程实例,可按实例 id/定义 id/发起人/状态/key 过滤。
      *
-     * <p>不传任何过滤参数时返回全部历史实例(按发起时间倒序)。管理员审计用;
+     * <p>不传任何过滤参数时返回全部历史实例(按发起时间倒序,含运行中实例,
+     * {@code ACT_HI_PROCINST} 在实例启动时即写入)。管理员审计用;
      * 普通用户建议传 {@code startedBy} 查自己发起的实例("我发起过的")。
      *
+     * @param processInstanceId     可选;按实例 id 精确过滤(查单个实例,含已结束的详情回退)
+     * @param processDefinitionId   可选;按流程定义 id 过滤(部署版本级,Web Console 按应用聚合用)
      * @param startedBy             可选;按发起人 user.id 过滤
      * @param finished              可选;{@code true} 只看已完成,{@code false} 只看运行中
      * @param processDefinitionKey  可选;按流程定义 key 过滤(同流程不同版本一并查)
@@ -131,6 +136,8 @@ public class DshHistoryController {
      */
     @GetMapping("/process-instances")
     public List<HistoricProcessInstanceDto> getHistoricProcessInstances(
+        @RequestParam(name = "processInstanceId", required = false) String processInstanceId,
+        @RequestParam(name = "processDefinitionId", required = false) String processDefinitionId,
         @RequestParam(name = "startedBy", required = false) String startedBy,
         @RequestParam(name = "finished", required = false) Boolean finished,
         @RequestParam(name = "processDefinitionKey", required = false) String processDefinitionKey,
@@ -142,6 +149,12 @@ public class DshHistoryController {
 
         var query = historyService.createHistoricProcessInstanceQuery()
             .orderByProcessInstanceStartTime().desc();
+        if (processInstanceId != null && !processInstanceId.isBlank()) {
+            query.processInstanceId(processInstanceId);
+        }
+        if (processDefinitionId != null && !processDefinitionId.isBlank()) {
+            query.processDefinitionId(processDefinitionId);
+        }
         if (startedBy != null && !startedBy.isBlank()) {
             query.startedBy(startedBy);
         }
@@ -183,6 +196,35 @@ public class DshHistoryController {
             .orderByHistoricActivityInstanceStartTime().asc()
             .list();
         return activities.stream().map(this::toDto).toList();
+    }
+
+    /**
+     * 查历史变量(实例上下文变量),按实例 id 必填。
+     *
+     * <p>用于审计"实例的流程上下文变量最终是什么":运行中实例返回当前值(历史变量行
+     * 随引擎实时更新),已结束实例返回终值。逐次变更轨迹不在 Flowable OSS 历史模型内。
+     *
+     * <p>不分页:单实例的变量数为流程声明数 + 应用隔离三变量,一次性返回即可。
+     *
+     * @param processInstanceId 必填;按实例 id 过滤
+     */
+    @GetMapping("/variables")
+    public List<HistoricVariableDto> getHistoricVariables(
+        @RequestParam(name = "processInstanceId", required = false) String processInstanceId
+    ) {
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "processInstanceId parameter is required for /dsh/history/variables");
+        }
+        List<HistoricVariableInstance> variables = historyService.createHistoricVariableInstanceQuery()
+            .processInstanceId(processInstanceId)
+            .list();
+        return variables.stream()
+            .sorted(java.util.Comparator.comparing(
+                v -> v.getVariableName() == null ? "" : v.getVariableName()))
+            .map(this::toDto)
+            .toList();
     }
 
     private HistoricTaskDto toDto(HistoricTaskInstance task) {
@@ -267,6 +309,33 @@ public class DshHistoryController {
             toIso(activity.getEndTime()),
             activity.getDurationInMillis()
         );
+    }
+
+    private HistoricVariableDto toDto(HistoricVariableInstance variable) {
+        return new HistoricVariableDto(
+            variable.getId(),
+            variable.getProcessInstanceId(),
+            variable.getVariableName(),
+            variable.getVariableTypeName(),
+            toSafeValue(variable.getValue()),
+            toIso(variable.getCreateTime()),
+            toIso(variable.getLastUpdatedTime())
+        );
+    }
+
+    /**
+     * 变量值安全转 JsonNode:Jackson 能序列化的类型原样转;不可序列化的
+     * Serializable 值(复杂 POJO)降级为 toString 文本,保证审计端点不因单个变量失败。
+     */
+    private JsonNode toSafeValue(Object value) {
+        if (value == null) {
+            return objectMapper.nullNode();
+        }
+        try {
+            return objectMapper.valueToTree(value);
+        } catch (RuntimeException e) {
+            return objectMapper.getNodeFactory().textNode(String.valueOf(value));
+        }
     }
 
     private String toIso(Date date) {
