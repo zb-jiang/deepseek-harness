@@ -3,21 +3,28 @@
  *
  * <p>按元素类型分组渲染:
  * <ul>
+ *   <li>{@code bpmn:Process}(流程根) → "DSH 上下文变量"组:
+ *       流程级上下文变量声明 CRUD(design 2026-09-01 §4:八种类型、说明、初始值、
+ *       启动传入标记、object 字段清单 / array 元素类型)。</li>
  *   <li>{@code bpmn:UserTask}(人工节点) → "DSH 人工节点配置"组:
- *       责任规则(角色下拉 + 处理策略)、输出 Process Variables 定义、
- *       systemPrompt/userPrompt/skillRefs、动作策略(超时升级 + SoD)。</li>
+ *       责任规则(候选角色下拉)、User Prompt 统一弹窗(含变量占位符插入 /
+ *       JSON 输出骨架插入 / 默认输出映射 / 实时预览)、skillRefs、动作策略
+ *       (超时升级 + SoD)。单人/会签/串签语义由 BPMN 原生多实例表达
+ *       (扳手菜单头部图标设置,不在本面板配置处理策略)。</li>
  *   <li>{@code bpmn:ServiceTask}(自动节点) → "DSH 自动节点配置"组:
  *       delegateExpression 文本(默认 ${dshServiceTaskDelegate},可填自定义委托)
- *       + async 异步开关 + failedJobRetryTimeCycle 失败重试策略。</li>
+ *       + async 异步开关 + failedJobRetryTimeCycle 失败重试策略
+ *       + 可选消费/产出变量标注(design §5)。</li>
  *   <li>{@code bpmn:SequenceFlow}(连线) → "Flowable 条件表达式"组:
  *       conditionExpression 条件表达式(BPMN 原生子元素,排他/包容网关出线路由)。</li>
  *   <li>{@code bpmn:ExclusiveGateway / InclusiveGateway}(排他/包容网关) →
  *       "网关配置"组:默认流 default(BPMN 原生属性,条件全不满足时的兜底出线)。</li>
  *   <li>{@code bpmn:ScriptTask}(脚本任务) → "脚本任务配置"组:
- *       scriptFormat + script(BPMN 原生属性,引擎内执行脚本加工流程变量)。</li>
+ *       scriptFormat + script(BPMN 原生属性,引擎内执行脚本加工流程变量)
+ *       + 可选消费/产出变量标注。</li>
  *   <li>{@code bpmn:SendTask / BusinessRuleTask} → "Flowable 实现方式"组:
  *       class / expression / delegateExpression(flowable: 命名空间,三选一)
- *       + async + failedJobRetryTimeCycle。</li>
+ *       + async + failedJobRetryTimeCycle + 可选消费/产出变量标注。</li>
  *   <li>{@code bpmn:CallActivity}(调用活动) → "调用活动配置"组:
  *       calledElement(BPMN 原生) + inheritVariables / async(flowable: 命名空间)。</li>
  * </ul>
@@ -31,9 +38,10 @@
  *   <li>事件组只在事件已带对应定义时出现:选中事件后用画布节点旁的小扳手(context pad)
  *       换成 Timer/Message 等类型,内置属性组即会出现,无需在此重复实现。</li>
  *   <li>删除 routingRule:条件路由走 BPMN 原生 SequenceFlow conditionExpression。</li>
- *   <li>废弃 inputSchema:上游字段直接从 BPMN 流程变量树(context)读取;
- *       保留 outputSchema(标签"输出 Process Variables 定义"),DSH agent 校验
- *       complete 输出后写入流程变量树供下游消费。</li>
+ *   <li>废弃 inputSchema:上游字段直接从 BPMN 流程变量树(context)读取。</li>
+ *   <li>废弃 outputSchema / systemPrompt / taskStrategy:输出 JSON 格式直接写在
+ *       User Prompt 文本里(骨架按钮按目标上下文变量生成),任务指令只有一段
+ *       userPrompt,多实例语义由 BPMN 原生 multiInstanceLoopCharacteristics 表达。</li>
  *   <li>过滤 ReceiveTask 的 Message 组:Flowable 引擎的 ReceiveTask 实现不消费
  *       messageRef,该组对 DSH 用户是误导,因此在属性面板中隐藏。</li>
  * </ul>
@@ -45,38 +53,39 @@
 import { is, isAny } from 'bpmn-js/lib/util/ModelUtil'
 import {
   CheckboxEntry,
-  JsonEditorEntry,
+  CollapsibleEntry,
+  ListEntry,
   SelectEntry,
   TextAreaEntry,
   TextFieldEntry,
   isCheckboxEntryEdited,
-  isJsonEditorEntryEdited,
   isSelectEntryEdited,
   isTextAreaEntryEdited,
   isTextFieldEntryEdited,
   type CheckboxEntryProps,
   type Entry,
-  type JsonEditorEntryProps,
+  type ListEntryProps,
   type SelectEntryProps,
   type TextAreaEntryProps,
   type TextFieldEntryProps,
 } from '@bpmn-io/properties-panel'
 import type { AppRoleDto } from '../api/roles'
+import { userPromptModalEntry } from './UserPromptModal'
 
 /** bpmn-js 图元素的最小结构(provider 只用 businessObject)。 */
-type BpmnElement = { businessObject: BpmnModdleElement }
+export type BpmnElement = { businessObject: BpmnModdleElement }
 
 /** moddle 元素(动态属性访问)。 */
-type BpmnModdleElement = {
+export type BpmnModdleElement = {
   $type: string
   get: (name: string) => unknown
 } & Record<string, unknown>
 
 /** DI 服务容器(modeling/moddle 由 injector.get 获取)。 */
-type Injector = { get: <T = unknown>(name: string) => T }
+export type Injector = { get: <T = unknown>(name: string) => T }
 
 /** modeling 服务:updateModdleProperties 走命令栈可撤销。 */
-interface ModelingService {
+export interface ModelingService {
   updateProperties: (element: unknown, props: Record<string, unknown>) => void
   updateModdleProperties: (
     element: unknown,
@@ -86,7 +95,7 @@ interface ModelingService {
 }
 
 /** moddle 服务:创建扩展元素实例。 */
-interface ModdleService {
+export interface ModdleService {
   create: (type: string, props?: Record<string, unknown>) => BpmnModdleElement
 }
 
@@ -109,13 +118,6 @@ const SOD_RULE_TYPES = [
   { value: 'countersign-distinct', label: '会签人不重复 (countersign-distinct)' },
 ] as const
 
-/** 人工节点处理策略。 */
-const TASK_STRATEGIES = [
-  { value: 'single', label: '单人 (single)' },
-  { value: 'countersign', label: '会签 (countersign)' },
-  { value: 'sequential', label: '串签 (sequential)' },
-] as const
-
 // ---------------------------------------------------------------------------
 // dsh 扩展元素读写辅助
 // ---------------------------------------------------------------------------
@@ -127,7 +129,7 @@ function getExtensionElements(element: BpmnElement): BpmnModdleElement | undefin
 }
 
 /** 从 extensionElements.values 中按 $type 找 dsh 扩展元素。 */
-function findDshElement(
+export function findDshElement(
   element: BpmnElement,
   type: string,
 ): BpmnModdleElement | undefined {
@@ -138,7 +140,7 @@ function findDshElement(
 }
 
 /** 确保 extensionElements 存在(不存在则创建,走命令栈);返回它。 */
-function ensureExtensionElements(
+export function ensureExtensionElements(
   element: BpmnElement,
   injector: Injector,
 ): BpmnModdleElement {
@@ -155,7 +157,7 @@ function ensureExtensionElements(
 }
 
 /** 确保指定 $type 的 dsh 元素存在并应用属性;返回该元素。 */
-function upsertDshElement(
+export function upsertDshElement(
   element: BpmnElement,
   injector: Injector,
   type: string,
@@ -176,7 +178,7 @@ function upsertDshElement(
 }
 
 /** 移除指定 $type 的 dsh 元素(清空字段时调用)。 */
-function removeDshElement(
+export function removeDshElement(
   element: BpmnElement,
   injector: Injector,
   type: string,
@@ -191,8 +193,8 @@ function removeDshElement(
   }
 }
 
-/** 文本元素(outputSchema 等)当前值;无元素返回空串。 */
-function getDshText(element: BpmnElement, type: string): string {
+/** 文本元素(userPrompt 等)当前值;无元素返回空串。 */
+export function getDshText(element: BpmnElement, type: string): string {
   const el = findDshElement(element, type)
   if (!el) return ''
   return (el.get('text') as string) ?? ''
@@ -279,6 +281,156 @@ function toggleSodRule(
 }
 
 // ---------------------------------------------------------------------------
+// Process Context:流程级上下文变量声明读写(design 2026-09-01 §4)
+// ---------------------------------------------------------------------------
+
+/** 八种上下文变量类型(design 决策 #8)。 */
+const VARIABLE_TYPES = [
+  { value: 'string', label: 'string (字符串)' },
+  { value: 'integer', label: 'integer (整数)' },
+  { value: 'float', label: 'float (小数)' },
+  { value: 'boolean', label: 'boolean (布尔)' },
+  { value: 'date', label: 'date (日期 yyyy-MM-dd)' },
+  { value: 'datetime', label: 'datetime (ISO-8601 日期时间)' },
+  { value: 'object', label: 'object (对象,挂字段清单)' },
+  { value: 'array', label: 'array (数组,声明元素类型)' },
+] as const
+
+/** canvas 服务:取流程根元素(其 businessObject 即 bpmn:Process)。 */
+interface CanvasService {
+  getRootElement: () => { businessObject: BpmnModdleElement }
+}
+
+/** 当前画布 process 的 businessObject(上下文声明挂在其 extensionElements)。 */
+function getProcessBo(injector: Injector): BpmnModdleElement | undefined {
+  const canvas = injector.get<CanvasService>('canvas')
+  const root = canvas?.getRootElement()
+  return root?.businessObject
+}
+
+/** process extensionElements 里的全部 dsh:ContextVariables 容器(正常恰有一个)。 */
+function getContextVariablesContainers(
+  processBo: BpmnModdleElement,
+): BpmnModdleElement[] {
+  const ext = processBo.get('extensionElements') as BpmnModdleElement | undefined
+  if (!ext) return []
+  const values = (ext.get('values') as BpmnModdleElement[]) ?? []
+  return values.filter(v => v.$type === 'dsh:ContextVariables')
+}
+
+/**
+ * 全部容器内的变量声明数组(合并读取)。
+ *
+ * <p>历史实现版本可能写入多个容器,而引擎与校验器只读第一个;面板按合并结果渲染,
+ * 并在选中流程根时触发自愈合并(见 contextVariablesEntries),保证单容器契约。
+ */
+function getContextVariables(processBo: BpmnModdleElement): BpmnModdleElement[] {
+  return getContextVariablesContainers(processBo)
+    .flatMap(c => (c.get('contextVariable') as BpmnModdleElement[]) ?? [])
+}
+
+/** 从任意选中元素读当前流程的上下文声明(prompt 选择器 / 映射表下拉用)。 */
+export function readContextDeclarations(injector: Injector): BpmnModdleElement[] {
+  const processBo = getProcessBo(injector)
+  return processBo ? getContextVariables(processBo) : []
+}
+
+// ---------------------------------------------------------------------------
+// Process Context:上下文变量列表的运行时依赖(跨渲染保持稳定)
+// ---------------------------------------------------------------------------
+
+/** 上下文变量列表项渲染所需的运行时依赖。 */
+interface CtxVarRuntime {
+  modeling: ModelingService
+  moddle: ModdleService
+  injector: Injector
+  processBo: BpmnModdleElement
+}
+
+/** 按 element 缓存运行时依赖;模块级 component 函数通过它访问 modeling/moddle。 */
+const ctxVarRuntimeByElement = new WeakMap<BpmnElement, CtxVarRuntime>()
+
+/** 确保 element 的 dsh:ContextVariables 容器存在。 */
+function ensureContextVariablesContainer(element: BpmnElement): BpmnModdleElement | undefined {
+  const runtime = ctxVarRuntimeByElement.get(element)
+  if (!runtime) return undefined
+  const { modeling, moddle } = runtime
+  const ext = ensureExtensionElements(element, runtime.injector)
+  const values = (ext.get('values') as BpmnModdleElement[]) ?? []
+  let container = values.find(v => v.$type === 'dsh:ContextVariables')
+  if (!container) {
+    container = moddle.create('dsh:ContextVariables', {})
+    modeling.updateModdleProperties(element, ext, { values: [...values, container] })
+  }
+  return container
+}
+
+/** 添加一个新的上下文变量。 */
+function addContextVariable(element: BpmnElement): void {
+  const runtime = ctxVarRuntimeByElement.get(element)
+  if (!runtime) return
+  const container = ensureContextVariablesContainer(element)
+  if (!container) return
+  const vars = (container.get('contextVariable') as BpmnModdleElement[]) ?? []
+  const variable = runtime.moddle.create('dsh:ContextVariable', { type: 'string' })
+  runtime.modeling.updateModdleProperties(element, container, {
+    contextVariable: [...vars, variable],
+  })
+}
+
+/** 删除指定的上下文变量。 */
+function removeContextVariable(element: BpmnElement, item: unknown): void {
+  const runtime = ctxVarRuntimeByElement.get(element)
+  if (!runtime) return
+  const { modeling, processBo } = runtime
+  const container = getContextVariablesContainers(processBo)
+    .find(c => ((c.get('contextVariable') as BpmnModdleElement[]) ?? []).includes(item as BpmnModdleElement))
+  if (!container) return
+  const vars = (container.get('contextVariable') as BpmnModdleElement[]) ?? []
+  modeling.updateModdleProperties(element, container, {
+    contextVariable: vars.filter(v => v !== item),
+  })
+}
+
+/**
+ * 展开 object 字段清单为点路径选项(递归嵌套);array 变量只提供根
+ * (元素无静态点路径,JUEL 用 ${list[0]} 索引)。
+ */
+function expandFieldOptions(
+  container: BpmnModdleElement,
+  prefix: string,
+): Array<{ value: string; label: string }> {
+  const fields = (container.get('field') as BpmnModdleElement[]) ?? []
+  const out: Array<{ value: string; label: string }> = []
+  for (const f of fields) {
+    const fname = (f.get('name') as string) ?? ''
+    if (!fname.trim()) continue
+    const path = `${prefix}.${fname}`
+    const ftype = (f.get('type') as string) ?? ''
+    out.push({ value: path, label: `${path} (${ftype})` })
+    if (ftype === 'object') {
+      out.push(...expandFieldOptions(f, path))
+    }
+  }
+  return out
+}
+
+/** 生成全部可选点路径(object 递归展开字段;array 只到根)。 */
+export function buildContextPaths(injector: Injector): Array<{ value: string; label: string }> {
+  const out: Array<{ value: string; label: string }> = []
+  for (const v of readContextDeclarations(injector)) {
+    const name = (v.get('name') as string) ?? ''
+    if (!name.trim()) continue
+    const type = (v.get('type') as string) ?? 'string'
+    out.push({ value: name, label: `${name} (${type})` })
+    if (type === 'object') {
+      out.push(...expandFieldOptions(v, name))
+    }
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // entry 工厂
 // ---------------------------------------------------------------------------
 
@@ -301,7 +453,7 @@ function wrapEntry(
   return entry
 }
 
-/** select entry 包装(候选角色/处理策略等下拉)。 */
+/** select entry 包装(候选角色等下拉)。 */
 function selectEntry(props: SelectEntryProps, injector: Injector): Entry {
   return wrapEntry(
     props.id,
@@ -319,7 +471,7 @@ function textFieldEntry(props: TextFieldEntryProps, injector: Injector): Entry {
   )
 }
 
-/** textarea entry 包装(多行文本,如 systemPrompt)。 */
+/** textarea entry 包装(多行文本,如 userPrompt)。 */
 function textAreaEntry(props: TextAreaEntryProps, injector: Injector): Entry {
   return wrapEntry(
     props.id,
@@ -328,18 +480,14 @@ function textAreaEntry(props: TextAreaEntryProps, injector: Injector): Entry {
   )
 }
 
-/** json editor entry 包装(outputSchema)。 */
-function jsonEditorEntry(props: JsonEditorEntryProps, injector: Injector): Entry {
-  return wrapEntry(
-    props.id,
-    p => JsonEditorEntry({ debounce: injector.get('debounceInput'), ...props, ...p }),
-    isJsonEditorEntryEdited,
-  )
-}
-
 /** checkbox entry 包装(SoD 勾选等)。 */
 function checkboxEntry(props: CheckboxEntryProps): Entry {
   return wrapEntry(props.id, p => CheckboxEntry({ ...props, ...p }), isCheckboxEntryEdited)
+}
+
+/** list entry 包装(上下文变量 / 输出映射等可增删列表)。 */
+function listEntry(props: ListEntryProps): Entry {
+  return wrapEntry(props.id, () => ListEntry(props))
 }
 
 /** 角色下拉选项(含"未指定"空项);数据来自页面注入的应用角色列表。 */
@@ -350,78 +498,415 @@ function roleOptions(): Array<{ value: string; label: string }> {
   ]
 }
 
-/** 文本元素 entry 通用工厂(outputSchema/systemPrompt 等)。 */
-function dshTextEntry(
-  element: BpmnElement,
-  injector: Injector,
+// ---------------------------------------------------------------------------
+// Process Context:「上下文变量」面板(process 级)
+// ---------------------------------------------------------------------------
+
+/**
+ * 流程根元素的「上下文变量」面板 entries(design 2026-09-01 §4)。
+ *
+ * <p>ListEntry 增删变量;每个变量 CollapsibleEntry 展开:名称/类型/说明/初始值
+ * (按类型出控件)/启动传入标记/array 元素类型/object 字段清单。
+ * 节点产出来源不手选,由发布校验器从输出映射与产出声明自动推导。
+ */
+/**
+ * 上下文变量列表项组件。
+ *
+ * <p>模块级稳定函数,保证 ListEntry/ItemsList 不因为 component 引用变化而重新挂载,
+ * 从而保持 CollapsibleEntry 的展开状态。运行时依赖从 {@link ctxVarRuntimeByElement}
+ * 读取;若缓存未命中(理论上不应发生)返回 null。
+ */
+function ContextVariableListItem(props: {
+  element?: unknown
+  item: unknown
+  index: number
+  open: boolean
+}): unknown {
+  const element = props.element as BpmnElement | undefined
+  const runtime = element ? ctxVarRuntimeByElement.get(element) : undefined
+  if (!element || !runtime) return null
+
+  const { modeling, injector } = runtime
+  const variable = props.item as BpmnModdleElement
+  const idx = props.index
+  const name = (variable.get('name') as string) ?? ''
+  const type = (variable.get('type') as string) ?? 'string'
+  const setAttr = (attr: string, value: unknown) =>
+    modeling.updateModdleProperties(element, variable, { [attr]: value })
+
+  const entries: Entry[] = [
+    textFieldEntry({
+      id: `ctx-var-${idx}-name`,
+      element,
+      label: '名称',
+      description: '流程内唯一;prompt {{}}、网关 ${}、映射 target 都用它引用',
+      getValue: () => name,
+      setValue: v => setAttr('name', v.trim() || undefined),
+    }, injector),
+    selectEntry({
+      id: `ctx-var-${idx}-type`,
+      element,
+      label: '类型',
+      description: 'object 挂字段清单;array 声明元素类型;date/datetime 以严格格式字符串存储',
+      getOptions: () => [...VARIABLE_TYPES],
+      getValue: () => type,
+      setValue: v => setAttr('type', v),
+    }, injector),
+    textFieldEntry({
+      id: `ctx-var-${idx}-description`,
+      element,
+      label: '说明',
+      description: '展示文本;string 枚举值可在此标注(如 approved / rejected)',
+      getValue: () => (variable.get('description') as string) ?? '',
+      setValue: v => setAttr('description', v.trim() || undefined),
+    }, injector),
+    ...initialValueEntries(element, injector, variable, idx, type),
+    checkboxEntry({
+      id: `ctx-var-${idx}-startParam`,
+      element,
+      label: '启动传入 (start-param)',
+      description: '勾选后实例启动可传入该变量(严格声明制:未声明的启动参数被拒绝);与初始值可共存兜底',
+      getValue: () => variable.get('source') === 'start-param',
+      setValue: v => setAttr('source', v ? 'start-param' : undefined),
+    }),
+  ]
+
+  if (type === 'array') {
+    entries.push(
+      selectEntry({
+        id: `ctx-var-${idx}-itemType`,
+        element,
+        label: '元素类型 (itemType)',
+        description: 'array 元素的类型;为 object 时配置元素字段清单',
+        getOptions: () => VARIABLE_TYPES.filter(t => t.value !== 'array'),
+        getValue: () => (variable.get('itemType') as string) ?? '',
+        setValue: v => setAttr('itemType', v || undefined),
+      }, injector),
+    )
+  }
+
+  // object 字段清单 / array(object 元素)的元素字段清单
+  const itemType = (variable.get('itemType') as string) ?? ''
+  const wantsFields = type === 'object' || (type === 'array' && itemType === 'object')
+  if (wantsFields) {
+    entries.push(
+      fieldListEntry(element, injector, variable, `ctx-var-${idx}`),
+    )
+  }
+
+  // 列表项 component 必须返回 JSX(组件本体调用结果),返回 entry 描述对象会渲染成空白项;
+  // 删除按钮由列表级 onRemove 提供,项上不传 remove(否则出现两个删除按钮)
+  return CollapsibleEntry({
+    id: `ctx-var-${idx}`,
+    element,
+    label: name.trim() ? `${name} (${type})` : `<未命名变量 ${idx + 1}>`,
+    entries,
+    open: props.open,
+  })
+}
+
+/**
+ * 上下文变量列表 entry 渲染函数。
+ *
+ * <p>模块级稳定函数,从 props.element 读取当前 element,在渲染时实时读取 items,
+ * 因此 ListEntry 不会重新挂载,同时能反映最新数据。
+ */
+function ContextVariablesList(props: { element?: unknown }): unknown {
+  const element = props.element as BpmnElement | undefined
+  if (!element) return null
+  return ListEntry({
+    id: 'dsh-context-variables',
+    element,
+    label: '上下文变量',
+    items: getContextVariables(element.businessObject),
+    component: ContextVariableListItem,
+    onAdd: () => addContextVariable(element),
+    onRemove: item => removeContextVariable(element, item),
+    autoFocusEntry: '.bio-properties-panel-input',
+  })
+}
+
+function contextVariablesEntries(element: BpmnElement, injector: Injector): Entry[] {
+  const modeling = injector.get<ModelingService>('modeling')
+  const moddle = injector.get<ModdleService>('moddle')
+  const processBo = element.businessObject
+
+  // 把运行时依赖注册到 WeakMap,供模块级 component 函数跨渲染复用
+  ctxVarRuntimeByElement.set(element, { modeling, moddle, injector, processBo })
+
+  // 数据自愈:历史实现版本可能写入多个 dsh:ContextVariables 容器,而引擎与校验器
+  // 只读第一个;发现多容器时把全部变量并入第一个并删除多余容器。
+  // 面板正在渲染中,合并放到下一个宏任务执行,完成后面板随 commandStack.changed 重渲染。
+  const containers = getContextVariablesContainers(processBo)
+  if (containers.length > 1) {
+    const [first, ...extras] = containers
+    setTimeout(() => {
+      const merged = [
+        ...((first.get('contextVariable') as BpmnModdleElement[]) ?? []),
+        ...extras.flatMap(c => (c.get('contextVariable') as BpmnModdleElement[]) ?? []),
+      ]
+      modeling.updateModdleProperties(element, first, { contextVariable: merged })
+      const ext = processBo.get('extensionElements') as BpmnModdleElement
+      modeling.updateModdleProperties(element, ext, {
+        values: ((ext.get('values') as BpmnModdleElement[]) ?? []).filter(v => !extras.includes(v)),
+      })
+    }, 0)
+  }
+
+  return [{ id: 'dsh-context-variables', component: ContextVariablesList }]
+}
+
+/**
+ * object / array(object 元素)初始值与字段清单的一致性校验:
+ * JSON 的键必须已在字段清单中声明(嵌套 object 递归检查),
+ * 避免初始值游离于结构声明之外。
+ */
+function initialValueFieldsError(
+  value: string,
+  variable: BpmnModdleElement,
   type: string,
-  label: string,
-  description: string,
-  opts: { json?: boolean; rows?: number } = {},
-): Entry {
-  const get = () => getDshText(element, type)
-  const set = (value: string) => {
-    if (value && value.trim()) {
-      upsertDshElement(element, injector, type, { text: value })
-    } else {
-      removeDshElement(element, injector, type)
+): string | null {
+  if (!value.trim()) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return '不是合法的 JSON'
+  }
+  const fields = (variable.get('field') as BpmnModdleElement[]) ?? []
+  if (type === 'object') return objectKeysError(parsed, fields, '')
+  if (!Array.isArray(parsed)) return 'array 初始值必须是 JSON 数组文本,如 [1,2]'
+  for (let i = 0; i < parsed.length; i++) {
+    const err = objectKeysError(parsed[i], fields, `[${i}].`)
+    if (err) return err
+  }
+  return null
+}
+
+/** 单个 object 值的键与字段声明一致性(递归);fields 为该 object 层级的字段清单。 */
+function objectKeysError(
+  value: unknown,
+  fields: BpmnModdleElement[],
+  path: string,
+): string | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return `${path || '初始值'}必须是 JSON 对象文本,如 {"k":"v"}`
+  }
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    const field = fields.find(f => ((f.get('name') as string) ?? '').trim() === key)
+    if (!field) return `键 "${path}${key}" 未在字段清单中声明`
+    if (
+      ((field.get('type') as string) ?? 'string') === 'object'
+      && v !== null && typeof v === 'object' && !Array.isArray(v)
+    ) {
+      const err = objectKeysError(v, (field.get('field') as BpmnModdleElement[]) ?? [], `${path}${key}.`)
+      if (err) return err
     }
   }
-  const id = `dsh-${type.slice(4)}`
-  if (opts.json) {
-    return jsonEditorEntry({
+  return null
+}
+
+/** 初始值 entries:boolean 出下拉,date/datetime 提示格式;其余单行文本;object/array 校验与字段清单一致。 */
+function initialValueEntries(
+  element: BpmnElement,
+  injector: Injector,
+  variable: BpmnModdleElement,
+  idx: number,
+  type: string,
+): Entry[] {
+  const id = `ctx-var-${idx}-initialValue`
+  const get = () => (variable.get('initialValue') as string) ?? ''
+  const set = (v: string) =>
+    injector.get<ModelingService>('modeling').updateModdleProperties(element, variable, {
+      initialValue: v.trim() || undefined,
+    })
+  if (type === 'boolean') {
+    return [
+      selectEntry({
+        id,
+        element,
+        label: '初始值',
+        description: '可选;启动传入可覆盖',
+        getOptions: () => [
+          { value: '', label: '(未设置)' },
+          { value: 'true', label: 'true' },
+          { value: 'false', label: 'false' },
+        ],
+        getValue: get,
+        setValue: set,
+      }, injector),
+    ]
+  }
+  const formatHint: Record<string, string> = {
+    date: '严格格式 yyyy-MM-dd,如 2026-01-31',
+    datetime: '严格格式 ISO-8601,如 2026-01-31T09:30:00',
+    integer: '整数,如 100',
+    float: '小数,如 99.5',
+    object: 'JSON 文本,键须已在字段清单中声明,如 {"k":"v"}',
+    array: 'JSON 数组文本,如 [1,2]',
+  }
+  const wantsFieldCheck =
+    type === 'object' || (type === 'array' && (variable.get('itemType') as string) === 'object')
+  return [
+    textFieldEntry({
       id,
+      element,
+      label: '初始值',
+      description: `可选;启动未传入时兜底。${formatHint[type] ?? ''}`,
+      placeholder: type === 'date' ? '2026-01-31' : type === 'datetime' ? '2026-01-31T09:30:00' : undefined,
+      getValue: get,
+      setValue: set,
+      validate: wantsFieldCheck
+        ? (v: string) => initialValueFieldsError(v ?? '', variable, type)
+        : undefined,
+    }, injector),
+  ]
+}
+
+/**
+ * 字段清单 entry(object 变量 / array 的 object 元素),挂 dsh:Field 子元素;
+ * Field 类型为 object 时递归挂下一层(点路径多级引用)。
+ */
+function fieldListEntry(
+  element: BpmnElement,
+  injector: Injector,
+  container: BpmnModdleElement,
+  keyPrefix: string,
+): Entry {
+  const modeling = injector.get<ModelingService>('modeling')
+  const moddle = injector.get<ModdleService>('moddle')
+
+  const removeField = (item: unknown) => {
+    const fields = (container.get('field') as BpmnModdleElement[]) ?? []
+    modeling.updateModdleProperties(element, container, {
+      field: fields.filter(f => f !== item),
+    })
+  }
+
+  const renderField = (props: { index: number; item: unknown; open?: boolean }): unknown => {
+    const field = props.item as BpmnModdleElement
+    const idx = props.index
+    const fname = (field.get('name') as string) ?? ''
+    const ftype = (field.get('type') as string) ?? 'string'
+    const setAttr = (attr: string, value: unknown) =>
+      modeling.updateModdleProperties(element, field, { [attr]: value })
+
+    const entries: Entry[] = [
+      textFieldEntry({
+        id: `${keyPrefix}-field-${idx}-name`,
+        element,
+        label: '字段名',
+        getValue: () => fname,
+        setValue: v => setAttr('name', v.trim() || undefined),
+      }, injector),
+      selectEntry({
+        id: `${keyPrefix}-field-${idx}-type`,
+        element,
+        label: '类型',
+        getOptions: () => [...VARIABLE_TYPES],
+        getValue: () => ftype,
+        setValue: v => setAttr('type', v),
+      }, injector),
+      textFieldEntry({
+        id: `${keyPrefix}-field-${idx}-description`,
+        element,
+        label: '说明',
+        getValue: () => (field.get('description') as string) ?? '',
+        setValue: v => setAttr('description', v.trim() || undefined),
+      }, injector),
+    ]
+    if (ftype === 'object') {
+      entries.push(fieldListEntry(element, injector, field, `${keyPrefix}-field-${idx}`))
+    }
+    return CollapsibleEntry({
+      id: `${keyPrefix}-field-${idx}`,
+      element,
+      label: fname.trim() ? `${fname} (${ftype})` : `<未命名字段 ${idx + 1}>`,
+      entries,
+      open: props.open,
+    })
+  }
+
+  return listEntry({
+    id: `${keyPrefix}-fields`,
+    element,
+    label: '字段清单',
+    items: (container.get('field') as BpmnModdleElement[]) ?? [],
+    component: props => renderField({ index: props.index, item: props.item }),
+    onAdd: () => {
+      const fields = (container.get('field') as BpmnModdleElement[]) ?? []
+      const field = moddle.create('dsh:Field', { type: 'string' })
+      modeling.updateModdleProperties(element, container, { field: [...fields, field] })
+    },
+    onRemove: removeField,
+    autoFocusEntry: '.bio-properties-panel-input',
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Process Context:代码节点消费/产出标注
+// ---------------------------------------------------------------------------
+// (userTask 的输出映射已并入 UserPromptModal 弹窗统一编辑)
+
+/**
+ * 代码节点可选的消费/产出变量标注 entries(design §5:纯设计时元数据)。
+ *
+ * <p>textarea 每行一个变量名,序列化为 {@code <dsh:inputVariables>/<dsh:variableRef ref="..."/>}
+ * (outputVariables 同构);校验器据此做引用存在性与来源闭环检查。
+ */
+function ioVariablesEntries(
+  element: BpmnElement,
+  injector: Injector,
+  type: 'dsh:InputVariables' | 'dsh:OutputVariables',
+  label: string,
+  description: string,
+): Entry[] {
+  const get = (): string => {
+    const container = findDshElement(element, type)
+    if (!container) return ''
+    const refs = (container.get('variableRef') as BpmnModdleElement[]) ?? []
+    return refs
+      .map(r => (r.get('ref') as string) ?? '')
+      .filter(s => s.trim())
+      .join('\n')
+  }
+  const set = (value: string) => {
+    const modeling = injector.get<ModelingService>('modeling')
+    const moddle = injector.get<ModdleService>('moddle')
+    const lines = value.split('\n').map(s => s.trim()).filter(Boolean)
+    if (lines.length === 0) {
+      removeDshElement(element, injector, type)
+      return
+    }
+    const ext = ensureExtensionElements(element, injector)
+    const values = (ext.get('values') as BpmnModdleElement[]) ?? []
+    const kept = values.filter(v => v.$type !== type)
+    const container = moddle.create(type, {
+      variableRef: lines.map(name => moddle.create('dsh:VariableRef', { ref: name })),
+    })
+    modeling.updateModdleProperties(element, ext, { values: [...kept, container] })
+  }
+  return [
+    textAreaEntry({
+      id: `dsh-io-${type.slice(4).toLowerCase()}`,
       element,
       label,
       description,
+      rows: 3,
+      monospace: true,
+      placeholder: '每行一个上下文变量名',
       getValue: get,
       setValue: set,
-      validate: (value) => {
-        if (!value || !value.trim()) return null
-        try {
-          JSON.parse(value)
-          return null
-        } catch {
-          return '不是合法的 JSON'
-        }
-      },
-    }, injector)
-  }
-  return textAreaEntry({
-    id,
-    element,
-    label,
-    description,
-    rows: opts.rows ?? 4,
-    monospace: true,
-    getValue: get,
-    setValue: set,
-  }, injector)
+    }, injector),
+  ]
 }
 
 /** UserTask 的 DSH 配置组 entries。 */
 function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
   const entries: Entry[] = []
-
-  // --- 责任规则:候选角色下拉 + 处理策略 ---
+  // --- 责任规则:候选角色下拉(单人/会签/串签由 BPMN 原生多实例表达) ---
   const assignment = findDshElement(element, 'dsh:AssignmentRule')
-  const getAssignmentAttr = (attr: string): string =>
-    assignment ? ((assignment.get(attr) as string) ?? '') : ''
-  const setAssignmentAttr = (attr: string, value: string) => {
-    if (!value) {
-      // 两个属性都空则移除整个元素,避免残留空 assignmentRule
-      const other = attr === 'candidateRoleId' ? 'taskStrategy' : 'candidateRoleId'
-      const otherValue = getAssignmentAttr(other)
-      if (!otherValue) {
-        removeDshElement(element, injector, 'dsh:AssignmentRule')
-        return
-      }
-      upsertDshElement(element, injector, 'dsh:AssignmentRule', { [attr]: undefined })
-      return
-    }
-    upsertDshElement(element, injector, 'dsh:AssignmentRule', { [attr]: value })
-  }
-
+  const candidateRoleId = assignment ? ((assignment.get('candidateRoleId') as string) ?? '') : ''
   entries.push(
     selectEntry({
       id: 'dsh-assignment-candidateRole',
@@ -429,33 +914,19 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
       label: '候选角色',
       description: '任务派给该角色的成员(角色继承由 task-api 展开)',
       getOptions: () => roleOptions(),
-      getValue: () => getAssignmentAttr('candidateRoleId'),
-      setValue: value => setAssignmentAttr('candidateRoleId', value),
-    }, injector),
-    selectEntry({
-      id: 'dsh-assignment-taskStrategy',
-      element,
-      label: '处理策略',
-      description: 'single 单人 / countersign 会签 / sequential 串签',
-      getOptions: () => [...TASK_STRATEGIES],
-      getValue: () => getAssignmentAttr('taskStrategy'),
-      setValue: value => setAssignmentAttr('taskStrategy', value),
+      getValue: () => candidateRoleId,
+      setValue: (value) => {
+        if (!value) {
+          removeDshElement(element, injector, 'dsh:AssignmentRule')
+          return
+        }
+        upsertDshElement(element, injector, 'dsh:AssignmentRule', { candidateRoleId: value })
+      },
     }, injector),
   )
 
-  // --- 输出 Process Variables 定义 + 会话配置 ---
-  entries.push(
-    dshTextEntry(
-      element,
-      injector,
-      'dsh:OutputSchema',
-      '输出 Process Variables 定义',
-      '节点完成时必须产出的结构化字段(JSON Schema);DSH agent 校验通过后写入 BPMN 流程变量树供下游消费',
-      { json: true },
-    ),
-    dshTextEntry(element, injector, 'dsh:SystemPrompt', 'System Prompt', '会话级 system prompt;可空', { rows: 3 }),
-    dshTextEntry(element, injector, 'dsh:UserPrompt', 'User Prompt', '预填首条 user message;可含 {{execution.xxx}} 流程变量占位符', { rows: 3 }),
-  )
+  // --- User Prompt:统一弹窗内编辑(含变量插入 / JSON 骨架 / 输出映射 / 预览) ---
+  entries.push(userPromptModalEntry(element, injector))
 
   // --- skillRefs:textarea 每行一个 ---
   const getSkillRefs = (): string => {
@@ -592,7 +1063,7 @@ function serviceTaskFlowableEntries(element: BpmnElement, injector: Injector): E
       element,
       label: '委托表达式 (delegateExpression)',
       description:
-        '${Spring Bean 名}:如 ${dshServiceTaskDelegate}(DSH 自动节点统一入口,实现 JavaDelegate)或 ${sendReminderDelegate}(自定义委托)',
+        '${Spring Bean 名}:delegate 代码中通过 execution.getVariable() 读取上下文、setVariable() 写入结果变量;${dshServiceTaskDelegate} 是默认 DSH 调用入口(写回 dsh_auto_output / dsh_auto_notes)',
       getValue: () => ((bo.get('delegateExpression') as string) ?? ''),
       setValue: value =>
         modeling.updateProperties(element, {
@@ -885,7 +1356,13 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
     getGroups: (element: BpmnElement) => (groups: unknown[]) => unknown[]
   }
   self.getGroups = (element: BpmnElement) => (groups: unknown[]) => {
-    if (is(element, 'bpmn:UserTask')) {
+    if (is(element, 'bpmn:Process')) {
+      groups.push({
+        id: 'dsh-context-variables',
+        label: 'DSH 上下文变量',
+        entries: contextVariablesEntries(element, injector),
+      })
+    } else if (is(element, 'bpmn:UserTask')) {
       groups.push({
         id: 'dsh-user-task',
         label: 'DSH 人工节点配置',
@@ -895,7 +1372,15 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
       groups.push({
         id: 'dsh-service-task',
         label: 'Flowable 实现方式',
-        entries: serviceTaskFlowableEntries(element, injector),
+        entries: [
+          ...serviceTaskFlowableEntries(element, injector),
+          ...ioVariablesEntries(element, injector, 'dsh:InputVariables',
+            '消费变量标注 (inputVariables)',
+            '可选;每行一个上下文变量名,标注 delegate 代码 getVariable 直读的输入,供流程自解释与发布校验闭环'),
+          ...ioVariablesEntries(element, injector, 'dsh:OutputVariables',
+            '产出变量标注 (outputVariables)',
+            '可选;每行一个上下文变量名,标注 delegate 代码 setVariable 写入的产出;纯设计时元数据,引擎不解析'),
+        ],
       })
     } else if (is(element, 'bpmn:SequenceFlow')) {
       groups.push({
@@ -913,13 +1398,29 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
       groups.push({
         id: 'bpmn-script-task',
         label: '脚本任务配置',
-        entries: scriptTaskEntries(element, injector),
+        entries: [
+          ...scriptTaskEntries(element, injector),
+          ...ioVariablesEntries(element, injector, 'dsh:InputVariables',
+            '消费变量标注 (inputVariables)',
+            '可选;每行一个上下文变量名,标注脚本读取的输入'),
+          ...ioVariablesEntries(element, injector, 'dsh:OutputVariables',
+            '产出变量标注 (outputVariables)',
+            '可选;每行一个上下文变量名,标注脚本写入的产出;纯设计时元数据,引擎不解析'),
+        ],
       })
     } else if (isAny(element, ['bpmn:SendTask', 'bpmn:BusinessRuleTask'])) {
       groups.push({
         id: 'flowable-implementation',
         label: 'Flowable 实现方式',
-        entries: autoTaskImplementationEntries(element, injector),
+        entries: [
+          ...autoTaskImplementationEntries(element, injector),
+          ...ioVariablesEntries(element, injector, 'dsh:InputVariables',
+            '消费变量标注 (inputVariables)',
+            '可选;每行一个上下文变量名,标注节点读取的输入'),
+          ...ioVariablesEntries(element, injector, 'dsh:OutputVariables',
+            '产出变量标注 (outputVariables)',
+            '可选;每行一个上下文变量名,标注节点写入的产出;纯设计时元数据,引擎不解析'),
+        ],
       })
     } else if (is(element, 'bpmn:CallActivity')) {
       groups.push({

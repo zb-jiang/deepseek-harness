@@ -11,7 +11,8 @@ import java.time.OffsetDateTime;
  *
  * @param id                   任务 id
  * @param name                 任务名(对应 BPMN userTask name)
- * @param assignee             办理人(可空,候选组任务未 claim 前为 null)
+ * @param assignee             办理人 user.id(可空,候选组任务未 claim 前为 null)
+ * @param assigneeName         办理人显示名(从 {@code public.platform_users} 反查,可空)
  * @param owner                 owner(可空)
  * @param createTime            创建时间
  * @param dueDate               到期时间(可空,超时升级依赖,见 spec §7.8)
@@ -25,6 +26,7 @@ public record TaskDto(
     String id,
     String name,
     String assignee,
+    String assigneeName,
     String owner,
     OffsetDateTime createTime,
     OffsetDateTime dueDate,

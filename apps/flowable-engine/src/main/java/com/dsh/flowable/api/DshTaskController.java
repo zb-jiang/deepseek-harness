@@ -15,6 +15,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,18 +29,19 @@ import org.springframework.web.server.ResponseStatusException;
  * Flowable 任务 + task-local 变量(DshExtensionProperties JSON)为业务 DTO,供
  * DSH enterprise profile 的 task-api 直接消费。
  *
- * <p>覆盖范围(V1):
+ * <p>覆盖范围:
  * <ul>
  *   <li>{@code GET /dsh/tasks/my-tasks}:查当前 JWT 用户已认领的任务(assignee = sub)。</li>
  *   <li>{@code GET /dsh/tasks/{taskId}}:查单个任务详情,含 dsh 元数据。</li>
+ *   <li>{@code POST /dsh/tasks/{taskId}/complete}:员工端提交已映射好的流程上下文
+ *       变量 Map,后端按声明类型转换后写入并 complete 任务(design 2026-09-01 §6)。</li>
  * </ul>
  *
  * <p>未覆盖的能力(直接用 Flowable 自带 REST):
  * <ul>
  *   <li>候选任务查询(按 candidateGroup/角色继承展开):DSH task-api 自行实现,
  *       调 {@code /process-api/runtime/tasks?candidateGroup=...}。</li>
- *   <li>任务认领/转交/完成:直接调 {@code /process-api/runtime/tasks/{taskId}}。</li>
- *   <li>输出校验(SPEC §7.8):DSH task-api 的 complete 端点执行,不在 Flowable 引擎侧。</li>
+ *   <li>任务认领/转交:直接调 {@code /process-api/runtime/tasks/{taskId}}。</li>
  * </ul>
  */
 @RestController
@@ -47,10 +50,14 @@ public class DshTaskController {
 
     private final TaskService taskService;
     private final ObjectMapper objectMapper;
+    private final DshTaskCompletionService completionService;
 
-    public DshTaskController(TaskService taskService, ObjectMapper objectMapper) {
+    public DshTaskController(TaskService taskService,
+                              ObjectMapper objectMapper,
+                              DshTaskCompletionService completionService) {
         this.taskService = taskService;
         this.objectMapper = objectMapper;
+        this.completionService = completionService;
     }
 
     /**
@@ -86,6 +93,37 @@ public class DshTaskController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + taskId);
         }
         return toDto(task);
+    }
+
+    /**
+     * 员工提交已映射好的流程上下文变量完成任务(design 2026-09-01 §6 新契约)。
+     *
+     * <p>员工端在提交对话框中完成 JSON → 流程变量的映射,本端点只负责:
+     * 按 target 声明类型转换、array 类型追加聚合、校验变量已声明,最后 complete 任务。
+     * body 非法 JSON 由 Spring 反序列化失败返回 400;变量未声明或类型不符返回 400。
+     *
+     * @param request 包含 {@code variables} Map 的请求体
+     */
+    @PostMapping("/{taskId}/complete")
+    public void completeTask(@PathVariable String taskId,
+                              @RequestBody CompleteTaskRequest request,
+                              @AuthenticationPrincipal Jwt jwt) {
+        Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+        if (task == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + taskId);
+        }
+        if (!jwt.getSubject().equals(task.getAssignee())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "任务不属于当前用户");
+        }
+        Map<String, Object> variables = request.variables();
+        if (variables == null) {
+            variables = Map.of();
+        }
+        try {
+            completionService.completeWithVariables(task, variables);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
     }
 
     private TaskDto toDto(Task task) {

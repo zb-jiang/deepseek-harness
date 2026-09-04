@@ -6,6 +6,7 @@ import com.dsh.console.workflow.dto.BpmnValidationResult;
 import com.dsh.console.workflow.dto.CreateWorkflowRequest;
 import com.dsh.console.workflow.dto.PublishResult;
 import com.dsh.console.workflow.dto.UpdateBpmnXmlRequest;
+import com.dsh.console.workflow.dto.UpdateWorkflowMetaRequest;
 import com.dsh.console.workflow.dto.WorkflowDefinitionDto;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -97,6 +98,19 @@ public class WorkflowDefinitionController {
         @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(
             workflowService.updateDraftBpmnXml(workflowId, body, auth.platformUserId(), auth));
+    }
+
+    /**
+     * 修改流程定义元数据(name / description)。
+     */
+    @PatchMapping("/{workflowId}/meta")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    public ApiResponse<WorkflowDefinitionDto> updateMeta(
+        @PathVariable UUID workflowId,
+        @Valid @RequestBody UpdateWorkflowMetaRequest body,
+        @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(
+            workflowService.updateMeta(workflowId, body, auth.platformUserId(), auth));
     }
 
     /**

@@ -1,8 +1,10 @@
 # The dsh-enterprise-app bundle patch: enterprise platform-user authentication
 # layer over dsh-web-app. Applied after dsh-web-app's patch; rows here
 # insert the platform-user seam, its Supabase provider (read-only: JWKS JWT
-# verify + RLS self-read), and the HTTP API routes that expose /auth/me and
-# /auth/config to the browser surface.
+# verify + RLS self-read), the HTTP API routes that expose /auth/me and
+# /auth/config to the browser surface, and the flowable-engine task API proxy
+# (/dsh/tasks, /dsh/history) the employee task workbench fetches through the
+# local webserver.
 
 - insert:
     # 平台用户 Service Definition（提供 ctx.platformUsers，只读）。
@@ -23,6 +25,12 @@
       config:
         supabaseUrl: !!js process.env.SUPABASE_URL ?? ''
         supabaseAnonKey: !!js process.env.SUPABASE_ANON_KEY ?? ''
+
+    # flowable-engine 任务 API 代理：/dsh/tasks、/dsh/history → engineBaseUrl。
+    - id: flowable-task-proxy
+      name: '@deepseek-ai/dsh-flowable-task-proxy'
+      config:
+        engineBaseUrl: !!js process.env.FLOWABLE_ENGINE_URL ?? 'http://127.0.0.1:8090'
 
     - id: ui-enterprise
       name: '@deepseek-ai/dsh-client-ui-enterprise'

@@ -1,0 +1,114 @@
+/* Modal 卡片宽度覆盖(primitives Modal 默认 380px 且 overflow hidden,
+ * headless 内容宽度必须由卡片承载,否则右侧映射列与底部按钮被裁掉;
+ * 与 OnboardingModal 的覆盖模式一致)。 */
+.modal {
+  width: min(880px, 90vw);
+  padding: 0;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 80vh;
+  padding: 24px;
+}
+
+.header {
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding-bottom: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-height: 300px;
+}
+
+.jsonPanel,
+.mappingPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.panelLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.jsonError {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+}
+
+.mappingList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mappingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sourceInput {
+  flex: 1;
+}
+
+.arrow {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.targetSelect {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.removeButton {
+  flex-shrink: 0;
+}
+
+.addButton {
+  align-self: flex-start;
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  padding: 8px;
+  background: var(--dsw-alias-state-error-tertiary);
+  border-radius: 6px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  padding-top: 12px;
+}

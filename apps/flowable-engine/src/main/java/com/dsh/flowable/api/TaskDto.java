@@ -10,8 +10,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * {@code dsh_node_meta} 拼装而来。DSH enterprise profile 的 task-api 拿到后用于:
  * <ul>
  *   <li>列表展示待办中心;</li>
- *   <li>点击待办时用 {@code dshMeta} 创建新会话,注入节点五要素
- *       (systemPrompt/userPrompt/inputSchema/outputSchema/skillRefs,SPEC §4.8)。</li>
+ *   <li>点击待办时用 {@code dshMeta} 创建新会话,取任务指令与 skill 引用
+ *       ({@code dshMeta.userPrompt()} / {@code dshMeta.skillRefs()})。</li>
  * </ul>
  *
  * @param id                   Flowable 任务 id(ACT_RU_TASK.ID_)

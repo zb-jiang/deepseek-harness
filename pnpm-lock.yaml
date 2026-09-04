@@ -1244,6 +1244,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-enterprise':
         specifier: workspace:^
         version: link:../../client/ui-enterprise
+      '@deepseek-ai/dsh-flowable-task-proxy':
+        specifier: workspace:^
+        version: link:../../enterprise/flowable-task-proxy
       '@deepseek-ai/dsh-platform-user':
         specifier: workspace:^
         version: link:../../enterprise/platform-user
@@ -3968,6 +3971,19 @@ importers:
       '@deepseek-ai/dsh-timeout':
         specifier: workspace:^
         version: link:../../util/timeout
+
+  packages/enterprise/flowable-task-proxy:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
 
   packages/enterprise/platform-user:
     devDependencies:

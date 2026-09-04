@@ -8,6 +8,7 @@ import com.dsh.console.workflow.dto.BpmnValidationResult;
 import com.dsh.console.workflow.dto.CreateWorkflowRequest;
 import com.dsh.console.workflow.dto.PublishResult;
 import com.dsh.console.workflow.dto.UpdateBpmnXmlRequest;
+import com.dsh.console.workflow.dto.UpdateWorkflowMetaRequest;
 import com.dsh.console.workflow.dto.WorkflowDefinitionDto;
 import java.util.List;
 import java.util.UUID;
@@ -19,9 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>V1 实现规则(spec §5.6 + §12.10 + §13.4):
  * <ul>
- *   <li>草稿编辑:仅 draft / published 状态可保存 BPMN XML。</li>
+ *   <li>草稿编辑:draft / published / disabled 状态均可保存 BPMN XML;archived 为终态不可编辑。</li>
  *   <li>发布前校验:BPMN XML 合法 + role_id 归属(spec §12.10 应用隔离不变量)。</li>
- *   <li>发布成功后:状态 → published,记 published_deployment_id / published_procdef_id。</li>
+ *   <li>发布成功后:状态 → published,记 published_deployment_id / published_procdef_id;
+ *       已发布流程重新发布会覆盖旧 deployment。</li>
  *   <li>停用(status → disabled)和归档(status → archived)不允许新实例启动。</li>
  * </ul>
  */
@@ -97,6 +99,25 @@ public class WorkflowDefinitionService {
         }
         auditService.record("WORKFLOW_UPDATE_DRAFT", "workflow_definition", null, updaterId,
             java.util.Map.of("workflowId", workflowId, "appId", wf.appId()));
+        return workflowRepository.findById(workflowId).orElseThrow();
+    }
+
+    /**
+     * 修改流程定义元数据(name / description)。
+     *
+     * <p>归档状态(status = archived)为终态,不允许修改。
+     */
+    @Transactional
+    public WorkflowDefinitionDto updateMeta(UUID workflowId, UpdateWorkflowMetaRequest request,
+                                            UUID updaterId, AuthContext auth) {
+        WorkflowDefinitionDto wf = getById(workflowId, auth);
+        int rows = workflowRepository.updateMeta(workflowId, request.name(), request.description(), updaterId);
+        if (rows == 0) {
+            throw new IllegalStateException("更新失败:流程定义已归档或不存在");
+        }
+        auditService.record("WORKFLOW_UPDATE_META", "workflow_definition", null, updaterId,
+            java.util.Map.of("workflowId", workflowId, "appId", wf.appId(),
+                "name", request.name()));
         return workflowRepository.findById(workflowId).orElseThrow();
     }
 

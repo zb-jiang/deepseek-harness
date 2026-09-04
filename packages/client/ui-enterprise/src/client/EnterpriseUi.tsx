@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import clsx from 'clsx'
 import { BrandWordmark } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { openTaskPanel } from './enterprise-task-store.ts'
 import css from './EnterpriseUi.module.css'
 
 type PlatformUserStatus = 'pending_approval' | 'active' | 'disabled' | 'locked'
@@ -102,7 +103,7 @@ async function initAuth(): Promise<void> {
   }
 }
 
-function useAuth() {
+export function useAuth() {
   const snapshot = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthSnapshot)
 
   useEffect(() => { void initAuth() }, [])
@@ -160,6 +161,14 @@ export function EnterpriseNav({ wide }: { wide: boolean }) {
 
   return (
     <div className={css.nav}>
+      <button
+        type="button"
+        className={css.taskButton}
+        onClick={openTaskPanel}
+        title="企业流程待办"
+      >
+        {wide ? '我的待办' : '办'}
+      </button>
       <div className={css.navUser}>
         {wide && <span className={css.navUserLabel}>{currentUser.displayName}</span>}
         <button type="button" className={css.logoutButton} onClick={() => { void switchAccount() }}>

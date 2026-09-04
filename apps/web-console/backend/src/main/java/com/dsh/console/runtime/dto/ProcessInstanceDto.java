@@ -20,7 +20,8 @@ import java.util.UUID;
  * @param processDefinitionKey  procdef key(可空)
  * @param processDefinitionName procdef 名称(可空)
  * @param name                  实例名(可空)
- * @param startUserId           发起人(可空,Flowable runtime 是 userId 字符串)
+ * @param startUserId           发起人 auth_subject(可空,Flowable runtime 是 userId 字符串)
+ * @param startUserName         发起人显示名(从 {@code public.platform_users} 反查,可空)
  * @param startTime             启动时间
  * @param suspended             是否挂起(runtime 才有意义;historic 为 false)
  * @param ended                 是否已结束
@@ -39,6 +40,7 @@ public record ProcessInstanceDto(
     String processDefinitionName,
     String name,
     String startUserId,
+    String startUserName,
     OffsetDateTime startTime,
     boolean suspended,
     boolean ended,

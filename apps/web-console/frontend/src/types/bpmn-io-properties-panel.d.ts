@@ -61,11 +61,43 @@ declare module '@bpmn-io/properties-panel' {
     setValue: (value: boolean) => void
   }
 
+  /** ListEntry 单条 item 的渲染组件 props(component 收到的对象)。 */
+  export interface ListItemComponentProps {
+    element: unknown
+    id: string
+    index: number
+    item: unknown
+    open: boolean
+  }
+
+  export interface ListEntryProps {
+    id: string
+    element: unknown
+    label: string
+    items: unknown[]
+    component: (props: ListItemComponentProps) => unknown
+    onAdd: () => void
+    onRemove?: (item: unknown) => void
+    open?: boolean
+    autoFocusEntry?: boolean | string
+  }
+
+  export interface CollapsibleEntryProps {
+    id: string
+    label: string
+    entries: Entry[]
+    open?: boolean
+    remove?: () => void
+    element?: unknown
+  }
+
   export function TextFieldEntry(props: TextFieldEntryProps): Entry
   export function TextAreaEntry(props: TextAreaEntryProps): Entry
   export function JsonEditorEntry(props: JsonEditorEntryProps): Entry
   export function SelectEntry(props: SelectEntryProps): Entry
   export function CheckboxEntry(props: CheckboxEntryProps): Entry
+  export function ListEntry(props: ListEntryProps): Entry
+  export function CollapsibleEntry(props: CollapsibleEntryProps): Entry
 
   /** isEdited 谓词:判断 entry 渲染结果相对默认值是否被编辑过(组头标记用)。 */
   export function isTextFieldEntryEdited(node: unknown): boolean

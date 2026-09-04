@@ -24,7 +24,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   type BpmnValidationResult,
-  type CreateWorkflowRequest,
+  type UpdateWorkflowMetaRequest,
   type WorkflowDefinitionDto,
   workflowsApi,
 } from '../api/workflows'
@@ -100,7 +100,7 @@ export default function WorkflowDetailPage() {
   const [wf, setWf] = useState<WorkflowDefinitionDto | null>(null)
   const [app, setApp] = useState<ApplicationDto | null>(null)
   const [editMetaOpen, setEditMetaOpen] = useState(false)
-  const [metaForm] = Form.useForm<Pick<CreateWorkflowRequest, 'name' | 'description'>>()
+  const [metaForm] = Form.useForm<UpdateWorkflowMetaRequest>()
 
   const [bpmnXml, setBpmnXml] = useState('')
   const [xmlDirty, setXmlDirty] = useState(false)
@@ -141,12 +141,12 @@ export default function WorkflowDetailPage() {
 
   const submitEditMeta = async () => {
     if (!wf) return
-    await metaForm.validateFields()
+    const values = await metaForm.validateFields()
     try {
-      // V1 视 meta 为创建时固化的不可变信息,如要改名请归档后重建。
-      message.warning('V1 流程 meta 创建后不可修改;如需改名请归档后重建')
+      const updated = await workflowsApi.updateMeta(wf.id, values)
+      setWf(updated)
+      message.success('已更新流程 Meta')
       setEditMetaOpen(false)
-      void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
     }
@@ -226,8 +226,8 @@ export default function WorkflowDetailPage() {
     navigate(`/instances/new?workflowId=${wf.id}`)
   }
 
-  const canEditBpmn = wf?.status === 'draft' || wf?.status === 'disabled'
-  const canPublish = wf?.status === 'draft' || wf?.status === 'disabled'
+  const canEditBpmn = wf?.status !== 'archived'
+  const canPublish = wf?.status !== 'archived'
   const canDisable = wf?.status === 'published'
   const canArchive = wf?.status !== 'archived'
   const canStart = wf?.status === 'published'
@@ -277,13 +277,14 @@ export default function WorkflowDetailPage() {
       <Space style={{ marginBottom: 16 }} wrap>
         <Button
           icon={<EditOutlined />}
+          disabled={wf?.status === 'archived'}
           onClick={() => {
             if (!wf) return
             metaForm.setFieldsValue({ name: wf.name, description: wf.description ?? undefined })
             setEditMetaOpen(true)
           }}
         >
-          查看 Meta
+          编辑 Meta
         </Button>
         <Button
           type="primary"
@@ -362,8 +363,8 @@ export default function WorkflowDetailPage() {
               <>
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
                   左侧画布拖拽建模;选中节点后在右侧面板配置:UserTask 看"DSH 人工节点配置"
-                  (候选角色/处理策略/五要素/超时升级/SoD/路由),ServiceTask 看"DSH 自动节点配置"
-                  (执行委托/异步)。修改后点击"保存草稿"。
+                  (候选角色/User Prompt/输出映射/skill 引用/超时升级/SoD;多人处理用扳手菜单的多实例),
+                  ServiceTask 看"DSH 自动节点配置"(执行委托/异步)。修改后点击"保存草稿"。
                 </Typography.Paragraph>
                 <BpmnModeler
                   xml={bpmnXml}
@@ -403,21 +404,25 @@ export default function WorkflowDetailPage() {
       />
 
       <Modal
-        title="流程 Meta 信息"
+        title="编辑流程 Meta"
         open={editMetaOpen}
         onCancel={() => setEditMetaOpen(false)}
         onOk={submitEditMeta}
         destroyOnHidden
       >
         <Form form={metaForm} layout="vertical">
-          <Form.Item name="name" label="名称">
-            <Input disabled />
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[{ required: true, message: '请输入流程名称' }]}
+          >
+            <Input />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} disabled />
+            <Input.TextArea rows={2} />
           </Form.Item>
-          <Typography.Paragraph type="warning" style={{ fontSize: 12 }}>
-            V1 meta 创建后不可修改;如需改名请归档后重建。
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            修改名称/描述仅影响治理元数据,不会同步已发布到 Flowable 的旧版本。
           </Typography.Paragraph>
         </Form>
       </Modal>

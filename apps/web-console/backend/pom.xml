@@ -58,6 +58,13 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Spring Web MultipartBodyBuilder 内部依赖 reactive-streams -->
+        <dependency>
+            <groupId>org.reactivestreams</groupId>
+            <artifactId>reactive-streams</artifactId>
+            <version>1.0.4</version>
+        </dependency>
+
         <!-- PostgreSQL JDBC 驱动 -->
         <dependency>
             <groupId>org.postgresql</groupId>

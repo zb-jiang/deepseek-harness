@@ -3,6 +3,7 @@ package com.dsh.console.runtime;
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.runtime.dto.CompleteTaskRequest;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
+import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
 import com.dsh.console.runtime.dto.TaskDto;
 import com.dsh.console.security.AuthContext;
@@ -39,6 +40,17 @@ public class ProcessInstanceController {
 
     public ProcessInstanceController(ProcessInstanceService instanceService) {
         this.instanceService = instanceService;
+    }
+
+    /**
+     * 启动表单变量清单(已部署 BPMN 的 start-param 声明,design 2026-09-01 §4)。
+     */
+    @GetMapping("/start-form")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    public ApiResponse<List<StartFormVariableDto>> startForm(
+        @RequestParam UUID workflowDefinitionId,
+        @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(instanceService.startForm(workflowDefinitionId, auth));
     }
 
     /**

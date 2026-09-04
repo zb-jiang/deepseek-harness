@@ -103,7 +103,7 @@ public class WorkflowDefinitionJdbcRepository {
         return jdbcClient.sql("""
             UPDATE public.workflow_definitions
             SET draft_bpmn_xml = :bpmnXml, updated_at = now(), updated_by = :updatedBy
-            WHERE id = :id AND status IN ('draft', 'published')
+            WHERE id = :id AND status IN ('draft', 'published', 'disabled')
             """)
             .param("id", id)
             .param("bpmnXml", bpmnXml)
@@ -129,6 +129,20 @@ public class WorkflowDefinitionJdbcRepository {
         return jdbcClient.sql("UPDATE public.workflow_definitions SET status = :status WHERE id = :id")
             .param("id", id)
             .param("status", status)
+            .update();
+    }
+
+    public int updateMeta(UUID id, String name, String description, UUID updatedBy) {
+        return jdbcClient.sql("""
+            UPDATE public.workflow_definitions
+            SET name = :name, description = :description,
+                updated_at = now(), updated_by = :updatedBy
+            WHERE id = :id AND status != 'archived'
+            """)
+            .param("id", id)
+            .param("name", name)
+            .param("description", description)
+            .param("updatedBy", updatedBy)
             .update();
     }
 

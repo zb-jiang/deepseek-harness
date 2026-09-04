@@ -13,7 +13,8 @@ import java.util.UUID;
  *       拿 {@code published_procdef_id},并校验 status == published。</li>
  *   <li>应用隔离三变量由后端自动注入,调用方不需要传:
  *     <ul>
- *       <li>{@code dsh_applicant_user_id}:发起人 {@code platform_users.id}</li>
+ *       <li>{@code dsh_applicant_user_id}:发起人流程身份(Supabase auth_subject,JWT sub,
+ *       与引擎侧 assignee/候选人同一 ID 体系)</li>
  *       <li>{@code dsh_app_id}:应用 id</li>
  *       <li>{@code dsh_workflow_definition_id}:本 workflow_definition id</li>
  *     </ul>

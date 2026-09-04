@@ -157,6 +157,24 @@ public class FlowableRestClient {
     }
 
     /**
+     * 取流程定义已部署的 BPMN XML(启动校验按部署版本而非草稿)。
+     *
+     * <p>用 Flowable 单步端点 {@code GET /repository/process-definitions/{id}/resourcedata},
+     * 引擎内部按 deploymentId + resourceName 定位资源,直接返回 XML 内容。
+     * 注意 process-definition 详情响应里资源名字段是 {@code resource},不是 resourceName。
+     *
+     * @throws NotFoundException 流程定义不存在
+     */
+    public String getProcessDefinitionBpmnXml(String procdefId) {
+        return flowableRestClient.get()
+            .uri("/process-api/repository/process-definitions/{id}/resourcedata", procdefId)
+            .retrieve()
+            .onStatus(status -> status.value() == 404,
+                (req, resp) -> { throw new NotFoundException("流程定义不存在: " + procdefId); })
+            .body(String.class);
+    }
+
+    /**
      * Map 变量转 Flowable REST 变量数组格式。
      *
      * <p>Flowable REST 变量是 {@code [{"name":"k","value":"v"}]} 数组,不是 Map。

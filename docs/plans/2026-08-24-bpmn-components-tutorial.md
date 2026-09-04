@@ -21,6 +21,35 @@
 
 ***
 
+## 读教程前：流程定义生命周期（状态机）
+
+Web Console 里的每一张流程图（流程定义）都有 4 个状态，状态决定你能做什么操作：
+
+| 状态 | 含义 | 编辑 BPMN | 保存草稿 | 校验 | 发布 | 停用 | 归档 | 启动新实例 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **draft** 草稿 | 刚创建，还没部署 | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| **published** 已发布 | 已部署到 Flowable，可能正在跑实例 | ✅ | ✅ | ✅ | ✅（覆盖旧版本） | ✅ | ✅ | ✅ |
+| **disabled** 已停用 | 暂停使用，不接收新实例 | ✅ | ✅ | ✅ | ✅（恢复并覆盖） | ❌ | ✅ | ❌ |
+| **archived** 已归档 | 终态，不再使用 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+状态转换图：
+
+```
+draft ──发布──► published ──停用──► disabled ──重新发布──► published
+  │                │              │
+  └───────────────┘              └──────► archived ◄──────┘
+  （重新发布也会回到 published）          （终态，不可再变）
+```
+
+**要点**
+
+- **归档后不能再操作**：归档是终态，相当于把流程"封存"。
+- **已发布流程可以直接改**：不用先停用。在 published 状态编辑 BPMN、保存草稿、再点发布，会生成新的 Flowable deployment 覆盖旧版本。
+- **停用后再发布 = 恢复**：disabled 状态可以编辑保存，发布后状态回到 published。
+- **保存草稿不限于 draft**：只要没归档，都可以保存 BPMN XML 草稿；只有发布时才真正把 BPMN 部署到引擎。
+
+***
+
 # 第一部分：任务类组件
 
 ## 1. Service Task 服务任务 —— 机器人自动干活
@@ -1439,6 +1468,60 @@ Timer 选手那边什么都不用做——引擎的定时器线程自己盯着�
 常用组合举例：全部通过才放行 `${nrOfCompletedInstances == nrOfInstances}`；有 1 票否决就收工 `${rejected}`（rejected 是每份任务写回的普通流程变量）；任意 3 票 `${nrOfCompletedInstances >= 3}`。
 
 验证：发起实例，5 个评委任务同时出现在代办中心；任意 3 个完成后，剩下 2 个自动消失，流程继续。这就是"复杂网关"想干的事，但用的是 BPMN 标准做法——能用多实例完成的，就别碰复杂网关。
+
+***
+
+## 12.5 用多实例实现"单人 / 会签 / 串签"
+
+DSH 人工节点的责任规则只在属性面板里选"候选角色";任务到底是一个人干、所有人一起干、还是按顺序干,由 BPMN 原生多实例表达。你不需要手动写 collection、element variable 和 assignee,引擎部署时会根据候选角色自动补齐。
+
+### 画布操作
+
+1. 拖一个 UserTask,在右侧 DSH 面板里填"候选角色"(例如 `role-approver`)。
+2. 点节点旁的小扳手,选择多实例类型:
+   | 业务语义 | 扳手选择 | Multi-instance 组填写 |
+   | --- | --- | --- |
+   | **单人**(角色里任意一人完成即可,其他人的待办自动消失) | 三条竖线 ▮▮▮(并行) | Completion condition: `${nrOfCompletedInstances >= 1}` |
+   | **会签**(角色里所有人都要完成) | 三条竖线 ▮▮▮(并行) | Completion condition: 留空 |
+   | **串签**(角色里的人依次完成) | 三条横线 ≡(串行) | Completion condition: 留空 |
+3. Loop cardinality 不用填,因为实例数由候选角色成员数决定。
+
+### 引擎帮你做了什么
+
+部署时,`DshBpmnParseHandler` 会自动把这个 userTask 补成下面的样子(你不必手动写):
+
+```xml
+<userTask id="approveTask" name="审批" flowable:assignee="${dshCandidateUserId}">
+  <extensionElements>
+    <dsh:assignmentRule candidateRoleId="role-approver"/>
+  </extensionElements>
+  <multiInstanceLoopCharacteristics isSequential="false"
+      flowable:collection="${dsh_candidates_approveTask}"
+      flowable:elementVariable="dshCandidateUserId">
+    <completionCondition xsi:type="bpmn:tFormalExpression">
+      ${nrOfCompletedInstances &gt;= 1}
+    </completionCondition>
+  </multiInstanceLoopCharacteristics>
+</userTask>
+```
+
+三个字段的白话对照:`flowable:collection` 告诉引擎"照着哪个变量复制任务"(必须是带 `${}` 的表达式);`flowable:elementVariable` 是"每个实例里当前成员存到哪个变量"(引擎逐份把成员 user.id 放进 `dshCandidateUserId`);`flowable:assignee` 用这个变量直接指定办理人。
+
+注意别照抄网上老教程的标准 BPMN 写法 `<loopDataInputRef>` + `<inputDataItem>`:Flowable 7 解析时 `<inputDataItem>` 的文本内容被**忽略**(只有它的 `name` 属性才被认作 elementVariable),`<loopDataInputRef>` 也不会自动包 `${}`——照抄会导致部署成功但运行时任务派发失败,排查起来非常隐蔽。
+
+运行时,进入该节点前 `DshMultiInstanceSetupListener` 会:
+
+1. 查 `public.app_memberships` 拿到 `role-approver` 下的成员 user.id 列表;
+2. 如有 SoD 规则(如排除申请人),先过滤;
+3. 把结果写入流程变量 `dsh_candidates_approveTask`。
+
+Flowable 再按这个变量为每个成员生成一个任务实例,并直接把 `assignee` 设为对应成员,**不需要认领**。
+
+### 常见误区
+
+- **Loop cardinality 不用填**:角色有几个人就生成几份,手动写数字会写死,成员变动时还得改流程图。
+- **单人不是"不设置多实例"**:不设置多实例只会产生一条任务,并且默认要走认领;单人必须设置并行多实例 + 完成条件,才能实现"一人完成、其余自动作废"。
+- **会签和串签的区别只在并行/串行**:两者都是所有人完成才放行,前者同时收到待办,后者按顺序收到。
 
 ***
 

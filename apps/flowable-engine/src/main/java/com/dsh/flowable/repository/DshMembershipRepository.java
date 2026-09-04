@@ -25,21 +25,29 @@ public class DshMembershipRepository {
     }
 
     /**
-     * 查询指定 role 下的所有有效(active)用户的 user.id 列表。
+     * 查询指定 role 下的所有有效(active)成员的流程身份 id 列表。
+     *
+     * <p>{@code app_memberships.user_id} 按 DDL 外键引用 {@code platform_users.id}(治理主键),
+     * 但流程身份统一使用 Supabase Auth user.id,即 {@code platform_users.auth_subject}
+     * (与员工端 JWT {@code sub} 同源),否则员工端按 JWT sub 查询 my-tasks 永远匹配不上
+     * assignee。因此本查询 JOIN {@code platform_users} 做一次 ID 转换。
      *
      * <p>SQL 用 PostgreSQL 数组包含操作符 {@code @>},查询 {@code role_ids} 数组
-     * 包含 {@code roleId} 元素的所有 active membership。
+     * 包含 {@code roleId} 元素的 membership;同时要求 membership 与 platform_users
+     * 记录均为 active(被禁用/锁定的治理用户不参与分派)。
      *
      * @param roleId 应用角色 id(对应 {@code app_roles.id});UUID 字符串
-     * @return 直接绑定该角色的 active 用户 id 列表(Supabase Auth user.id);不含上级继承
+     * @return 直接绑定该角色的 active 成员 auth_subject 列表;不含上级继承
      */
     public List<String> findActiveUserIdsByRoleId(String roleId) {
         if (roleId == null || roleId.isBlank()) {
             return List.of();
         }
         return jdbcTemplate.queryForList(
-            "SELECT user_id::text FROM public.app_memberships "
-                + "WHERE status = 'active' AND role_ids @> ARRAY[?::uuid]",
+            "SELECT pu.auth_subject FROM public.app_memberships m "
+                + "JOIN public.platform_users pu ON pu.id = m.user_id "
+                + "WHERE m.status = 'active' AND pu.status = 'active' "
+                + "AND m.role_ids @> ARRAY[?::uuid]",
             String.class,
             roleId
         );

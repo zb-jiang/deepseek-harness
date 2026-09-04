@@ -8,22 +8,34 @@
 
   <process id="dshSampleApproval" name="DSH 示例审批流程" isExecutable="true">
 
+    <extensionElements>
+      <dsh:contextVariables>
+        <dsh:contextVariable name="approvalResult" type="object" description="审批结论">
+          <dsh:field name="conclusion" type="string" description="approved / rejected"/>
+          <dsh:field name="comment" type="string" description="审批说明"/>
+        </dsh:contextVariable>
+      </dsh:contextVariables>
+    </extensionElements>
+
     <startEvent id="startEvent" name="开始"/>
 
     <userTask id="approveTask" name="审批"
               flowable:candidateGroups="role-approver-uuid">
       <extensionElements>
-        <dsh:assignmentRule candidateRoleId="role-approver-uuid" taskStrategy="single"/>
-        <dsh:inputSchema>{"type":"object","properties":{"applicationSummary":{"type":"string"},"amount":{"type":"number"}},"required":["applicationSummary"]}</dsh:inputSchema>
-        <dsh:outputSchema>{"type":"object","properties":{"conclusion":{"type":"string","enum":["approved","rejected"]},"comment":{"type":"string"}},"required":["conclusion"]}</dsh:outputSchema>
-        <dsh:systemPrompt>你是企业审批助手。根据申请人提交的申请摘要和金额,给出审批建议(approved/rejected)并附简短说明。</dsh:systemPrompt>
-        <dsh:userPrompt>请审批以下申请:申请摘要={{upstream.applicationSummary}},金额={{upstream.amount}} 元。请按 outputSchema 给出 JSON 结论。</dsh:userPrompt>
+        <dsh:assignmentRule candidateRoleId="role-approver-uuid"/>
+        <!-- userPrompt 存 text 属性(非元素正文):引擎 StAX 非实体替换模式下,
+             含引号的正文被切成多个 CHARACTER 事件,setElementText 只保留最后一段;
+             属性值由 getAttributeValue 一次性完整解码。换行写 &#10;(字面换行会被属性规范化成空格)。 -->
+        <dsh:userPrompt text="你当前的角色为审批专员,请基于申请摘要 {{upstream.applicationSummary}}、金额 {{upstream.amount}} 元,应用 skill approval-helper、compliance-check 做审批工作,给出审批结论(approved/rejected)并附简短说明。请以以下的JSON格式进行输出(approvalResult):&#10;{&#10;  &quot;conclusion&quot;: &quot;approved&quot;,&#10;  &quot;comment&quot;: &quot;&quot;&#10;}"/>
         <dsh:skillRef>approval-helper</dsh:skillRef>
         <dsh:skillRef>compliance-check</dsh:skillRef>
         <dsh:actionPolicy>
           <dsh:timeoutPolicy duration="PT24H" escalateToRoleId="role-manager-uuid"/>
           <dsh:sodRule type="not-applicant"/>
         </dsh:actionPolicy>
+        <dsh:outputMappings>
+          <dsh:mapping source="" target="approvalResult"/>
+        </dsh:outputMappings>
       </extensionElements>
     </userTask>
 

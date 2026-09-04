@@ -83,9 +83,8 @@ export default function InstancesPage() {
     },
     {
       title: '发起人',
-      dataIndex: 'startUserId',
       key: 'startUserId',
-      render: (v: string | null) => v ?? '-',
+      render: (_, inst) => inst.startUserName ?? inst.startUserId ?? '-',
     },
     {
       title: '启动时间',

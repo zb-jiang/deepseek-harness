@@ -13,6 +13,7 @@ export interface ProcessInstanceDto {
   processDefinitionName: string | null
   name: string | null
   startUserId: string | null
+  startUserName: string | null
   startTime: string | null
   suspended: boolean
   ended: boolean
@@ -34,6 +35,7 @@ export interface TaskDto {
   id: string
   name: string | null
   assignee: string | null
+  assigneeName: string | null
   owner: string | null
   createTime: string | null
   dueDate: string | null
@@ -47,8 +49,19 @@ export interface CompleteTaskRequest {
   variables?: Record<string, unknown>
 }
 
+/** 启动表单变量项(对齐 com.dsh.console.runtime.dto.StartFormVariableDto)。 */
+export interface StartFormVariableDto {
+  name: string
+  type: string
+  description: string | null
+  required: boolean
+}
+
 export const instancesApi = {
   start: (body: StartProcessInstanceRequest) => post<ProcessInstanceDto>('/api/process-instances', body),
+  /** 启动表单变量清单(已部署 BPMN 的 start-param 声明)。 */
+  startForm: (workflowDefinitionId: string) =>
+    get<StartFormVariableDto[]>('/api/process-instances/start-form', { workflowDefinitionId }),
   list: (params?: { appId?: string; procdefId?: string; start?: number; size?: number }) =>
     get<ProcessInstanceDto[]>('/api/process-instances', params as Record<string, unknown>),
   get: (instanceId: string) => get<ProcessInstanceDto>(`/api/process-instances/${instanceId}`),

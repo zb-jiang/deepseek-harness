@@ -35,14 +35,16 @@ public class UserService {
     }
 
     /**
-     * 查当前登录用户的治理记录(供前端 /api/users/me)。
+     * 查当前登录用户的治理记录(供前端 /api/users/me 及任务办理人反查)。
      *
      * <p>无角色要求(isAuthenticated 即可),用于 pending_approval 用户在登录后
      * 看到自己状态;active 用户可看到自己的 platformRoles 用于前端菜单渲染。
+     * 任务列表中按 assignee 反查 displayName 也会用到,因此不能限定为 system_admin。
      *
      * @param authSubject JWT sub claim,即 Supabase Auth user.id
      * @return 治理记录;若 platform_users 表中无此 auth_subject,返回 null(前端按"未注册"提示)
      */
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     public UserDto findMe(String authSubject) {
         return userRepository.findByAuthSubject(authSubject).orElse(null);
     }

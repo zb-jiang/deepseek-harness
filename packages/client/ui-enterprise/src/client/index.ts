@@ -2,6 +2,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { EnterpriseNav, EnterpriseOverlay } from './EnterpriseUi.tsx'
+import { TaskOverlay } from './TaskOverlay.tsx'
 
 export const inject = ['slots']
 
@@ -18,5 +19,10 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.register(
     { name: 'shell.overlay', id: 'enterprise', order: 50 },
     EnterpriseOverlay,
+  )
+
+  ctx.slots.register(
+    { name: 'shell.overlay', id: 'enterprise-task-panel', order: 51 },
+    TaskOverlay,
   )
 }

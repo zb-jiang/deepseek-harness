@@ -4,16 +4,19 @@ import com.dsh.console.app.ApplicationService;
 import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
+import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
 import com.dsh.console.runtime.dto.TaskDto;
 import com.dsh.console.security.AuthContext;
+import com.dsh.console.user.UserService;
+import com.dsh.console.user.dto.UserDto;
 import com.dsh.console.workflow.WorkflowDefinitionJdbcRepository;
 import com.dsh.console.workflow.dto.WorkflowDefinitionDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -45,48 +48,63 @@ public class ProcessInstanceService {
     private final WorkflowDefinitionJdbcRepository workflowRepository;
     private final ApplicationService applicationService;
     private final AuditService auditService;
+    private final ProcessStartValidationService startValidation;
+    private final UserService userService;
 
     public ProcessInstanceService(FlowableRestClient flowableRestClient,
                                   WorkflowDefinitionJdbcRepository workflowRepository,
                                   ApplicationService applicationService,
-                                  AuditService auditService) {
+                                  AuditService auditService,
+                                  ProcessStartValidationService startValidation,
+                                  UserService userService) {
         this.flowableRestClient = flowableRestClient;
         this.workflowRepository = workflowRepository;
         this.applicationService = applicationService;
         this.auditService = auditService;
+        this.startValidation = startValidation;
+        this.userService = userService;
+    }
+
+    /**
+     * 生成启动表单变量清单(已部署 BPMN 的 start-param 声明)。
+     *
+     * <p>按部署版本而非草稿,与启动校验同一声明源。
+     */
+    public List<StartFormVariableDto> startForm(UUID workflowDefinitionId, AuthContext auth) {
+        WorkflowDefinitionDto wf = requirePublished(workflowDefinitionId);
+        applicationService.checkCanAccessApp(auth, wf.appId());
+        return startValidation.startForm(
+            startValidation.loadDeclarations(wf.publishedProcdefId()));
     }
 
     /**
      * 启动流程实例。
+     *
+     * <p>启动校验(design 2026-09-01 §4 严格声明制):按已部署 BPMN 的上下文声明
+     * 拒绝未声明/未标记 start-param 的传入变量,按类型反序列化,initial 兜底注入。
      */
     @Transactional
     public ProcessInstanceDto start(StartProcessInstanceRequest request, AuthContext auth) {
-        WorkflowDefinitionDto wf = workflowRepository.findById(request.workflowDefinitionId())
-        .orElseThrow(() -> new com.dsh.console.common.GlobalExceptionHandler.NotFoundException(
-            "流程定义不存在: " + request.workflowDefinitionId()));
+        WorkflowDefinitionDto wf = requirePublished(request.workflowDefinitionId());
         applicationService.checkCanAccessApp(auth, wf.appId());
 
-        if (!"published".equalsIgnoreCase(wf.status())) {
-            throw new IllegalArgumentException(
-                "流程定义状态非 published,不允许启动实例: " + wf.status());
-        }
-        if (wf.publishedProcdefId() == null || wf.publishedProcdefId().isBlank()) {
-            throw new IllegalStateException("流程定义已发布但 published_procdef_id 为空(数据不一致)");
-        }
+        Map<String, Object> contextVariables = startValidation.buildVariables(
+            startValidation.loadDeclarations(wf.publishedProcdefId()),
+            request.variables());
 
-        // 应用隔离三变量(spec §7.7.4 + §13.4)
-        Map<String, Object> variables = new HashMap<>();
-        variables.put("dsh_applicant_user_id", auth.platformUserId().toString());
+        // 应用隔离三变量(spec §7.7.4 + §13.4)与上下文变量合并。
+        // dsh_applicant_user_id 存流程身份(auth_subject = JWT sub),与引擎侧
+        // assignee/候选人同一 ID 体系,SoD not-applicant 比较才能命中。
+        Map<String, Object> variables = new LinkedHashMap<>();
+        variables.put("dsh_applicant_user_id", auth.authSubject());
         variables.put("dsh_app_id", wf.appId().toString());
         variables.put("dsh_workflow_definition_id", wf.id().toString());
-        if (request.variables() != null) {
-            variables.putAll(request.variables());
-        }
+        variables.putAll(contextVariables);
 
         JsonNode instance = flowableRestClient.startProcessInstance(
             wf.publishedProcdefId(), request.businessKey(), request.name(), variables);
 
-        ProcessInstanceDto dto = toDto(instance, wf);
+        ProcessInstanceDto dto = toDto(instance, wf, new java.util.HashMap<>());
         auditService.record("PROCESS_INSTANCE_START", "workflow_definition", null,
             auth.platformUserId(), Map.of(
                 "instanceId", dto.id(),
@@ -157,7 +175,7 @@ public class ProcessInstanceService {
         }
         WorkflowDefinitionDto wf = resolveWorkflowDefinition(instance);
         applicationService.checkCanAccessApp(auth, wf.appId());
-        return toDto(instance, wf);
+        return toDto(instance, wf, new java.util.HashMap<>());
     }
 
     /**
@@ -212,6 +230,21 @@ public class ProcessInstanceService {
 
     // ===== 内部辅助 =====
 
+    /** 查流程定义并断言已发布(published_procdef_id 就绪);startForm/start 共用。 */
+    private WorkflowDefinitionDto requirePublished(UUID workflowDefinitionId) {
+        WorkflowDefinitionDto wf = workflowRepository.findById(workflowDefinitionId)
+        .orElseThrow(() -> new com.dsh.console.common.GlobalExceptionHandler.NotFoundException(
+            "流程定义不存在: " + workflowDefinitionId));
+        if (!"published".equalsIgnoreCase(wf.status())) {
+            throw new IllegalArgumentException(
+                "流程定义状态非 published,不允许启动实例: " + wf.status());
+        }
+        if (wf.publishedProcdefId() == null || wf.publishedProcdefId().isBlank()) {
+            throw new IllegalStateException("流程定义已发布但 published_procdef_id 为空(数据不一致)");
+        }
+        return wf;
+    }
+
     /**
      * 从 Flowable runtime instance JSON 反查 workflow_definition。
      *
@@ -233,10 +266,11 @@ public class ProcessInstanceService {
         if (data == null || !data.isArray()) {
             return result;
         }
+        Map<String, String> nameCache = new java.util.HashMap<>();
         for (JsonNode node : data) {
             String procdefId = node.path("processDefinitionId").asText();
             WorkflowDefinitionDto wf = workflowRepository.findByProcdefId(procdefId).orElse(null);
-            result.add(toDto(node, wf));
+            result.add(toDto(node, wf, nameCache));
         }
         return result;
     }
@@ -250,8 +284,9 @@ public class ProcessInstanceService {
         if (data == null || !data.isArray()) {
             return result;
         }
+        Map<String, String> nameCache = new java.util.HashMap<>();
         for (JsonNode node : data) {
-            result.add(toDto(node, wf));
+            result.add(toDto(node, wf, nameCache));
         }
         return result;
     }
@@ -265,11 +300,15 @@ public class ProcessInstanceService {
         if (data == null || !data.isArray()) {
             return result;
         }
+        Map<String, String> nameCache = new java.util.HashMap<>();
         for (JsonNode node : data) {
+            String assignee = textOrNull(node, "assignee");
+            String assigneeName = resolveUserDisplayName(assignee, nameCache);
             result.add(new TaskDto(
                 textOrNull(node, "id"),
                 textOrNull(node, "name"),
-                textOrNull(node, "assignee"),
+                assignee,
+                assigneeName,
                 textOrNull(node, "owner"),
                 parseTime(node, "createTime"),
                 parseTime(node, "dueDate"),
@@ -282,10 +321,26 @@ public class ProcessInstanceService {
         return result;
     }
 
-    private ProcessInstanceDto toDto(JsonNode node, WorkflowDefinitionDto wf) {
+    /**
+     * 按 auth_subject 反查 platform_users.display_name(任务办理人、实例发起人共用)。
+     *
+     * <p>V1 用单条查询 + 缓存;任务/实例数通常很少,可接受。查不到时返回 null(保留原 ID 显示)。
+     */
+    private String resolveUserDisplayName(String userId, Map<String, String> cache) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        return cache.computeIfAbsent(userId, key -> {
+            UserDto user = userService.findMe(key);
+            return user == null ? null : user.displayName();
+        });
+    }
+
+    private ProcessInstanceDto toDto(JsonNode node, WorkflowDefinitionDto wf, Map<String, String> nameCache) {
         if (node == null) {
             return null;
         }
+        String startUserId = textOrNull(node, "startUserId");
         return new ProcessInstanceDto(
             textOrNull(node, "id"),
             textOrNull(node, "businessKey"),
@@ -293,7 +348,8 @@ public class ProcessInstanceService {
             textOrNull(node, "processDefinitionKey"),
             textOrNull(node, "processDefinitionName"),
             textOrNull(node, "name"),
-            textOrNull(node, "startUserId"),
+            startUserId,
+            resolveUserDisplayName(startUserId, nameCache),
             parseTime(node, "startTime"),
             node.path("suspended").asBoolean(false),
             node.path("ended").asBoolean(false),

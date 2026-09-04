@@ -1,10 +1,12 @@
 package com.dsh.console.config;
 
+import java.nio.charset.StandardCharsets;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -47,6 +49,10 @@ public class RestClientConfig {
             .baseUrl(properties.baseUrl())
             .requestFactory(factory)
             .requestInterceptor(forwardAuthHeader())
+            .messageConverters(converters -> {
+                converters.removeIf(c -> c instanceof StringHttpMessageConverter);
+                converters.add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
+            })
             .build();
     }
 

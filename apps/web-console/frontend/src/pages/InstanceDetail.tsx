@@ -6,8 +6,10 @@ import {
   Descriptions,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Table,
   Tag,
@@ -20,6 +22,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   instancesApi,
   type ProcessInstanceDto,
+  type StartFormVariableDto,
   type TaskDto,
 } from '../api/process-instances'
 import { workflowsApi, type WorkflowDefinitionDto } from '../api/workflows'
@@ -56,12 +59,9 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
   const { message } = App.useApp()
   const navigate = useNavigate()
   const [wf, setWf] = useState<WorkflowDefinitionDto | null>(null)
+  const [startVars, setStartVars] = useState<StartFormVariableDto[]>([])
   const [submitting, setSubmitting] = useState(false)
-  const [form] = Form.useForm<{
-    businessKey?: string
-    name?: string
-    variablesJson?: string
-  }>()
+  const [form] = Form.useForm<Record<string, unknown>>()
 
   useEffect(() => {
     void (async () => {
@@ -70,7 +70,10 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
         setWf(data)
         if (data.status !== 'published') {
           message.error(`流程当前状态为 ${data.status},不可发起`)
+          return
         }
+        // 启动表单变量清单(已部署 BPMN 的 start-param 声明)
+        setStartVars(await instancesApi.startForm(workflowId))
       } catch (e) {
         message.error(e instanceof Error ? e.message : '加载流程定义失败')
       }
@@ -79,21 +82,32 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
 
   const submit = async () => {
     const values = await form.validateFields()
-    let variables: Record<string, unknown> | undefined
-    if (values.variablesJson?.trim()) {
-      try {
-        variables = JSON.parse(values.variablesJson)
-      } catch {
-        message.error('变量 JSON 解析失败,请检查格式')
-        return
+    // 按 start-param 声明组装变量:空值不传(由后端 initial 兜底),object/array 解析 JSON
+    const variables: Record<string, unknown> = {}
+    let parseError = false
+    for (const v of startVars) {
+      const raw = values[v.name]
+      if (raw === undefined || raw === null || raw === '') continue
+      if (v.type === 'object' || v.type === 'array') {
+        try {
+          variables[v.name] = JSON.parse(raw as string)
+        } catch {
+          message.error(`变量 ${v.name} 不是合法的 JSON`)
+          parseError = true
+        }
+      } else if (v.type === 'boolean') {
+        variables[v.name] = raw === true || raw === 'true'
+      } else {
+        variables[v.name] = raw
       }
     }
+    if (parseError) return
     setSubmitting(true)
     try {
       const instance = await instancesApi.start({
         workflowDefinitionId: workflowId,
-        businessKey: values.businessKey || undefined,
-        name: values.name || undefined,
+        businessKey: (values.businessKey as string) || undefined,
+        name: (values.name as string) || undefined,
         variables,
       })
       message.success(`已启动实例 ${instance.id}`)
@@ -144,15 +158,20 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
         <Form.Item name="name" label="实例名">
           <Input placeholder="便于查找的实例名(可空)" />
         </Form.Item>
-        <Form.Item name="variablesJson" label="业务变量(JSON)">
-          <Input.TextArea
-            rows={6}
-            placeholder='{"order_id": "ORD001", "amount": 1000}'
-            style={{ fontFamily: 'monospace' }}
-          />
-        </Form.Item>
+        {startVars.map(v => (
+          <Form.Item
+            key={v.name}
+            name={v.name}
+            label={`${v.name} (${v.type})`}
+            tooltip={v.description ?? undefined}
+            rules={v.required ? [{ required: true, message: `请输入 ${v.name}` }] : undefined}
+          >
+            {renderStartParamInput(v.type)}
+          </Form.Item>
+        ))}
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          应用隔离三变量(dsh_applicant_user_id / dsh_app_id / dsh_workflow_definition_id)由后端自动注入,不需要填写。
+          表单项由流程的上下文声明(start-param)自动生成;未声明变量会被后端拒绝。
+          应用隔离三变量(dsh_applicant_user_id / dsh_app_id / dsh_workflow_definition_id)由后端自动注入。
         </Typography.Paragraph>
         <Form.Item>
           <Button type="primary" loading={submitting} onClick={submit}>
@@ -162,6 +181,34 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
       </Form>
     </div>
   )
+}
+
+/** 按声明类型渲染 start-param 输入控件。 */
+function renderStartParamInput(type: string) {
+  switch (type) {
+    case 'integer':
+    case 'float':
+      return <InputNumber style={{ width: '100%' }} placeholder={type === 'integer' ? '整数' : '小数'} />
+    case 'boolean':
+      return (
+        <Select
+          allowClear
+          options={[
+            { value: 'true', label: 'true' },
+            { value: 'false', label: 'false' },
+          ]}
+        />
+      )
+    case 'date':
+      return <Input placeholder="yyyy-MM-dd,如 2026-01-31" />
+    case 'datetime':
+      return <Input placeholder="ISO-8601,如 2026-01-31T09:30:00" />
+    case 'object':
+    case 'array':
+      return <Input.TextArea rows={3} placeholder='JSON 文本,如 {"k":"v"}' style={{ fontFamily: 'monospace' }} />
+    default:
+      return <Input placeholder="字符串" />
+  }
 }
 
 function InstanceDetailView({ instanceId }: { instanceId: string }) {
@@ -241,7 +288,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
     { title: '任务 ID', dataIndex: 'id', key: 'id', render: v => <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text> },
     { title: '任务名', dataIndex: 'name', key: 'name', render: (v: string | null) => v ?? '-' },
     { title: '节点 key', dataIndex: 'taskDefinitionKey', key: 'taskDefinitionKey' },
-    { title: '办理人', dataIndex: 'assignee', key: 'assignee', render: (v: string | null) => v ?? '-' },
+    { title: '办理人', dataIndex: 'assigneeName', key: 'assigneeName', render: (v: string | null, task: TaskDto) => v ?? task.assignee ?? '-' },
     { title: 'owner', dataIndex: 'owner', key: 'owner', render: (v: string | null) => v ?? '-' },
     {
       title: '创建时间',
@@ -301,7 +348,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
           { key: 'workflowName', label: '流程名', children: inst?.workflowName ?? inst?.processDefinitionName ?? '-' },
           { key: 'businessKey', label: '业务键', children: inst?.businessKey ?? '-' },
           { key: 'procdefId', label: 'procdefId', children: inst?.processDefinitionId ?? '-' },
-          { key: 'startUserId', label: '发起人', children: inst?.startUserId ?? '-' },
+          { key: 'startUserId', label: '发起人', children: inst?.startUserName ?? inst?.startUserId ?? '-' },
           {
             key: 'startTime',
             label: '启动时间',
@@ -372,8 +419,9 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
               style={{ fontFamily: 'monospace' }}
             />
           </Form.Item>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-            V1 Web Console 仅做端到端联调;真正输出校验(ajv)+ 缺项回喂在 DSH enterprise profile 中。
+          <Typography.Paragraph type="warning" style={{ fontSize: 12 }}>
+            管理员强制完成：不经过员工端 AI 对话与输出映射校验，直接调用引擎 complete 任务。
+            仅用于端到端联调或管理员干预，正式办理请通过 DSH 员工端「我的待办」提交。
           </Typography.Paragraph>
         </Form>
       </Modal>

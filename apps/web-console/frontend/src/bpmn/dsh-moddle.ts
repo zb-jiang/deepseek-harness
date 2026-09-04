@@ -3,13 +3,21 @@
  *
  * XML 契约必须与 Flowable 引擎侧 DshBpmnExtensionParser 严格对齐:
  * namespace 为 http://dsh.ai/bpmn,元素 local name 为 assignmentRule /
- * outputSchema / systemPrompt / userPrompt / skillRef / actionPolicy /
- * timeoutPolicy / sodRule,引擎解析按 local name 取值。
+ * userPrompt / skillRef / actionPolicy / timeoutPolicy / sodRule /
+ * contextVariables / contextVariable / field / outputMappings / mapping /
+ * inputVariables / outputVariables / variableRef,引擎解析按 local name 取值。
  *
- * 已移除:InputSchema(上游字段从 process variables 树读取,无需单独声明)、
- * RoutingRule(路由改为走 SequenceFlow 原生 conditionExpression)。
+ * Process Context 机制(design 2026-09-01):
+ * - process 级 <dsh:contextVariables>:流程上下文变量声明(八种类型,
+ *   object 挂字段清单,array 声明 itemType);
+ * - userTask 级 <dsh:outputMappings>:员工提交 JSON → 上下文变量的映射;
+ * - 代码节点级 <dsh:inputVariables> / <dsh:outputVariables>:可选消费/产出
+ *   声明,纯设计时元数据,引擎不解析执行。
  *
- * tagAlias: 'lowerCase' 使类型名 AssignmentRule 序列化为 <dsh:assignmentRule>。
+ * tagAlias: 'lowerCase' 使类型名 AssignmentRule 序列化为 <dsh:assignmentRule>;
+ * 同理 ContextVariable → <dsh:contextVariable>、VariableRef → <dsh:variableRef>。
+ * 子元素标签名由"类型名"决定(而非属性名),因此引用类型不能用同名类型承载
+ * (contextVariable 与 variableRef 是两个不同类型,避免反序列化歧义)。
  */
 
 /** dsh: 命名空间 URI(对齐引擎 DshBpmnExtensionParser.DSH_NAMESPACE)。 */
@@ -24,33 +32,26 @@ export const dshModdleDescriptor = {
   },
   types: [
     {
-      // 人工节点责任规则:<dsh:assignmentRule candidateRoleId="..." taskStrategy="single"/>
+      // 人工节点责任规则:<dsh:assignmentRule candidateRoleId="..."/>
+      // (单人/会签/串签语义由 BPMN 原生 multiInstanceLoopCharacteristics 表达,
+      // 不再单独配置处理策略)
       name: 'AssignmentRule',
       superClass: ['Element'],
       meta: { allowedIn: ['bpmn:UserTask'] },
       properties: [
         { name: 'candidateRoleId', isAttr: true, type: 'String' },
-        { name: 'taskStrategy', isAttr: true, type: 'String' },
       ],
     },
-    // 文本元素:<dsh:outputSchema>{...JSON...}</dsh:outputSchema> 等,值存 text 属性(isBody)
-    {
-      name: 'OutputSchema',
-      superClass: ['Element'],
-      meta: { allowedIn: ['bpmn:UserTask'] },
-      properties: [{ name: 'text', isBody: true, type: 'String' }],
-    },
-    {
-      name: 'SystemPrompt',
-      superClass: ['Element'],
-      meta: { allowedIn: ['bpmn:UserTask'] },
-      properties: [{ name: 'text', isBody: true, type: 'String' }],
-    },
+    // userPrompt 存 text 属性:<dsh:userPrompt text="..."/>。
+    // 不用元素正文:引擎 StAX 配置 IS_REPLACING_ENTITY_REFERENCES=false 会把含引号的
+    // 正文切成多个 CHARACTER 事件,Flowable 的 setElementText 只保留最后一段,
+    // JSON 骨架会被截断;属性值由 getAttributeValue 一次性完整解码,
+    // 与 flowable:class 等 Flowable 扩展属性同一存储模式(引擎 DshBpmnExtensionParser 对齐)。
     {
       name: 'UserPrompt',
       superClass: ['Element'],
       meta: { allowedIn: ['bpmn:UserTask'] },
-      properties: [{ name: 'text', isBody: true, type: 'String' }],
+      properties: [{ name: 'text', isAttr: true, type: 'String' }],
     },
     {
       // 多值 skill 引用:<dsh:skillRef>name</dsh:skillRef>(每个 skill 一个元素)
@@ -82,6 +83,91 @@ export const dshModdleDescriptor = {
       name: 'SodRule',
       superClass: ['Element'],
       properties: [{ name: 'type', isAttr: true, type: 'String' }],
+    },
+    // ----- Process Context 机制(design 2026-09-01) -----
+    {
+      // 流程级上下文变量声明容器:
+      // <dsh:contextVariables><dsh:contextVariable .../>...</dsh:contextVariables>
+      name: 'ContextVariables',
+      superClass: ['Element'],
+      meta: { allowedIn: ['bpmn:Process'] },
+      properties: [
+        { name: 'contextVariable', isMany: true, type: 'dsh:ContextVariable' },
+      ],
+    },
+    {
+      // 单个上下文变量:name 流程内唯一;type 八种(string/integer/float/boolean/
+      // date/datetime/object/array);source="start-param" 标记启动传入;
+      // initialValue 初始值(与 start-param 可共存兜底);itemType 为 array 的
+      // 元素类型;object/array 元素为 object 时挂 field 字段清单。
+      name: 'ContextVariable',
+      superClass: ['Element'],
+      properties: [
+        { name: 'name', isAttr: true, type: 'String' },
+        { name: 'type', isAttr: true, type: 'String' },
+        { name: 'description', isAttr: true, type: 'String' },
+        { name: 'initialValue', isAttr: true, type: 'String' },
+        { name: 'itemType', isAttr: true, type: 'String' },
+        { name: 'source', isAttr: true, type: 'String' },
+        { name: 'field', isMany: true, type: 'dsh:Field' },
+      ],
+    },
+    {
+      // object 字段清单条目(支持嵌套:field 类型为 object 时可再挂 field)
+      name: 'Field',
+      superClass: ['Element'],
+      properties: [
+        { name: 'name', isAttr: true, type: 'String' },
+        { name: 'type', isAttr: true, type: 'String' },
+        { name: 'description', isAttr: true, type: 'String' },
+        { name: 'field', isMany: true, type: 'dsh:Field' },
+      ],
+    },
+    {
+      // userTask 输出映射容器:source=提交 JSON 的顶层字段/点路径(空=整体),
+      // target=上下文变量名(可带 .field 深入路径);引擎提交端点执行写入
+      name: 'OutputMappings',
+      superClass: ['Element'],
+      meta: { allowedIn: ['bpmn:UserTask'] },
+      properties: [
+        { name: 'mapping', isMany: true, type: 'dsh:Mapping' },
+      ],
+    },
+    {
+      name: 'Mapping',
+      superClass: ['Element'],
+      properties: [
+        { name: 'source', isAttr: true, type: 'String' },
+        { name: 'target', isAttr: true, type: 'String' },
+      ],
+    },
+    {
+      // 代码节点可选消费声明(纯设计时元数据,引擎不解析执行)
+      name: 'InputVariables',
+      superClass: ['Element'],
+      meta: {
+        allowedIn: ['bpmn:ServiceTask', 'bpmn:SendTask', 'bpmn:ScriptTask', 'bpmn:BusinessRuleTask'],
+      },
+      properties: [
+        { name: 'variableRef', isMany: true, type: 'dsh:VariableRef' },
+      ],
+    },
+    {
+      // 代码节点可选产出声明(delegate 代码 setVariable 写的变量)
+      name: 'OutputVariables',
+      superClass: ['Element'],
+      meta: {
+        allowedIn: ['bpmn:ServiceTask', 'bpmn:SendTask', 'bpmn:ScriptTask', 'bpmn:BusinessRuleTask'],
+      },
+      properties: [
+        { name: 'variableRef', isMany: true, type: 'dsh:VariableRef' },
+      ],
+    },
+    {
+      // 对上下文变量的引用:<dsh:variableRef ref="expenseClaim"/>
+      name: 'VariableRef',
+      superClass: ['Element'],
+      properties: [{ name: 'ref', isAttr: true, type: 'String' }],
     },
   ],
 }

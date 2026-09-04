@@ -1,0 +1,177 @@
+.panel {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1px;
+  height: 100%;
+  background: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.sidebar,
+.detail {
+  background: var(--dsw-alias-bg-base);
+  padding: 16px;
+  overflow: auto;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebarTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.taskList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.taskItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.taskItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.taskItemActive {
+  border-color: var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.taskName {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.taskTime {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.empty {
+  color: var(--dsw-alias-label-secondary);
+  margin: auto;
+}
+
+.detailHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.detailMeta {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.skillRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skillLabel {
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.skillTag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+}
+
+.promptSection,
+.jsonSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.promptBody {
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.jsonInput {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-mono, monospace);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  padding: 10px 12px;
+  background: var(--dsw-alias-state-error-tertiary);
+  border-radius: 8px;
+}
+
+.detailActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}

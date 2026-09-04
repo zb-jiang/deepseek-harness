@@ -30,6 +30,11 @@ export interface UpdateBpmnXmlRequest {
   draftBpmnXml: string
 }
 
+export interface UpdateWorkflowMetaRequest {
+  name: string
+  description?: string
+}
+
 export interface BpmnValidationResult {
   valid: boolean
   errors: string[]
@@ -48,6 +53,8 @@ export const workflowsApi = {
   create: (body: CreateWorkflowRequest) => post<WorkflowDefinitionDto>('/api/workflows', body),
   updateDraftBpmn: (workflowId: string, body: UpdateBpmnXmlRequest) =>
     patch<WorkflowDefinitionDto>(`/api/workflows/${workflowId}/draft-bpmn`, body),
+  updateMeta: (workflowId: string, body: UpdateWorkflowMetaRequest) =>
+    patch<WorkflowDefinitionDto>(`/api/workflows/${workflowId}/meta`, body),
   validate: (workflowId: string) => post<BpmnValidationResult>(`/api/workflows/${workflowId}/validate`),
   publish: (workflowId: string) => post<PublishResult>(`/api/workflows/${workflowId}/publish`),
   disable: (workflowId: string) => post<WorkflowDefinitionDto>(`/api/workflows/${workflowId}/disable`),

@@ -42,6 +42,7 @@
     "@deepseek-ai/dsh-platform-user": "workspace:^",
     "@deepseek-ai/dsh-platform-user-supabase": "workspace:^",
     "@deepseek-ai/dsh-platform-user-api": "workspace:^",
+    "@deepseek-ai/dsh-flowable-task-proxy": "workspace:^",
     "@deepseek-ai/dsh-client-ui-enterprise": "workspace:^"
   },
   "peerDependencies": {

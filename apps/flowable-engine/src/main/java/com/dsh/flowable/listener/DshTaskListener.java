@@ -2,13 +2,11 @@ package com.dsh.flowable.listener;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
-import org.flowable.bpmn.model.BpmnModel;
-import org.flowable.bpmn.model.Process;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.flowable.bpmn.model.UserTask;
-import org.flowable.engine.RepositoryService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.delegate.TaskListener;
 import org.flowable.task.service.delegate.DelegateTask;
@@ -16,13 +14,16 @@ import org.springframework.stereotype.Component;
 import com.dsh.flowable.repository.DshMembershipRepository;
 
 /**
- * 在 userTask create 事件触发时,做两件事:
+ * 在 userTask create 事件触发时,做三件事:
  *
  * <ol>
  *   <li><b>注入 dsh 元数据</b>:从 BPMN model 解析节点 {@code dsh:} extensionElements 为
  *       {@link DshExtensionProperties} POJO,JSON 序列化后注入 task-local 变量
- *       {@code dsh_node_meta};task-api 查询待办时一并返回,DSH enterprise profile 用它注入
- *       会话五要素(systemPrompt/userPrompt/inputSchema/outputSchema/skillRefs,SPEC §4.8)。</li>
+ *       {@code dsh_node_meta};task-api 查询待办时一并返回,DSH enterprise profile 用它
+ *       取任务指令(userPrompt)与 skill 引用(skillRefs)。</li>
+ *   <li><b>userPrompt {@code {{}}} 插值</b>(design 2026-09-01 §7):任务创建时把模板中
+ *       {@code {{var.field}}} 占位符替换为流程变量快照——string 直接替换,object/array 序列化为
+ *       JSON 文本嵌入,值缺失保留原占位符。每个候选人的任务各自持有创建时刻快照,互不干扰。</li>
  *   <li><b>SoD 候选过滤</b>(§6.7 B1):解析 {@code dsh:actionPolicy.sodRules},如果非空:
  *       <ul>
  *         <li>从 BPMN 显式配的 {@code flowable:candidateUsers} 或 {@code dsh:assignmentRule.candidateRoleId}
@@ -33,10 +34,9 @@ import com.dsh.flowable.repository.DshMembershipRepository;
  *       V1 不展开角色继承(§6.6 由 DSH task-api 层做);引擎只看直接 role。</li>
  * </ol>
  *
- * <p><b>缓存策略</b>(V1 改进):解析结果按 {@code (procdefId, taskDefKey)} 缓存在
- * {@link DshExtensionPropertiesCache}。首次 task create 时 miss,从 BpmnModel 解析并回填;
- * 后续同节点实例直接读 cache,避免重复调 {@link RepositoryService#getBpmnModel(String)}
- * + 遍历 processes 找 UserTask + {@link DshBpmnExtensionParser#parse} 重建 POJO 的开销。
+ * <p><b>缓存策略</b>:解析结果按 {@code (procdefId, taskDefKey)} 缓存在
+ * {@link DshExtensionPropertiesCache}(经 {@link DshExtensionResolver} 访问)。
+ * cache 存模板原文;插值是每次 task create 的动态步骤,不进 cache。
  *
  * <p>由 {@link DshBpmnParseHandler} 在 BPMN 部署时自动注入到所有 UserTask 的 create event,
  * 通过 {@code delegateExpression="${dshTaskListener}"} 引用本 Spring bean。
@@ -53,24 +53,21 @@ public class DshTaskListener implements TaskListener {
     /** task-local 变量名:标记 SoD 过滤已应用(避免重复)。 */
     public static final String TASK_VARIABLE_SOD_APPLIED = "dsh_sod_applied";
 
-    private final RepositoryService repositoryService;
-    private final DshBpmnExtensionParser parser;
-    private final DshExtensionPropertiesCache cache;
+    /** userPrompt 模板占位符 {@code {{var.field}}}(design 2026-09-01 §7)。 */
+    private static final Pattern PROMPT_PLACEHOLDER = Pattern.compile("\\{\\{([^}]+)}}");
+
+    private final DshExtensionResolver resolver;
     private final ObjectMapper objectMapper;
     private final DshSodFilter sodFilter;
     private final DshMembershipRepository membershipRepository;
     private final TaskService taskService;
 
-    public DshTaskListener(RepositoryService repositoryService,
-                            DshBpmnExtensionParser parser,
-                            DshExtensionPropertiesCache cache,
+    public DshTaskListener(DshExtensionResolver resolver,
                             ObjectMapper objectMapper,
                             DshSodFilter sodFilter,
                             DshMembershipRepository membershipRepository,
                             TaskService taskService) {
-        this.repositoryService = repositoryService;
-        this.parser = parser;
-        this.cache = cache;
+        this.resolver = resolver;
         this.objectMapper = objectMapper;
         this.sodFilter = sodFilter;
         this.membershipRepository = membershipRepository;
@@ -87,15 +84,14 @@ public class DshTaskListener implements TaskListener {
         if (procdefId == null || taskDefKey == null) {
             return;
         }
-        // 缓存命中直接读;未命中(null)时 fallback 解析并回填
-        // 注意:Optional.empty() 表示已缓存但节点无 dsh 元素,直接跳过
-        DshExtensionProperties props = resolveProperties(procdefId, taskDefKey);
+        DshExtensionProperties props = resolver.resolveTaskProperties(procdefId, taskDefKey);
         if (props == null) {
             return;
         }
-        // 1. 注入 dsh 元数据到 task-local 变量
+        // 1. userPrompt 插值快照后,注入 dsh 元数据到 task-local 变量
+        DshExtensionProperties snapshot = withInterpolatedPrompt(props, delegateTask);
         try {
-            String json = objectMapper.writeValueAsString(props);
+            String json = objectMapper.writeValueAsString(snapshot);
             delegateTask.setVariableLocal(TASK_VARIABLE_DSH_META, json);
             delegateTask.setVariableLocal(TASK_VARIABLE_NODE_ID, taskDefKey);
         } catch (JsonProcessingException e) {
@@ -110,45 +106,79 @@ public class DshTaskListener implements TaskListener {
         if (props.actionPolicy() != null
             && props.actionPolicy().sodRules() != null
             && !props.actionPolicy().sodRules().isEmpty()) {
-            BpmnModel bpmnModel = repositoryService.getBpmnModel(procdefId);
-            if (bpmnModel != null) {
-                UserTask userTask = findUserTask(bpmnModel, taskDefKey);
-                if (userTask != null) {
-                    applySod(delegateTask, props, userTask);
-                }
+            UserTask userTask = resolver.findUserTask(procdefId, taskDefKey);
+            if (userTask != null) {
+                applySod(delegateTask, props, userTask);
             }
         }
     }
 
     /**
-     * 从 cache 解析节点 dsh 元数据;miss 时 fallback 查 BpmnModel 解析并回填。
-     *
-     * <p>返回 {@code null} 的两种情况:
-     * <ul>
-     *   <li>cache 已存 {@link Optional#empty()}(节点无 dsh 元素,本就该跳过);</li>
-     *   <li>fallback 后 BPMN 中找不到该 UserTask(理论不应发生,容忍处理)。</li>
-     * </ul>
+     * 对 userPrompt 做 {@code {{}}} 插值;其余字段原样保留。
      */
-    private DshExtensionProperties resolveProperties(String procdefId, String taskDefKey) {
-        Optional<DshExtensionProperties> cached = cache.get(procdefId, taskDefKey);
-        if (cached != null) {
-            return cached.orElse(null);
+    private DshExtensionProperties withInterpolatedPrompt(DshExtensionProperties props,
+                                                           DelegateTask delegateTask) {
+        String template = props.userPrompt();
+        if (template == null || template.isBlank()) {
+            return props;
         }
-        // miss:fallback 查 BpmnModel 解析后回填
-        BpmnModel bpmnModel = repositoryService.getBpmnModel(procdefId);
-        if (bpmnModel == null) {
-            // 部署信息不可用,记 empty 避免重复查;部署可能后续才能拿到但 V1 不做更复杂处理
-            cache.put(procdefId, taskDefKey, null);
-            return null;
+        return new DshExtensionProperties(
+            props.assignmentRule(),
+            interpolate(template, delegateTask),
+            props.skillRefs(),
+            props.actionPolicy(),
+            props.outputMappings(),
+            props.contextVariables()
+        );
+    }
+
+    /**
+     * 替换模板中全部 {@code {{var.field}}} 占位符。
+     */
+    private String interpolate(String template, DelegateTask delegateTask) {
+        Matcher matcher = PROMPT_PLACEHOLDER.matcher(template);
+        StringBuilder sb = new StringBuilder();
+        while (matcher.find()) {
+            String path = matcher.group(1).trim();
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(resolvePlaceholder(path, delegateTask)));
         }
-        UserTask userTask = findUserTask(bpmnModel, taskDefKey);
-        DshExtensionProperties props = userTask == null ? null : parser.parse(userTask);
-        cache.put(procdefId, taskDefKey, props);
-        return props;
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * 解析点路径占位符:根段从流程变量取,后续段深入 Map 字段;
+     * 值缺失(null 或路径中途断开)保留原占位符文本,string 直接替换,
+     * 其余类型(object/array/数字等)序列化为 JSON 文本嵌入。
+     */
+    private String resolvePlaceholder(String path, DelegateTask delegateTask) {
+        String[] segments = path.split("\\.");
+        Object value = delegateTask.getVariable(segments[0]);
+        for (int i = 1; i < segments.length && value != null; i++) {
+            if (value instanceof Map<?, ?> map) {
+                value = map.get(segments[i]);
+            } else {
+                value = null;
+            }
+        }
+        if (value == null) {
+            return "{{" + path + "}}";
+        }
+        if (value instanceof String s) {
+            return s;
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            return "{{" + path + "}}";
+        }
     }
 
     /**
      * 应用 SoD 规则过滤候选 users,结果写入 task.candidateUsers。
+     *
+     * <p>多实例任务已由 {@link DshMultiInstanceSetupListener} 在节点 start 时注入
+     * collection 变量并直接分配 assignee,本方法跳过,避免重复设置 candidateUsers。</p>
      *
      * <p>过滤前提:能拿到初始候选 users。优先级:
      * <ol>
@@ -159,6 +189,9 @@ public class DshTaskListener implements TaskListener {
      * 拿不到候选则跳过 SoD 过滤(SoD 无从下手);task-api 层 complete 时可再校验(B2 兜底)。
      */
     private void applySod(DelegateTask delegateTask, DshExtensionProperties props, UserTask userTask) {
+        if (userTask.getLoopCharacteristics() != null) {
+            return;
+        }
         if (props.actionPolicy() == null
             || props.actionPolicy().sodRules() == null
             || props.actionPolicy().sodRules().isEmpty()) {
@@ -203,21 +236,5 @@ public class DshTaskListener implements TaskListener {
             return List.of();
         }
         return membershipRepository.findActiveUserIdsByRoleId(roleId);
-    }
-
-    private UserTask findUserTask(BpmnModel bpmnModel, String taskDefKey) {
-        List<Process> processes = bpmnModel.getProcesses();
-        if (processes == null || processes.isEmpty()) {
-            return null;
-        }
-        for (Process process : processes) {
-            Collection<UserTask> tasks = process.findFlowElementsOfType(UserTask.class);
-            for (UserTask t : tasks) {
-                if (taskDefKey.equals(t.getId())) {
-                    return t;
-                }
-            }
-        }
-        return null;
     }
 }
