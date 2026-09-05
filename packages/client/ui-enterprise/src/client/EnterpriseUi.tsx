@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { BrandWordmark } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
@@ -151,6 +151,86 @@ export function useAuth() {
 
 // ── Auth panel (login / register card) ──
 
+/** 邮箱输入的行首图标。 */
+const MailIcon = () => (
+  <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    <rect x="2.5" y="4.5" width="15" height="11" rx="2" />
+    <path d="m3.5 6 5.8 4.4a2 2 0 0 0 2.4 0L17.5 6" />
+  </svg>
+)
+
+/** 密码输入的行首图标。 */
+const LockIcon = () => (
+  <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    <rect x="4.5" y="8.5" width="11" height="8" rx="2" />
+    <path d="M7 8.5V6.8a3 3 0 0 1 6 0v1.7" />
+  </svg>
+)
+
+/** 用户名输入的行首图标。 */
+const UserIcon = () => (
+  <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    <circle cx="10" cy="6.5" r="2.8" />
+    <path d="M4.5 16.5c.9-2.6 3-4 5.5-4s4.6 1.4 5.5 4" />
+  </svg>
+)
+
+/** 密码可见性切换按钮的图标。 */
+const EyeIcon = ({ off }: { off: boolean }) => (
+  <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    {off
+      ? <path d="M3.5 10s2.7-4.5 6.5-4.5c1 0 1.9.2 2.7.6M16.5 10s-.5.9-1.4 1.8c-1.3 1.4-2.8 2.2-4.6 2.2-1 0-1.9-.2-2.7-.6M3 3l14 14" />
+      : <path d="M2.5 10S5.2 5.5 10 5.5 17.5 10 17.5 10 14.8 14.5 10 14.5 2.5 10 2.5 10Z" />}
+    {!off && <circle cx="10" cy="10" r="2.2" />}
+  </svg>
+)
+
+/** 错误提示的图标。 */
+const AlertIcon = () => (
+  <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+    <circle cx="10" cy="10" r="7.2" />
+    <path d="M10 6.5v4.2" strokeLinecap="round" />
+    <circle cx="10" cy="13.4" r="0.9" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+/** hero 功能要点勾选图标。 */
+const CheckIcon = () => (
+  <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+    <path d="m4 10.5 4 4 8-9" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** 带行首图标与可选行尾动作的输入框行。 */
+function Field({
+  icon, type = 'text', placeholder, value, onChange, trailing, autoComplete, autoFocus,
+}: {
+  icon: ReactNode
+  type?: string
+  placeholder: string
+  value: string
+  onChange: (v: string) => void
+  trailing?: ReactNode
+  autoComplete?: string
+  autoFocus?: boolean
+}) {
+  return (
+    <div className={css.field}>
+      <span className={css.fieldIcon}>{icon}</span>
+      <input
+        className={css.fieldInput}
+        type={type}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => { onChange(e.target.value) }}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+      />
+      {trailing !== undefined && <span className={css.fieldTrailing}>{trailing}</span>}
+    </div>
+  )
+}
+
 function AuthPanel({
   onLogin,
   onRegister,
@@ -164,6 +244,8 @@ function AuthPanel({
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loginName, setLoginName] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const registerBlocked = loginName.trim() === '' || displayName.trim() === '' || email.trim() === '' || password.trim() === '' || confirmPassword.trim() === ''
@@ -199,34 +281,95 @@ function AuthPanel({
     }
   }, [mode, email, password, confirmPassword, loginName, displayName, onLogin, onRegister, loginBlocked, registerBlocked])
 
+  const passwordToggle = (
+    <button
+      type="button"
+      className={css.eyeButton}
+      onClick={() => { setShowPassword(v => !v) }}
+      aria-label={showPassword ? '隐藏密码' : '显示密码'}
+    >
+      <EyeIcon off={!showPassword} />
+    </button>
+  )
+  const confirmToggle = (
+    <button
+      type="button"
+      className={css.eyeButton}
+      onClick={() => { setShowConfirm(v => !v) }}
+      aria-label={showConfirm ? '隐藏密码' : '显示密码'}
+    >
+      <EyeIcon off={!showConfirm} />
+    </button>
+  )
+
   return (
     <div className={css.authPanel}>
-      <div className={css.authTabs}>
-        <button type="button" className={clsx(css.authTab, mode === 'login' && css.authTabActive)} onClick={() => { setMode('login'); setError(null) }}>登录</button>
-        <button type="button" className={clsx(css.authTab, mode === 'register' && css.authTabActive)} onClick={() => { setMode('register'); setError(null) }}>注册</button>
-      </div>
-      <div className={css.authForm}>
-        {mode === 'register' && (
-          <>
-            <input className={clsx(css.textInput, css.authTextInput)} placeholder="登录名 *" value={loginName} onChange={(e) => { setLoginName(e.target.value) }} />
-            <input className={clsx(css.textInput, css.authTextInput)} placeholder="显示名 *" value={displayName} onChange={(e) => { setDisplayName(e.target.value) }} />
-          </>
-        )}
-        <input className={clsx(css.textInput, css.authTextInput)} placeholder="邮箱 *" value={email} onChange={(e) => { setEmail(e.target.value) }} />
-        <input className={clsx(css.textInput, css.authTextInput)} type="password" placeholder="密码 *" value={password} onChange={(e) => { setPassword(e.target.value) }} />
-        {mode === 'register' && (
-          <input className={clsx(css.textInput, css.authTextInput)} type="password" placeholder="确认密码 *" value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value) }} />
-        )}
-        {error !== null && <div className={css.authError}>{error}</div>}
+      <div className={css.authTabs} role="tablist">
         <button
           type="button"
-          className={clsx(css.actionButton, css.authSubmitButton)}
-          onClick={() => { void submit() }}
-          disabled={loading || (mode === 'login' ? loginBlocked : registerBlocked)}
+          role="tab"
+          aria-selected={mode === 'login'}
+          className={clsx(css.authTab, mode === 'login' && css.authTabActive)}
+          onClick={() => { setMode('login'); setError(null) }}
         >
-          {loading ? '处理中…' : (mode === 'login' ? '登录' : '注册')}
+          登录
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'register'}
+          className={clsx(css.authTab, mode === 'register' && css.authTabActive)}
+          onClick={() => { setMode('register'); setError(null) }}
+        >
+          注册
         </button>
       </div>
+      <form
+        className={css.authForm}
+        onSubmit={(e) => { e.preventDefault(); void submit() }}
+      >
+        {mode === 'register' && (
+          <>
+            <Field icon={<UserIcon />} placeholder="登录名" value={loginName} onChange={setLoginName} autoComplete="username" />
+            <Field icon={<UserIcon />} placeholder="显示名" value={displayName} onChange={setDisplayName} />
+          </>
+        )}
+        <Field icon={<MailIcon />} type="email" placeholder="邮箱" value={email} onChange={setEmail} autoComplete="email" autoFocus />
+        <Field
+          icon={<LockIcon />}
+          type={showPassword ? 'text' : 'password'}
+          placeholder="密码"
+          value={password}
+          onChange={setPassword}
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          trailing={passwordToggle}
+        />
+        {mode === 'register' && (
+          <Field
+            icon={<LockIcon />}
+            type={showConfirm ? 'text' : 'password'}
+            placeholder="确认密码"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+            trailing={confirmToggle}
+          />
+        )}
+        {error !== null && (
+          <div className={css.authError} role="alert">
+            <AlertIcon />
+            <span>{error}</span>
+          </div>
+        )}
+        <button
+          type="submit"
+          className={css.authSubmitButton}
+          disabled={loading || (mode === 'login' ? loginBlocked : registerBlocked)}
+        >
+          {loading && <span className={css.spinner} aria-hidden />}
+          {loading ? '请稍候…' : (mode === 'login' ? '登 录' : '注 册')}
+        </button>
+      </form>
       {mode === 'register' && <div className={css.hint}>注册后需要管理员审批才能进入平台</div>}
     </div>
   )
@@ -259,6 +402,11 @@ export function EnterpriseOverlay() {
           <div className={css.authPageSubtitle}>
             统一身份入口，注册后进入待审批状态，通过后才能进入企业主界面。
           </div>
+          <ul className={css.authFeatures}>
+            <li><CheckIcon />待办任务一站式处理</li>
+            <li><CheckIcon />AI 会话辅助完成任务</li>
+            <li><CheckIcon />流程进度与变量全程可视</li>
+          </ul>
         </div>
         <div className={css.authPageCard}>
           <div className={css.authPageHeader}>
@@ -280,7 +428,7 @@ export function EnterpriseOverlay() {
             <div className={css.authBlockedActions}>
               <button
                 type="button"
-                className={clsx(css.actionButton, css.authSecondaryButton)}
+                className={css.authSecondaryButton}
                 onClick={() => { void switchAccount() }}
               >
                 切换账号
