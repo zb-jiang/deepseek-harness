@@ -1,0 +1,458 @@
+/**
+ * 任务档案栏:enterprise profile 遮蔽 ui-conversation DetailsPanel 的整栏占据者。
+ *
+ * <p>当前会话绑定待办时展示任务档案四件套 —— 任务信息 / 任务指令(重新填入) /
+ * 流程进度(部署版 BPMN 迷你图 + 执行记录,支持分支与并行)/ 上下文变量带值,
+ * 并从会话最后一条助手消息自动提取 AI 输出 JSON,经映射确认对话框提交待办。
+ * 提交后:会话回执能在"已完成"列表定位引擎历史任务时渲染完整完成档案
+ * (进度/变量/执行记录),否则退化为最小回执;选中已完成任务(无本地会话)
+ * 渲染只读档案;未绑定会话渲染空态。会话区(中间栏)保持原生
+ * ConversationRoot,员工零复制粘贴。
+ */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, JsonTree } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { EnterpriseWorkbench } from './enterprise-workbench.ts'
+import { TaskSubmitDialog } from './TaskSubmitDialog.tsx'
+import type {
+  CompletedTask, ContextVariable, HistoricActivity, HistoricVariable, Task,
+} from './task-api.ts'
+import { getBpmnXml, getHistoricActivities, getHistoricVariables } from './task-api.ts'
+import { parseMiniBpmn } from './bpmn-xml.ts'
+import type { MiniBpmnDiagram } from './bpmn-xml.ts'
+import { ProcessDiagram } from './workbench/ProcessDiagram.tsx'
+import {
+  activityStatuses, executionRecords, extractJson, lastAssistantText,
+} from './workbench/pure.ts'
+import { formatShortTime, useSnapshot } from './workbench/hooks.ts'
+import css from './TaskArchivePanel.module.css'
+
+/** 档案栏注入面:工作台编排器 + 关闭动作。 */
+export type TaskArchivePanelInjected = {
+  workbench: EnterpriseWorkbench
+  /** 头部关闭按钮(layout 面宽切换)。 */
+  closeDetails: () => void
+}
+
+/** 档案栏组件 props:session 标准套件 + 注入面。 */
+export type TaskArchivePanelProps =
+  & PropsRuntime<'details'>
+  & TaskArchivePanelInjected
+
+/** 流程进度/变量区块的数据面(一次按实例聚合拉取)。 */
+type ArchiveData = {
+  loading: boolean
+  error: string | null
+  activities: readonly HistoricActivity[]
+  variables: readonly HistoricVariable[]
+  diagram: MiniBpmnDiagram | null
+}
+
+const ARCHIVE_EMPTY: ArchiveData = {
+  loading: false, error: null, activities: [], variables: [], diagram: null,
+}
+
+/** 活动类型 → 人读标签(缺省原样返回)。 */
+const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  startEvent: '开始', endEvent: '结束',
+  userTask: '人工任务', serviceTask: '服务任务', scriptTask: '脚本任务',
+  sendTask: '发送任务', receiveTask: '接收任务', manualTask: '手工任务',
+  businessRuleTask: '规则任务', callActivity: '调用活动',
+  exclusiveGateway: '排他网关', parallelGateway: '并行网关',
+  inclusiveGateway: '相容网关', eventBasedGateway: '事件网关',
+  boundaryEvent: '边界事件', intermediateCatchEvent: '捕获事件',
+  intermediateThrowEvent: '抛出事件', subProcess: '子流程',
+}
+
+function activityTypeLabel(type: string): string {
+  return ACTIVITY_TYPE_LABELS[type] ?? type
+}
+
+/** 变量值的人读格式:JSON 一行,超长截断。 */
+function formatValue(value: unknown): string {
+  const text = JSON.stringify(value) ?? 'null'
+  return text.length > 160 ? `${text.slice(0, 159)}…` : text
+}
+
+/** 档案数据的实例定位面(待办与已完成历史任务共有的定位字段)。 */
+type ArchiveTaskRef = Pick<Task, 'processInstanceId' | 'processDefinitionId'>
+
+/**
+ * 按流程实例聚合拉取档案数据(活动/变量/部署版 XML→迷你图)。
+ * 切换任务时以序号守卫丢弃过期响应;XML 解析失败只降级迷你图不报错。
+ */
+function useArchiveData(task: ArchiveTaskRef | undefined): ArchiveData {
+  const instanceId = task?.processInstanceId
+  const definitionId = task?.processDefinitionId
+  const [state, setState] = useState<ArchiveData>(ARCHIVE_EMPTY)
+
+  useEffect(() => {
+    if (instanceId === undefined || definitionId === undefined) {
+      setState(ARCHIVE_EMPTY)
+      return
+    }
+    let live = true
+    setState({ ...ARCHIVE_EMPTY, loading: true })
+    void (async () => {
+      try {
+        const [activities, variables, xml] = await Promise.all([
+          getHistoricActivities(instanceId),
+          getHistoricVariables(instanceId),
+          getBpmnXml(definitionId),
+        ])
+        if (!live) return
+        setState({
+          loading: false, error: null, activities, variables,
+          diagram: parseMiniBpmn(xml),
+        })
+      } catch (e) {
+        if (!live) return
+        setState({
+          ...ARCHIVE_EMPTY,
+          error: e instanceof Error ? e.message : String(e),
+        })
+      }
+    })()
+    return () => { live = false }
+  }, [instanceId, definitionId])
+
+  return state
+}
+
+/** 任务档案栏(见模块文档)。 */
+export function TaskArchivePanel({ sessionId, useSession, workbench, closeDetails }: TaskArchivePanelProps) {
+  const tasks = useSnapshot(workbench.tasks)
+  const bindings = useSnapshot(workbench.bindings)
+  const nodes = useSession(s => s.nodes)
+  const running = useSession(s => s.running)
+
+  const taskId = bindings.sessionToTask[sessionId]
+  const task = taskId === undefined ? undefined : tasks.items.find(item => item.id === taskId)
+  const completed = bindings.completedBySession[sessionId]
+  // 回执对应的引擎历史任务(在"已完成"列表中定位);找到则右栏渲染完整
+  // 流程档案(进度/变量/执行记录),不在近期列表时退化为最小回执。
+  const completedTask = completed === undefined
+    ? undefined
+    : tasks.completed.find(item => item.id === completed.taskId)
+  const selectedCompleted = tasks.selectedCompleted
+  const archive = useArchiveData(task ?? selectedCompleted ?? completedTask ?? undefined)
+
+  // 手动切换会话(原生 workspaces 浏览)时退出已完成任务的只读视图;
+  // 挂载本身不清(否则面板随会话出现而挂载时会把刚选中的只读档案清掉)。
+  const lastSessionId = useRef(sessionId)
+  useEffect(() => {
+    if (lastSessionId.current === sessionId) return
+    lastSessionId.current = sessionId
+    workbench.clearSelectedCompleted()
+  }, [sessionId, workbench])
+
+  const json = useMemo(() => extractJson(lastAssistantText(nodes)), [nodes])
+  const jsonTreeData = useMemo<object | unknown[] | null>(() => {
+    if (json === null || typeof json !== 'object') return null
+    return json as object | unknown[]
+  }, [json])
+  const jsonText = useMemo(
+    () => (json === undefined ? '' : JSON.stringify(json, null, 2)),
+    [json],
+  )
+
+  const [submitOpen, setSubmitOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  const statuses = useMemo(() => activityStatuses(archive.activities), [archive.activities])
+  const records = useMemo(() => executionRecords(archive.activities), [archive.activities])
+  const valuesByName = useMemo(
+    () => new Map(archive.variables.map(v => [v.variableName, v])),
+    [archive.variables],
+  )
+
+  const handleSubmit = (variables: Record<string, unknown>): void => {
+    if (task === undefined) return
+    setSubmitting(true)
+    setSubmitError(null)
+    workbench.submitTask(task, variables)
+      .then(() => { setSubmitOpen(false) })
+      .catch((e: unknown) => { setSubmitError(e instanceof Error ? e.message : String(e)) })
+      .finally(() => { setSubmitting(false) })
+  }
+
+  return (
+    <div className={css.root}>
+      {selectedCompleted !== null
+        ? <CompletedArchive task={selectedCompleted} archive={archive} closeDetails={closeDetails} />
+        : task === undefined
+          ? (
+            completedTask !== undefined
+              ? <CompletedArchive task={completedTask} archive={archive} closeDetails={closeDetails} />
+              : (
+                <div className={css.placeholder}>
+                  {completed !== undefined
+                    ? (
+                      <div className={css.receipt}>
+                        <div className={css.receiptBadge}>已提交</div>
+                        <div className={css.receiptName}>{completed.taskName}</div>
+                        <div className={css.receiptTime}>
+                          完成于 {formatShortTime(new Date(completed.submittedAt).toISOString())}
+                        </div>
+                        <div className={css.receiptHint}>
+                          本会话已保留,可继续查阅处理过程;左侧「已完成」可再次进入。
+                        </div>
+                      </div>
+                    )
+                    : <div className={css.emptyHint}>当前会话未绑定待办任务</div>}
+                </div>
+              )
+          )
+          : (
+            <>
+              <div className={css.header}>
+                <div className={css.headerMain}>
+                  <div className={css.title}>{task.name ?? task.id}</div>
+                  <div className={css.subtitle}>{task.processDefinitionName ?? task.processDefinitionId}</div>
+                </div>
+                <button type="button" className={css.close} onClick={closeDetails} aria-label="关闭档案栏">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className={css.body}>
+                <section className={css.section}>
+                  <div className={css.sectionTitle}>任务信息</div>
+                  <div className={css.infoGrid}>
+                    <span className={css.infoLabel}>发起人</span>
+                    <span className={css.infoValue}>{task.startUserName ?? task.startUserId ?? '未知'}</span>
+                    <span className={css.infoLabel}>到达时间</span>
+                    <span className={css.infoValue}>{formatShortTime(task.createTime)}</span>
+                    <span className={css.infoLabel}>流程实例</span>
+                    <span className={css.infoValue} title={task.processInstanceId}>
+                      {task.processInstanceId.slice(0, 13)}…
+                    </span>
+                  </div>
+                </section>
+
+                <section className={css.section}>
+                  <div className={css.sectionTitle}>
+                    任务指令
+                    <button
+                      type="button"
+                      className={css.linkButton}
+                      disabled={(task.dshMeta?.userPrompt ?? '') === ''}
+                      onClick={() => { workbench.reinsertPrompt(task, sessionId) }}
+                      title="把设计时配置的任务指令重新填入输入框"
+                    >
+                      重新填入
+                    </button>
+                  </div>
+                  <pre className={css.prompt}>
+                    {task.dshMeta?.userPrompt ?? '（本任务未配置指令）'}
+                  </pre>
+                </section>
+
+                <section className={css.section}>
+                  <div className={css.sectionTitle}>流程进度</div>
+                  {archive.loading && <div className={css.hint}>加载中…</div>}
+                  {archive.error !== null && <div className={css.error}>{archive.error}</div>}
+                  {!archive.loading && archive.error === null && (
+                    <>
+                      {archive.diagram !== null && (
+                        <ProcessDiagram
+                          diagram={archive.diagram}
+                          statuses={statuses}
+                          currentActivityId={task.nodeId ?? task.taskDefinitionKey}
+                        />
+                      )}
+                      <div className={css.records}>
+                        {records.length === 0 && <div className={css.hint}>暂无执行记录</div>}
+                        {records.map(record => (
+                          <div key={record.id} className={css.recordRow}>
+                            <span
+                              className={`${css.recordDot} ${record.endTime === null ? css.recordDotActive : ''}`}
+                            />
+                            <span className={css.recordName}>
+                              {record.activityName ?? record.activityId}
+                              <span className={css.recordType}>{activityTypeLabel(record.activityType)}</span>
+                            </span>
+                            <span className={css.recordTime}>
+                              {record.startTime !== null ? formatShortTime(record.startTime) : ''}
+                              {record.endTime === null ? ' …' : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </section>
+
+                <section className={css.section}>
+                  <div className={css.sectionTitle}>上下文变量</div>
+                  <ContextVariables
+                    declarations={task.dshMeta?.contextVariables ?? []}
+                    valuesByName={valuesByName}
+                  />
+                </section>
+
+                <section className={css.section}>
+                  <div className={css.sectionTitle}>
+                    AI 输出
+                    {running && <span className={css.runningTag}>生成中…</span>}
+                  </div>
+                  {jsonTreeData !== null
+                    ? <JsonTree data={jsonTreeData} />
+                    : (
+                      <div className={css.hint}>
+                        {running
+                          ? 'AI 正在处理,完成后这里自动提取最新的 JSON 输出。'
+                          : '暂无可提取的 JSON 输出 —— 在会话区发送任务指令后,AI 输出中的 JSON 会自动显示在这里。'}
+                      </div>
+                    )}
+                  <Button
+                    className={css.submitButton}
+                    disabled={json === undefined}
+                    onClick={() => { setSubmitOpen(true) }}
+                  >
+                    提交待办
+                  </Button>
+                </section>
+              </div>
+
+              <TaskSubmitDialog
+                key={task.id}
+                open={submitOpen}
+                task={task}
+                jsonText={jsonText}
+                submitting={submitting}
+                submitError={submitError}
+                onClose={() => { setSubmitOpen(false) }}
+                onSubmit={handleSubmit}
+              />
+            </>
+          )}
+    </div>
+  )
+}
+
+/** 耗时的人读格式(毫秒 → `x 分 y 秒`/`x 秒`;null 保持空)。 */
+function formatDuration(millis: number | null): string {
+  if (millis === null || millis < 0) return ''
+  const seconds = Math.round(millis / 1000)
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return rest === 0 ? `${minutes} 分钟` : `${minutes} 分 ${rest} 秒`
+}
+
+/** 已完成任务的只读档案(引擎历史数据;无本地会话时的回看视图)。 */
+function CompletedArchive(props: {
+  task: CompletedTask
+  archive: ArchiveData
+  closeDetails: () => void
+}) {
+  const { task, archive, closeDetails } = props
+  const statuses = useMemo(() => activityStatuses(archive.activities), [archive.activities])
+  const records = useMemo(() => executionRecords(archive.activities), [archive.activities])
+  const valuesByName = useMemo(
+    () => new Map(archive.variables.map(v => [v.variableName, v])),
+    [archive.variables],
+  )
+
+  return (
+    <>
+      <div className={css.header}>
+        <div className={css.headerMain}>
+          <div className={css.title}>{task.name ?? task.id}</div>
+          <div className={css.subtitle}>已完成任务(只读)</div>
+        </div>
+        <button type="button" className={css.close} onClick={closeDetails} aria-label="关闭档案栏">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <div className={css.body}>
+        <section className={css.section}>
+          <div className={css.sectionTitle}>任务信息</div>
+          <div className={css.infoGrid}>
+            <span className={css.infoLabel}>完成时间</span>
+            <span className={css.infoValue}>
+              {task.endTime !== null ? formatShortTime(task.endTime) : '—'}
+            </span>
+            <span className={css.infoLabel}>处理耗时</span>
+            <span className={css.infoValue}>{formatDuration(task.durationInMillis) || '—'}</span>
+            <span className={css.infoLabel}>流程实例</span>
+            <span className={css.infoValue} title={task.processInstanceId}>
+              {task.processInstanceId.slice(0, 13)}…
+            </span>
+          </div>
+        </section>
+
+        <section className={css.section}>
+          <div className={css.sectionTitle}>流程进度</div>
+          {archive.loading && <div className={css.hint}>加载中…</div>}
+          {archive.error !== null && <div className={css.error}>{archive.error}</div>}
+          {!archive.loading && archive.error === null && (
+            <>
+              {archive.diagram !== null && (
+                <ProcessDiagram diagram={archive.diagram} statuses={statuses} currentActivityId={null} />
+              )}
+              <div className={css.records}>
+                {records.length === 0 && <div className={css.hint}>暂无执行记录</div>}
+                {records.map(record => (
+                  <div key={record.id} className={css.recordRow}>
+                    <span className={`${css.recordDot} ${record.endTime === null ? css.recordDotActive : ''}`} />
+                    <span className={css.recordName}>
+                      {record.activityName ?? record.activityId}
+                      <span className={css.recordType}>{activityTypeLabel(record.activityType)}</span>
+                    </span>
+                    <span className={css.recordTime}>
+                      {record.startTime !== null ? formatShortTime(record.startTime) : ''}
+                      {record.endTime === null ? ' …' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className={css.section}>
+          <div className={css.sectionTitle}>上下文变量</div>
+          <ContextVariables
+            declarations={task.dshMeta?.contextVariables ?? []}
+            valuesByName={valuesByName}
+          />
+        </section>
+      </div>
+    </>
+  )
+}
+
+/** 上下文变量声明 + 实例当前值的合并展示。 */
+function ContextVariables(props: {
+  declarations: readonly ContextVariable[]
+  valuesByName: ReadonlyMap<string, HistoricVariable>
+}) {
+  const { declarations, valuesByName } = props
+  if (declarations.length === 0) {
+    return <div className={css.hint}>本流程未声明上下文变量</div>
+  }
+  return (
+    <div className={css.variables}>
+      {declarations.map((declaration) => {
+        const value = valuesByName.get(declaration.name)
+        return (
+          <div key={declaration.name} className={css.variableRow} title={declaration.description ?? undefined}>
+            <span className={css.variableName}>{declaration.name}</span>
+            <span className={css.variableType}>{declaration.type}</span>
+            <span className={css.variableValue}>
+              {value === undefined ? '（未赋值）' : formatValue(value.value)}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}

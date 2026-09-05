@@ -27,6 +27,14 @@ export interface ILayout {
   openDetails(): void
   /** Close the details panel. */
   closeDetails(): void
+  /**
+   * Pin the details panel open for blank sessions too (opt-in; native
+   * profiles never call it). While pinned, the frame keeps the details
+   * column at its stored width whenever any session is current, instead of
+   * the native non-blank-session gate; unpinning restores the gate.
+   * @param pinned - whether the details panel stays pinned open.
+   */
+  setPinned(pinned: boolean): void
 }
 
 /** Cross-plugin panel-action face (ctx.layout). */
@@ -57,6 +65,11 @@ export class LayoutController implements ILayout {
   /** Close the details panel. */
   closeDetails(): void {
     this.#require().closeDetails()
+  }
+
+  /** Pin/unpin the details panel open (opt-in; see ILayout.setPinned). */
+  setPinned(pinned: boolean): void {
+    this.#require().setPinned(pinned)
   }
 
   #require(): PanelActions {

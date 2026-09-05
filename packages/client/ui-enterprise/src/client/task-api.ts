@@ -68,6 +68,57 @@ export type Task = {
   createTime: string
   dshMeta: DshMeta | null
   nodeId: string | null
+  /** 流程定义名(BPMN process name),待办卡片人读展示。 */
+  processDefinitionName: string | null
+  /** 实例发起人 auth_subject(Supabase Auth sub)。 */
+  startUserId: string | null
+  /** 发起人显示名;未解析到为 null,前端回退显示 id。 */
+  startUserName: string | null
+}
+
+/**
+ * 已完成历史任务(/dsh/history/tasks?finished=true):引擎默认按当前 JWT
+ * 用户过滤("我处理过的"),刷新页面后仍是持久真相(区别于本地内存回执)。
+ */
+export type CompletedTask = {
+  id: string
+  processInstanceId: string
+  processDefinitionId: string
+  taskDefinitionKey: string
+  name: string | null
+  assignee: string | null
+  startTime: string
+  endTime: string | null
+  durationInMillis: number | null
+  deleteReason: string | null
+  dshMeta: DshMeta | null
+  nodeId: string | null
+}
+
+/** 历史活动记录(/dsh/history/activities):流程已走过/正在走的全部节点。 */
+export type HistoricActivity = {
+  id: string
+  processInstanceId: string
+  processDefinitionId: string
+  activityId: string
+  activityName: string | null
+  activityType: string
+  assignee: string | null
+  startTime: string | null
+  endTime: string | null
+  durationInMillis: number | null
+}
+
+/** 历史变量记录(/dsh/history/variables):实例上下文变量当前/最终值。 */
+export type HistoricVariable = {
+  id: string
+  processInstanceId: string
+  variableName: string
+  variableTypeName: string
+  /** JSON 值(标量/对象/数组/null;不可序列化值降级为字符串)。 */
+  value: unknown
+  createTime: string | null
+  lastUpdatedTime: string | null
 }
 
 function readToken(): string | null {
@@ -109,6 +160,11 @@ export async function getMyTasks(): Promise<Task[]> {
   return fetchJson<Task[]>('/dsh/tasks/my-tasks')
 }
 
+/** 查当前用户已完成的历史任务(侧栏"已完成"分组数据源,按完成时间倒序)。 */
+export async function getCompletedTasks(size = 20): Promise<CompletedTask[]> {
+  return fetchJson<CompletedTask[]>(`/dsh/history/tasks?finished=true&size=${size}`)
+}
+
 export async function getTask(taskId: string): Promise<Task> {
   return fetchJson<Task>(`/dsh/tasks/${taskId}`)
 }
@@ -131,4 +187,34 @@ export async function completeTask(
     const text = await res.text()
     throw new Error(`${res.status} ${res.statusText}: ${text}`)
   }
+}
+
+/** 查实例的历史活动(执行记录 + 迷你流程图高亮数据源)。 */
+export async function getHistoricActivities(processInstanceId: string): Promise<HistoricActivity[]> {
+  return fetchJson<HistoricActivity[]>(
+    `/dsh/history/activities?processInstanceId=${encodeURIComponent(processInstanceId)}`,
+  )
+}
+
+/** 查实例的上下文变量当前值(与声明 schema 连接展示)。 */
+export async function getHistoricVariables(processInstanceId: string): Promise<HistoricVariable[]> {
+  return fetchJson<HistoricVariable[]>(
+    `/dsh/history/variables?processInstanceId=${encodeURIComponent(processInstanceId)}`,
+  )
+}
+
+/** 查流程定义的部署版 BPMN XML(迷你流程图按部署版渲染)。 */
+export async function getBpmnXml(processDefinitionId: string): Promise<string> {
+  const token = readToken()
+  const headers: Record<string, string> = {}
+  if (token !== null) headers.authorization = `Bearer ${token}`
+  const res = await fetch(
+    `/dsh/history/bpmn-xml?processDefinitionId=${encodeURIComponent(processDefinitionId)}`,
+    { headers },
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status} ${res.statusText}: ${text}`)
+  }
+  return res.text()
 }

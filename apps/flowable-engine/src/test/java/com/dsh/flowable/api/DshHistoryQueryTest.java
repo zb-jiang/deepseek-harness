@@ -178,6 +178,34 @@ class DshHistoryQueryTest {
             .isEqualTo(400);
     }
 
+    @Test
+    void returnsDeployedBpmnXmlByDefinitionId() {
+        String procdefId = deployApprovalProcess();
+
+        String xml = controller.getBpmnXml(procdefId);
+        assertThat(xml)
+            .contains("<process")
+            .contains("dsh_history_process")
+            .contains("userTask")
+            .contains("审批");
+    }
+
+    @Test
+    void bpmnXmlRejectsMissingOrUnknownDefinition() {
+        assertThatThrownBy(() -> controller.getBpmnXml(null))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(400);
+        assertThatThrownBy(() -> controller.getBpmnXml(" "))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(400);
+        assertThatThrownBy(() -> controller.getBpmnXml("no-such-procdef"))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(404);
+    }
+
     /** 部署一个最小审批流程并返回 procdefId。 */
     private String deployApprovalProcess() {
         String xml = """

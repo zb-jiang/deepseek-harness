@@ -51,20 +51,24 @@ public class DshTaskController {
     private final TaskService taskService;
     private final ObjectMapper objectMapper;
     private final DshTaskCompletionService completionService;
+    private final DshTaskMetaService taskMetaService;
 
     public DshTaskController(TaskService taskService,
                               ObjectMapper objectMapper,
-                              DshTaskCompletionService completionService) {
+                              DshTaskCompletionService completionService,
+                              DshTaskMetaService taskMetaService) {
         this.taskService = taskService;
         this.objectMapper = objectMapper;
         this.completionService = completionService;
+        this.taskMetaService = taskMetaService;
     }
 
     /**
      * 查询当前 JWT 用户已认领的任务(assignee = sub)。
      *
      * <p>不含候选任务(未认领);候选任务由 task-api 按角色集查 candidateGroup 拿。
-     * 用 {@code includeTaskLocalVariables} 一次查全部 local 变量,避免 N+1。
+     * 用 {@code includeTaskLocalVariables} 一次查全部 local 变量,避免 N+1;
+     * 流程名/发起人由 {@link DshTaskMetaService#enrichByInstance} 批量补齐。
      */
     @GetMapping("/my-tasks")
     public List<TaskDto> getMyTasks(@AuthenticationPrincipal Jwt jwt) {
@@ -74,7 +78,10 @@ public class DshTaskController {
             .includeTaskLocalVariables()
             .orderByTaskCreateTime().desc()
             .list();
-        return tasks.stream().map(this::toDto).toList();
+        Map<String, DshTaskMetaService.TaskMeta> metaByInstance = taskMetaService.enrichByInstance(tasks);
+        return tasks.stream()
+            .map(task -> toDto(task, metaByInstance.get(task.getProcessInstanceId())))
+            .toList();
     }
 
     /**
@@ -92,7 +99,7 @@ public class DshTaskController {
         if (task == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + taskId);
         }
-        return toDto(task);
+        return toDto(task, taskMetaService.enrich(task));
     }
 
     /**
@@ -126,7 +133,7 @@ public class DshTaskController {
         }
     }
 
-    private TaskDto toDto(Task task) {
+    private TaskDto toDto(Task task, DshTaskMetaService.TaskMeta taskMeta) {
         Map<String, Object> localVars = task.getTaskLocalVariables();
         String metaJson = localVars == null
             ? null
@@ -146,6 +153,9 @@ public class DshTaskController {
             }
         }
 
+        DshTaskMetaService.TaskMeta safeMeta = taskMeta == null
+            ? new DshTaskMetaService.TaskMeta(null, null, null)
+            : taskMeta;
         return new TaskDto(
             task.getId(),
             task.getProcessInstanceId(),
@@ -155,7 +165,10 @@ public class DshTaskController {
             task.getAssignee(),
             toIso(task.getCreateTime()),
             meta,
-            nodeId
+            nodeId,
+            safeMeta.processDefinitionName(),
+            safeMeta.startUserId(),
+            safeMeta.startUserName()
         );
     }
 

@@ -4,17 +4,17 @@
  * <p>The AI-generated JSON is read-only. The employee can add / edit / delete
  * source (JSON field path) → target (context variable path) mappings. Closing
  * the dialog discards edits; the caller decides whether to re-open with the
- * default mapping again.
+ * default mapping again. Mapping assembly itself lives in workbench/pure.ts
+ * (shared with tests); this file owns only the editing UI.
  */
 import { useCallback, useMemo, useState } from 'react'
 import { Button, Input, JsonTree, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ContextVariable, ContextVariableField, Task } from './task-api.ts'
+import type { Task } from './task-api.ts'
+import {
+  buildVariables, defaultMappings, targetOptions,
+} from './workbench/pure.ts'
+import type { SubmitMapping } from './workbench/pure.ts'
 import css from './TaskSubmitDialog.module.css'
-
-export type SubmitMapping = {
-  source: string
-  target: string
-}
 
 type TaskSubmitDialogProps = {
   open: boolean
@@ -31,13 +31,12 @@ export function TaskSubmitDialog({
 }: TaskSubmitDialogProps) {
   const meta = task.dshMeta
   const contextVariables = meta?.contextVariables ?? []
-  const defaultMappings = useMemo<SubmitMapping[]>(() => {
-    return (meta?.outputMappings ?? [])
-      .filter((m): m is { source: string; target: string } => typeof m.target === 'string')
-      .map(m => ({ source: m.source ?? '', target: m.target }))
-  }, [meta])
+  const initialMappings = useMemo<SubmitMapping[]>(
+    () => defaultMappings(meta?.outputMappings),
+    [meta],
+  )
 
-  const [mappings, setMappings] = useState<SubmitMapping[]>(defaultMappings)
+  const [mappings, setMappings] = useState<SubmitMapping[]>(initialMappings)
   const [error, setError] = useState<string | null>(null)
 
   const parsedJson = useMemo<unknown>(() => {
@@ -70,7 +69,7 @@ export function TaskSubmitDialog({
     })
   }, [])
 
-  const targetOptions = useMemo(() => buildTargetOptions(contextVariables), [contextVariables])
+  const targetOptionList = useMemo(() => targetOptions(contextVariables), [contextVariables])
 
   const handleSubmit = useCallback(() => {
     setError(null)
@@ -122,7 +121,7 @@ export function TaskSubmitDialog({
                     className={css.targetSelect}
                   >
                     <option value="">(选择变量)</option>
-                    {targetOptions.map(opt => (
+                    {targetOptionList.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
@@ -154,79 +153,4 @@ export function TaskSubmitDialog({
       </div>
     </Modal>
   )
-}
-
-function buildTargetOptions(variables: ContextVariable[]): Array<{ value: string; label: string }> {
-  const out: Array<{ value: string; label: string }> = []
-  for (const v of variables) {
-    out.push({ value: v.name, label: `${v.name} (${v.type})` })
-    if (v.fields !== null && v.fields.length > 0) {
-      for (const f of v.fields) {
-        collectFieldOptions(v.name, f, out)
-      }
-    }
-  }
-  return out
-}
-
-function collectFieldOptions(
-  prefix: string,
-  field: ContextVariableField,
-  out: Array<{ value: string; label: string }>,
-): void {
-  const path = `${prefix}.${field.name}`
-  out.push({ value: path, label: `${path} (${field.type})` })
-  if (field.fields !== null && field.fields.length > 0) {
-    for (const f of field.fields) {
-      collectFieldOptions(path, f, out)
-    }
-  }
-}
-
-function buildVariables(
-  json: unknown,
-  mappings: SubmitMapping[],
-  variables: ContextVariable[],
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  const index = new Map<string, ContextVariable>(variables.map(v => [v.name, v]))
-
-  for (const m of mappings) {
-    if (m.target === '') continue
-    const value = readPath(json, m.source)
-    const root = m.target.split('.')[0] ?? ''
-    const decl = index.get(root)
-    if (decl === undefined) {
-      throw new Error(`变量 ${root} 未在流程上下文声明中定义`)
-    }
-    writePath(result, m.target, value)
-  }
-
-  return result
-}
-
-function readPath(root: unknown, path: string): unknown {
-  if (path === '' || path.trim() === '') return root
-  let current = root
-  for (const segment of path.split('.')) {
-    if (current === null || typeof current !== 'object') return undefined
-    current = (current as Record<string, unknown>)[segment]
-  }
-  return current
-}
-
-function writePath(root: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split('.')
-  let current: Record<string, unknown> = root
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i] ?? ''
-    let next = current[seg]
-    if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) {
-      next = {}
-      current[seg] = next
-    }
-    current = next as Record<string, unknown>
-  }
-  const leaf = segments[segments.length - 1] ?? ''
-  current[leaf] = value
 }

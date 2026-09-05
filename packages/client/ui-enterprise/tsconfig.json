@@ -13,6 +13,7 @@
     { "path": "../ui-primitives" },
     { "path": "../runtime" },
     { "path": "../ui-layout" },
+    { "path": "../ui-conversation" },
     { "path": "../ui-sidebar" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

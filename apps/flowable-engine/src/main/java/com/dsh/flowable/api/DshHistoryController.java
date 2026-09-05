@@ -39,6 +39,8 @@ import org.springframework.web.server.ResponseStatusException;
  *   <li>{@code GET /dsh/history/process-instances}:查历史实例(可选按实例 id/定义 id/发起人/状态/key 过滤)。</li>
  *   <li>{@code GET /dsh/history/activities}:查历史活动(按实例 id 必填,回溯流程走过的全部节点)。</li>
  *   <li>{@code GET /dsh/history/variables}:查历史变量(按实例 id 必填,实例上下文变量当前/最终值)。</li>
+ *   <li>{@code GET /dsh/history/bpmn-xml}:查流程定义的部署版 BPMN XML(按定义 id 必填,
+ *       员工工作台迷你流程图与实例路径图渲染共用)。</li>
  * </ul>
  *
  * <p><b>历史级别</b>:由 {@link com.dsh.flowable.config.FlowableConfig} 配置 {@code HistoryLevel.FULL},
@@ -225,6 +227,46 @@ public class DshHistoryController {
                 v -> v.getVariableName() == null ? "" : v.getVariableName()))
             .map(this::toDto)
             .toList();
+    }
+
+    /**
+     * 查流程定义的部署版 BPMN XML(按定义 id 必填)。
+     *
+     * <p>员工工作台第三栏迷你流程图与 Web Console 实例路径图都需要部署版 XML
+     * (设计器当前编辑内容 ≠ 已部署版本,历史实例必须按部署版渲染)。返回
+     * {@code text/xml} 原文,前端交给 bpmn-js 只读视图解析。
+     *
+     * @param processDefinitionId 必填;流程定义 id(procdefId)
+     */
+    @GetMapping(value = "/bpmn-xml", produces = "text/xml;charset=UTF-8")
+    public String getBpmnXml(
+        @RequestParam(name = "processDefinitionId", required = false) String processDefinitionId
+    ) {
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "processDefinitionId parameter is required for /dsh/history/bpmn-xml");
+        }
+        ProcessDefinition def = repositoryService.createProcessDefinitionQuery()
+            .processDefinitionId(processDefinitionId)
+            .singleResult();
+        if (def == null) {
+            throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Process definition not found: " + processDefinitionId);
+        }
+        try (java.io.InputStream model = repositoryService.getProcessModel(processDefinitionId)) {
+            if (model == null) {
+                throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Process model resource not found for definition: " + processDefinitionId);
+            }
+            return new String(model.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to read process model for definition: " + processDefinitionId, e);
+        }
     }
 
     private HistoricTaskDto toDto(HistoricTaskInstance task) {

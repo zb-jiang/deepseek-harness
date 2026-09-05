@@ -23,6 +23,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param createTime         创建时间(ISO 8601 字符串)
  * @param dshMeta           节点 dsh 元数据 POJO;可能为 null(节点未配置 dsh extensionElements)
  * @param nodeId            dsh_node_id 变量值,同 {@link #taskDefinitionKey};冗余存便于消费方
+ * @param processDefinitionName 流程定义名(BPMN process name);员工工作台待办卡片人读展示
+ * @param startUserId       实例发起人 auth_subject(Supabase Auth sub);查不到为 null
+ * @param startUserName     发起人显示名(platform_users.display_name);未解析到为 null,前端回退显示 id
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TaskDto(
@@ -34,6 +37,9 @@ public record TaskDto(
     String assignee,
     String createTime,
     DshExtensionProperties dshMeta,
-    String nodeId
+    String nodeId,
+    String processDefinitionName,
+    String startUserId,
+    String startUserName
 ) {
 }

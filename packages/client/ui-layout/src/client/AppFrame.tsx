@@ -91,6 +91,7 @@ export function AppFrame({
   renderSlot,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  const currentSession = useSessions(s => s.current)
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
@@ -101,11 +102,13 @@ export function AppFrame({
   const lastSession = useRef(detailsSession)
   useLayoutEffect(() => {
     if (detailsSession === undefined) return
-    if (lastSession.current !== undefined && lastSession.current !== detailsSession) {
+    // Pinned details (opt-in, e.g. an enterprise task archive) stay open
+    // across session transitions; the native auto-close applies un-pinned.
+    if (!panels.pinned && lastSession.current !== undefined && lastSession.current !== detailsSession) {
       actions.closeDetails()
     }
     lastSession.current = detailsSession
-  }, [actions, detailsSession])
+  }, [actions, detailsSession, panels.pinned])
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useEffect(() => {
@@ -139,7 +142,12 @@ export function AppFrame({
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  // Pinned (opt-in): any current session, blank included, keeps the details
+  // column at its stored width; unpinned keeps the native non-blank gate.
+  const detailsOpen = panels.pinned
+    ? currentSession !== undefined
+    : detailsSession !== undefined
+  const cols = computeColumns(viewport, sidebarPreference, detailsOpen ? panels.details : 0)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
