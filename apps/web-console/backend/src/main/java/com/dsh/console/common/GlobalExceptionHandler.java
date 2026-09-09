@@ -28,6 +28,14 @@ public class GlobalExceptionHandler {
             .body(ApiResponse.fail(ApiError.of("BUSINESS_ERROR", e.getMessage())));
     }
 
+    /** 业务状态冲突(守卫拒绝,如流程实例未结束):返回 409。 */
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalState(IllegalStateException e) {
+        log.warn("Business conflict: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ApiResponse.fail(ApiError.of("BUSINESS_CONFLICT", e.getMessage())));
+    }
+
     /** 业务 not found:返回 404。 */
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNotFound(NotFoundException e) {

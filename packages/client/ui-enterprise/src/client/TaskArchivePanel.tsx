@@ -3,11 +3,12 @@
  *
  * <p>当前会话绑定待办时展示任务档案四件套 —— 任务信息 / 任务指令(重新填入) /
  * 流程进度(部署版 BPMN 迷你图 + 执行记录,支持分支与并行)/ 上下文变量带值,
- * 并从会话最后一条助手消息自动提取 AI 输出 JSON,经映射确认对话框提交待办。
- * 提交后:会话回执能在"已完成"列表定位引擎历史任务时渲染完整完成档案
- * (进度/变量/执行记录),否则退化为最小回执;选中已完成任务(无本地会话)
- * 渲染只读档案;未绑定会话渲染空态。会话区(中间栏)保持原生
- * ConversationRoot,员工零复制粘贴。
+ * 并自动提取最近一个 AI 输出 JSON(整段会话向前扫描,不随后续纯文本回复
+ * 丢失);需要更早的历史块时,在 AI 输出区的下拉中选回,选中值经映射确认
+ * 对话框提交待办。提交后:会话回执能在"已完成"列表定位引擎历史任务时
+ * 渲染完整完成档案(进度/变量/执行记录),否则退化为最小回执;选中已完成
+ * 任务(无本地会话)渲染只读档案;未绑定会话渲染空态。会话区(中间栏)
+ * 保持原生 ConversationRoot,员工零复制粘贴。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, JsonTree } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -22,7 +23,7 @@ import { parseMiniBpmn } from './bpmn-xml.ts'
 import type { MiniBpmnDiagram } from './bpmn-xml.ts'
 import { ProcessDiagram } from './workbench/ProcessDiagram.tsx'
 import {
-  activityStatuses, executionRecords, extractJson, lastAssistantText,
+  activityStatuses, collectJsonBlocks, executionRecords, latestJson,
 } from './workbench/pure.ts'
 import { formatShortTime, useSnapshot } from './workbench/hooks.ts'
 import css from './TaskArchivePanel.module.css'
@@ -80,8 +81,11 @@ type ArchiveTaskRef = Pick<Task, 'processInstanceId' | 'processDefinitionId'>
 /**
  * 按流程实例聚合拉取档案数据(活动/变量/部署版 XML→迷你图)。
  * 切换任务时以序号守卫丢弃过期响应;XML 解析失败只降级迷你图不报错。
+ *
+ * <p>refreshKey(绑定任务 id)参与依赖:同一实例内流程推进到下一任务时
+ * 重取活动,避免迷你图停在旧快照、进行中节点不亮。
  */
-function useArchiveData(task: ArchiveTaskRef | undefined): ArchiveData {
+function useArchiveData(task: ArchiveTaskRef | undefined, refreshKey: string | undefined): ArchiveData {
   const instanceId = task?.processInstanceId
   const definitionId = task?.processDefinitionId
   const [state, setState] = useState<ArchiveData>(ARCHIVE_EMPTY)
@@ -114,7 +118,7 @@ function useArchiveData(task: ArchiveTaskRef | undefined): ArchiveData {
       }
     })()
     return () => { live = false }
-  }, [instanceId, definitionId])
+  }, [instanceId, definitionId, refreshKey])
 
   return state
 }
@@ -135,7 +139,8 @@ export function TaskArchivePanel({ sessionId, useSession, workbench, closeDetail
     ? undefined
     : tasks.completed.find(item => item.id === completed.taskId)
   const selectedCompleted = tasks.selectedCompleted
-  const archive = useArchiveData(task ?? selectedCompleted ?? completedTask ?? undefined)
+  const archiveTask = task ?? selectedCompleted ?? completedTask ?? undefined
+  const archive = useArchiveData(archiveTask, archiveTask?.id)
 
   // 手动切换会话(原生 workspaces 浏览)时退出已完成任务的只读视图;
   // 挂载本身不清(否则面板随会话出现而挂载时会把刚选中的只读档案清掉)。
@@ -146,7 +151,19 @@ export function TaskArchivePanel({ sessionId, useSession, workbench, closeDetail
     workbench.clearSelectedCompleted()
   }, [sessionId, workbench])
 
-  const json = useMemo(() => extractJson(lastAssistantText(nodes)), [nodes])
+  // 下拉选中的历史 JSON 块(按助手回复序号);undefined = 跟随最新。
+  const [pickedNo, setPickedNo] = useState<number | undefined>(undefined)
+  // 切换会话即回到"自动(最新)":点选只在本会话内有效。
+  useEffect(() => { setPickedNo(undefined) }, [sessionId])
+  // 展示优先级:下拉选中的历史块 > 自动提取的最近 JSON(整段会话向前
+  // 扫描,后续纯文本回复不会清空输出区)。
+  const blocks = useMemo(() => collectJsonBlocks(nodes), [nodes])
+  const json = useMemo(() => {
+    const picked = pickedNo === undefined
+      ? undefined
+      : blocks.find(block => block.messageNo === pickedNo)
+    return picked?.value ?? latestJson(nodes)
+  }, [blocks, pickedNo, nodes])
   const jsonTreeData = useMemo<object | unknown[] | null>(() => {
     if (json === null || typeof json !== 'object') return null
     return json as object | unknown[]
@@ -298,6 +315,23 @@ export function TaskArchivePanel({ sessionId, useSession, workbench, closeDetail
                   <div className={css.sectionTitle}>
                     AI 输出
                     {running && <span className={css.runningTag}>生成中…</span>}
+                    {blocks.length > 0 && (
+                      <select
+                        className={css.select}
+                        value={pickedNo === undefined ? '' : String(pickedNo)}
+                        onChange={(e) => {
+                          setPickedNo(e.target.value === '' ? undefined : Number(e.target.value))
+                        }}
+                        aria-label="选择 AI 输出 JSON 块"
+                      >
+                        <option value="">自动(最新)</option>
+                        {blocks.map(block => (
+                          <option key={block.messageNo} value={String(block.messageNo)}>
+                            {`第${block.messageNo}条 · ${block.preview}`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   {jsonTreeData !== null
                     ? <JsonTree data={jsonTreeData} />

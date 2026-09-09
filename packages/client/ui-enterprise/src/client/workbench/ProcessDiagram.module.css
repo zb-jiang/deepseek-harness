@@ -13,6 +13,103 @@
   background: var(--dsw-alias-bg-base);
 }
 
+.frame {
+  position: relative;
+}
+
+.expandBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.expandBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 放大灯箱:宽卡片,画布双轴滚动平移 + 步进/滚轮缩放。 */
+.lightboxDialog {
+  width: min(1100px, 92vw);
+  max-height: 90vh;
+}
+
+.lightboxToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zoomBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.zoomBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.zoomBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.zoomLevel {
+  min-width: 44px;
+  text-align: center;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoomHint {
+  margin-left: auto;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+/* 画布高度用视口计算:primitives Modal 的 body 无高度约束,flex 撑不开,
+ * 依赖祖先链会让高图被 dialog 的 overflow hidden 裁剪。 */
+.lightboxCanvas {
+  height: calc(90vh - 230px);
+  min-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.lightboxScaler {
+  min-width: 100%;
+}
+
+.lightboxSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .laneRect {
   fill: var(--dsw-alias-interactive-bg-hover);
   stroke: var(--dsw-alias-border-l2);

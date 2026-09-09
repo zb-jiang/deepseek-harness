@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, CheckOutlined, StopOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CheckOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import {
   Alert,
   App,
@@ -469,6 +469,9 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
             <Button danger icon={<StopOutlined />}>终止</Button>
           </Popconfirm>
         )}
+        <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
+          刷新
+        </Button>
       </Space>
 
       <Descriptions

@@ -15,14 +15,12 @@ import { PLATFORM_ROLE } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 
 const STATUS_COLOR: Record<string, string> = {
-  draft: 'default',
   active: 'green',
   suspended: 'orange',
   archived: 'red',
 }
 
 const STATUS_TEXT: Record<string, string> = {
-  draft: '草稿',
   active: '活跃',
   suspended: '暂停',
   archived: '已归档',
@@ -85,16 +83,6 @@ export default function AppsPage() {
     void load()
     void loadUsers()
   }, [load, loadUsers])
-
-  const handleActivate = async (app: ApplicationDto) => {
-    try {
-      await appsApi.activate(app.id)
-      message.success(`已激活 ${app.name}`)
-      void load()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '激活失败')
-    }
-  }
 
   const handleArchive = async (app: ApplicationDto) => {
     try {
@@ -191,11 +179,6 @@ export default function AppsPage() {
           <Button size="small" type="link" onClick={() => navigate(`/apps/${app.id}`)}>
             详情
           </Button>
-          {app.status === 'draft' && (
-            <Button size="small" type="link" onClick={() => handleActivate(app)}>
-              激活
-            </Button>
-          )}
           {app.status !== 'archived' && (
             <Button size="small" type="link" danger onClick={() => handleArchive(app)}>
               归档
@@ -309,7 +292,7 @@ export default function AppsPage() {
             </Typography.Paragraph>
           )}
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-            创建后应用处于 draft 状态;激活后才能创建流程定义(spec §6.2 应用状态机)。
+            应用创建后立即处于活跃状态,可直接创建流程定义与角色。
           </Typography.Paragraph>
         </Form>
       </Modal>

@@ -36,7 +36,7 @@ flowable:
   # 启用异步 executor:定时器边界事件(超时升级 §6.8)、异步 ServiceTask 需要
   async-executor-activate: true
   # 异步 executor 线程池调优(V1):
-  # 自动节点(ServiceTask async=true)回调 DSH web profile 可能耗时长(LLM 调用),
+  # 定制 delegate 的异步 ServiceTask(async=true)可调 DSH headless 执行 LLM,耗时长,
   # 默认 pool=2/max=10 队列 20000 对单企业单实例偏大;V1 调小便于资源控制。
   # 生产环境按 LLM 平均耗时和实例并发度调整;LLM 调用属于 I/O 密集,可适当大于 CPU 核数。
   async-executor-core-pool-size: 4
@@ -64,13 +64,20 @@ dsh:
     # JWT issuer claim (Supabase Auth 的 iss 为 https://<ref>.supabase.co/auth/v1)
     jwt-issuer: ${SUPABASE_URL}/auth/v1
 
-  # 服务器端 DSH web profile daemon 回调配置(自动节点执行)
-  # 参见 Supabase 手册 §10.4:同机部署,通过 loopback 回调
-  web-profile:
-    base-url: ${DSH_WEB_PROFILE_BASE_URL}
-    auto-node-path: /api/enterprise/auto-node/execute
-    # 调用 DSH web profile 的超时(秒)
-    call-timeout-seconds: 60
+  # DSH headless profile 集成配置(可选:定制 delegate 调用 LLM 智能服务时使用)
+  # DshHeadlessClient 在 repo-root 目录下启动 headless 一次性任务进程:
+  #   node --import tsx/esm apps/cli/src/bin.ts --profile headless "<任务>"
+  # 当前 DEMO 无自动节点,repo-root 可不配置(调用时才校验);
+  # 子进程继承引擎环境变量,调用时必须已设置 DEEPSEEK_API_KEY;node 须在 PATH 上。
+  headless:
+    # Node 可执行文件(默认 node)
+    node-bin: node
+    # DSH 仓库根目录(含 apps/cli 与根 node_modules);留空=未启用,调用时抛异常
+    repo-root: ${DSH_REPO_ROOT:}
+    # 仓库根目录下的 dsh CLI 入口
+    cli-entry: apps/cli/src/bin.ts
+    # 单次 headless 调用超时(秒);LLM 含 thinking 耗时较长,超时后触发 async Job 重试
+    call-timeout-seconds: 300
 
 logging:
   level:

@@ -10,8 +10,19 @@
  * <p>隐藏清单与理由(引擎仍支持,设计器只藏入口,需要时可手写 XML):
  * <ul>
  *   <li>替换菜单:Complex Gateway(复杂网关)——"凑够 N 个放行"应使用多实例
- *       任务的完成条件(教程第 12.1 节),复杂网关易配错且无标准替代不了的
+ *       任务的完成条件(教程第 12 节),复杂网关易配错且无标准替代不了的
  *       场景。</li>
+ *   <li>替换菜单:Send Task(发送任务)——Flowable 引擎只支持
+ *       flowable:type(mail/camel/dmn)或 Web Service operationRef,不支持
+ *       delegateExpression/expression/class(引擎解析器静默忽略 + 发布校验器
+ *       拒绝);官方手册的邮件/HTTP/Shell/Camel 示例也全部写在 serviceTask 上。
+ *       发通知一律用 Service Task + 委托表达式(教程第 1.5 节)。</li>
+ *   <li>替换菜单:Business Rule Task(业务规则任务)——Flowable 7 的
+ *       BusinessRuleParseHandler 一律创建 Drools 行为(BusinessRuleTaskActivity
+ *       Behavior,需 kie-api 依赖),工厂方法只认 class,flowable:expression/
+ *       delegateExpression 被完全忽略,缺 kie-api 时部署直接
+ *       NoClassDefFoundError。调 DMN 决策表一律用 Service Task + 表达式
+ *       dmnRuleService(教程第 6.1 节)。</li>
  *   <li>调色板:Data Store Reference(数据存储引用)——DSH 场景的数据载体是
  *       流程变量树(context),节点输出经"输出 Process Variables 定义"校验后
  *       写入变量树,下游直接读;Data Store 只作图面标注、不参与引擎数据流,
@@ -26,7 +37,7 @@ import type { PaletteEntries } from 'diagram-js/lib/features/palette/PaletteProv
 import type Palette from 'diagram-js/lib/features/palette/Palette'
 
 /** 要隐藏的替换菜单条目 actionName(定义于 bpmn-js ReplaceOptions.js 的 GATEWAY 数组)。 */
-const HIDDEN_REPLACE_ACTIONS = new Set(['replace-with-complex-gateway'])
+const HIDDEN_REPLACE_ACTIONS = new Set(['replace-with-complex-gateway', 'replace-with-send-task', 'replace-with-rule-task'])
 
 /** 要隐藏的调色板条目 id(定义于 bpmn-js PaletteProvider.js 的 getEntries)。 */
 const HIDDEN_PALETTE_ENTRIES = new Set(['create.data-store'])

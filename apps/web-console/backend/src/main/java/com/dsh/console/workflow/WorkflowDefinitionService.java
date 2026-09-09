@@ -3,6 +3,7 @@ package com.dsh.console.workflow;
 import com.dsh.console.app.ApplicationService;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.runtime.FlowableRestClient;
 import com.dsh.console.security.AuthContext;
 import com.dsh.console.workflow.dto.BpmnValidationResult;
 import com.dsh.console.workflow.dto.CreateWorkflowRequest;
@@ -21,10 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>V1 实现规则(spec §5.6 + §12.10 + §13.4):
  * <ul>
  *   <li>草稿编辑:draft / published / disabled 状态均可保存 BPMN XML;archived 为终态不可编辑。</li>
- *   <li>发布前校验:BPMN XML 合法 + role_id 归属(spec §12.10 应用隔离不变量)。</li>
- *   <li>发布成功后:状态 → published,记 published_deployment_id / published_procdef_id;
- *       已发布流程重新发布会覆盖旧 deployment。</li>
- *   <li>停用(status → disabled)和归档(status → archived)不允许新实例启动。</li>
+ *   <li>发布前校验:BPMN XML 合法 + role_id 归属且 active(spec §12.10 应用隔离不变量)。</li>
+ *   <li>发布成功后:状态 → published,记 published_deployment_id / published_procdef_id。
+ *       重新发布走 Flowable 版本化:运行中实例继续执行旧版本,无需清零。</li>
+ *   <li>停用(status → disabled)和归档(status → archived):要求全部部署版本的
+ *       运行中实例数为 0(按 procdef key 跨版本聚合),且归档后不允许新实例启动。</li>
  * </ul>
  */
 @Service
@@ -34,17 +36,20 @@ public class WorkflowDefinitionService {
     private final ApplicationService applicationService;
     private final BpmnValidationService validationService;
     private final BpmnPublishService publishService;
+    private final WorkflowInstanceGuard instanceGuard;
     private final AuditService auditService;
 
     public WorkflowDefinitionService(WorkflowDefinitionJdbcRepository workflowRepository,
                                      ApplicationService applicationService,
                                      BpmnValidationService validationService,
                                      BpmnPublishService publishService,
+                                     WorkflowInstanceGuard instanceGuard,
                                      AuditService auditService) {
         this.workflowRepository = workflowRepository;
         this.applicationService = applicationService;
         this.validationService = validationService;
         this.publishService = publishService;
+        this.instanceGuard = instanceGuard;
         this.auditService = auditService;
     }
 
@@ -163,10 +168,17 @@ public class WorkflowDefinitionService {
 
     /**
      * 停用流程定义(状态 → disabled,不允许新实例启动)。
+     *
+     * <p>守卫:全部部署版本无运行中实例(按 procdef key 跨版本聚合)。
      */
     @Transactional
     public WorkflowDefinitionDto disable(UUID workflowId, UUID disablerId, AuthContext auth) {
         WorkflowDefinitionDto wf = getById(workflowId, auth);
+        int running = instanceGuard.runningInstanceCount(wf);
+        if (running > 0) {
+            throw new IllegalStateException(
+                "流程「%s」尚有 %d 个运行中实例,不能停用(先等待实例结束或终止实例)".formatted(wf.name(), running));
+        }
         workflowRepository.setStatus(workflowId, "disabled");
         auditService.record("WORKFLOW_DISABLE", "workflow_definition", null, disablerId,
             java.util.Map.of("workflowId", workflowId, "appId", wf.appId()));
@@ -175,10 +187,17 @@ public class WorkflowDefinitionService {
 
     /**
      * 归档流程定义(状态 → archived,终态)。
+     *
+     * <p>守卫:全部部署版本无运行中实例(按 procdef key 跨版本聚合)。
      */
     @Transactional
     public WorkflowDefinitionDto archive(UUID workflowId, UUID archiverId, AuthContext auth) {
         WorkflowDefinitionDto wf = getById(workflowId, auth);
+        int running = instanceGuard.runningInstanceCount(wf);
+        if (running > 0) {
+            throw new IllegalStateException(
+                "流程「%s」尚有 %d 个运行中实例,不能归档(先等待实例结束或终止实例)".formatted(wf.name(), running));
+        }
         workflowRepository.setStatus(workflowId, "archived");
         auditService.record("WORKFLOW_ARCHIVE", "workflow_definition", null, archiverId,
             java.util.Map.of("workflowId", workflowId, "appId", wf.appId()));

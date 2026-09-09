@@ -4,20 +4,18 @@
  * XML 契约必须与 Flowable 引擎侧 DshBpmnExtensionParser 严格对齐:
  * namespace 为 http://dsh.ai/bpmn,元素 local name 为 assignmentRule /
  * userPrompt / skillRef / actionPolicy / timeoutPolicy / sodRule /
- * contextVariables / contextVariable / field / outputMappings / mapping /
- * inputVariables / outputVariables / variableRef,引擎解析按 local name 取值。
+ * contextVariables / contextVariable / field / outputMappings / mapping,
+ * 引擎解析按 local name 取值。
  *
  * Process Context 机制(design 2026-09-01):
  * - process 级 <dsh:contextVariables>:流程上下文变量声明(八种类型,
  *   object 挂字段清单,array 声明 itemType);
  * - userTask 级 <dsh:outputMappings>:员工提交 JSON → 上下文变量的映射;
- * - 代码节点级 <dsh:inputVariables> / <dsh:outputVariables>:可选消费/产出
- *   声明,纯设计时元数据,引擎不解析执行。
+ * - 代码节点(delegate/脚本/DMN)读写变量都在代码内直接 getVariable/setVariable,
+ *   无需也不再有节点级标注元素。
  *
  * tagAlias: 'lowerCase' 使类型名 AssignmentRule 序列化为 <dsh:assignmentRule>;
- * 同理 ContextVariable → <dsh:contextVariable>、VariableRef → <dsh:variableRef>。
- * 子元素标签名由"类型名"决定(而非属性名),因此引用类型不能用同名类型承载
- * (contextVariable 与 variableRef 是两个不同类型,避免反序列化歧义)。
+ * 同理 ContextVariable → <dsh:contextVariable>。
  */
 
 /** dsh: 命名空间 URI(对齐引擎 DshBpmnExtensionParser.DSH_NAMESPACE)。 */
@@ -141,34 +139,6 @@ export const dshModdleDescriptor = {
         { name: 'target', isAttr: true, type: 'String' },
       ],
     },
-    {
-      // 代码节点可选消费声明(纯设计时元数据,引擎不解析执行)
-      name: 'InputVariables',
-      superClass: ['Element'],
-      meta: {
-        allowedIn: ['bpmn:ServiceTask', 'bpmn:SendTask', 'bpmn:ScriptTask', 'bpmn:BusinessRuleTask'],
-      },
-      properties: [
-        { name: 'variableRef', isMany: true, type: 'dsh:VariableRef' },
-      ],
-    },
-    {
-      // 代码节点可选产出声明(delegate 代码 setVariable 写的变量)
-      name: 'OutputVariables',
-      superClass: ['Element'],
-      meta: {
-        allowedIn: ['bpmn:ServiceTask', 'bpmn:SendTask', 'bpmn:ScriptTask', 'bpmn:BusinessRuleTask'],
-      },
-      properties: [
-        { name: 'variableRef', isMany: true, type: 'dsh:VariableRef' },
-      ],
-    },
-    {
-      // 对上下文变量的引用:<dsh:variableRef ref="expenseClaim"/>
-      name: 'VariableRef',
-      superClass: ['Element'],
-      properties: [{ name: 'ref', isAttr: true, type: 'String' }],
-    },
   ],
 }
 
@@ -181,6 +151,9 @@ export const dshModdleDescriptor = {
  * - Task/CallActivity:async(异步执行,async-executor 线程池)
  * - CallActivity:inheritVariables(子流程继承流程变量树)
  * - UserTask:candidateUsers / candidateGroups(人工节点兜底)
+ *
+ * SendTask 的画布入口已隐藏(replace-menu-filter),描述符仍保留 SendTask:
+ * 粘贴含 flowable: 属性的 sendTask XML 时往返保真,非法组合由引擎发布校验报错。
  *
  * 官方 bpmn-js-properties-panel 的 CamundaPlatform provider 绑定 camunda: 命名空间,
  * 对 Flowable 引擎无效,因此 Flowable 属性组由 DshPropertiesProvider 自行提供。

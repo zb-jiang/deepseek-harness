@@ -67,11 +67,11 @@ public class ApplicationJdbcRepository {
 
     public UUID create(String name, String description, String icon,
                        UUID[] appAdminUserIds, UUID createdBy) {
-        // gen_random_uuid() 由 DB 生成,RETURNING id 拿回
+        // gen_random_uuid() 由 DB 生成,RETURNING id 拿回;创建即 active,无草稿态
         return jdbcClient.sql("""
             INSERT INTO public.applications (name, description, icon, status,
                                              app_admin_user_ids, created_by)
-            VALUES (:name, :description, :icon, 'draft',
+            VALUES (:name, :description, :icon, 'active',
                     :appAdminUserIds, :createdBy)
             RETURNING id
             """)
@@ -118,22 +118,13 @@ public class ApplicationJdbcRepository {
         }
 
         sql.append(String.join(", ", sets));
-        sql.append(" WHERE id = :id AND status IN ('draft', 'active')");
+        sql.append(" WHERE id = :id AND status = 'active'");
 
         var statement = jdbcClient.sql(sql.toString());
         for (var entry : params.entrySet()) {
             statement = statement.param(entry.getKey(), entry.getValue());
         }
         return statement.update();
-    }
-
-    /**
-     * 激活应用:draft → active。
-     */
-    public int activate(UUID id) {
-        return jdbcClient.sql("UPDATE public.applications SET status = 'active' WHERE id = :id AND status = 'draft'")
-            .param("id", id)
-            .update();
     }
 
     /**

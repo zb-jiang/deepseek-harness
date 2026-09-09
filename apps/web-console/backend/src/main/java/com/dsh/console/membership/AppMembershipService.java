@@ -10,6 +10,7 @@ import com.dsh.console.role.dto.AppRoleDto;
 import com.dsh.console.security.AuthContext;
 import com.dsh.console.user.UserJdbcRepository;
 import com.dsh.console.user.dto.UserDto;
+import com.dsh.console.workflow.WorkflowInstanceGuard;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -34,17 +35,20 @@ public class AppMembershipService {
     private final ApplicationService applicationService;
     private final AppRoleJdbcRepository roleRepository;
     private final UserJdbcRepository userRepository;
+    private final WorkflowInstanceGuard workflowInstanceGuard;
     private final AuditService auditService;
 
     public AppMembershipService(AppMembershipJdbcRepository membershipRepository,
                                 ApplicationService applicationService,
                                 AppRoleJdbcRepository roleRepository,
                                 UserJdbcRepository userRepository,
+                                WorkflowInstanceGuard workflowInstanceGuard,
                                 AuditService auditService) {
         this.membershipRepository = membershipRepository;
         this.applicationService = applicationService;
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
+        this.workflowInstanceGuard = workflowInstanceGuard;
         this.auditService = auditService;
     }
 
@@ -104,10 +108,23 @@ public class AppMembershipService {
 
     /**
      * 禁用成员(状态 → disabled,不删行,保留历史)。
+     *
+     * <p>守卫:该成员在本应用名下无未完成的已认领任务(成员资格失效后
+     * 看不到该应用待办,任务会卡死;未认领的候选任务可由其他成员认领,不阻塞)。
      */
     @Transactional
     public AppMembershipDto disable(UUID membershipId, UUID disablerId, AuthContext auth) {
         AppMembershipDto existing = getById(membershipId, auth);
+        UserDto user = userRepository.findById(existing.userId())
+            .orElseThrow(() -> new IllegalArgumentException("用户不存在: " + existing.userId()));
+        if (user.authSubject() != null && !user.authSubject().isBlank()) {
+            int openTasks = workflowInstanceGuard.countOpenTasksInApp(existing.appId(), user.authSubject());
+            if (openTasks > 0) {
+                throw new IllegalStateException(
+                    "成员「%s」在本应用名下尚有 %d 个未完成任务,不能停用(先改派或等任务完成)"
+                        .formatted(user.displayName(), openTasks));
+            }
+        }
         membershipRepository.setStatus(membershipId, "disabled");
         auditService.record("MEMBERSHIP_DISABLE", "app_membership", null, disablerId,
             java.util.Map.of("membershipId", membershipId, "appId", existing.appId(),

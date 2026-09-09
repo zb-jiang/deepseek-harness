@@ -11,20 +11,16 @@
  *       JSON 输出骨架插入 / 默认输出映射 / 实时预览)、skillRefs、动作策略
  *       (超时升级 + SoD)。单人/会签/串签语义由 BPMN 原生多实例表达
  *       (扳手菜单头部图标设置,不在本面板配置处理策略)。</li>
- *   <li>{@code bpmn:ServiceTask}(自动节点) → "DSH 自动节点配置"组:
- *       delegateExpression 文本(默认 ${dshServiceTaskDelegate},可填自定义委托)
- *       + async 异步开关 + failedJobRetryTimeCycle 失败重试策略
- *       + 可选消费/产出变量标注(design §5)。</li>
+ *   <li>{@code bpmn:ServiceTask}(自动节点) → "Flowable 实现方式"组:
+ *       delegateExpression / expression(定制 delegate:代码中 execution.getVariable()
+ *       读上下文、setVariable() 写结果变量) + async 异步开关
+ *       + failedJobRetryTimeCycle 失败重试策略。</li>
  *   <li>{@code bpmn:SequenceFlow}(连线) → "Flowable 条件表达式"组:
  *       conditionExpression 条件表达式(BPMN 原生子元素,排他/包容网关出线路由)。</li>
  *   <li>{@code bpmn:ExclusiveGateway / InclusiveGateway}(排他/包容网关) →
  *       "网关配置"组:默认流 default(BPMN 原生属性,条件全不满足时的兜底出线)。</li>
  *   <li>{@code bpmn:ScriptTask}(脚本任务) → "脚本任务配置"组:
- *       scriptFormat + script(BPMN 原生属性,引擎内执行脚本加工流程变量)
- *       + 可选消费/产出变量标注。</li>
- *   <li>{@code bpmn:SendTask / BusinessRuleTask} → "Flowable 实现方式"组:
- *       class / expression / delegateExpression(flowable: 命名空间,三选一)
- *       + async + failedJobRetryTimeCycle + 可选消费/产出变量标注。</li>
+ *       scriptFormat + script(BPMN 原生属性,引擎内执行脚本加工流程变量)。</li>
  *   <li>{@code bpmn:CallActivity}(调用活动) → "调用活动配置"组:
  *       calledElement(BPMN 原生) + inheritVariables / async(flowable: 命名空间)。</li>
  * </ul>
@@ -44,6 +40,18 @@
  *       userPrompt,多实例语义由 BPMN 原生 multiInstanceLoopCharacteristics 表达。</li>
  *   <li>过滤 ReceiveTask 的 Message 组:Flowable 引擎的 ReceiveTask 实现不消费
  *       messageRef,该组对 DSH 用户是误导,因此在属性面板中隐藏。</li>
+ *   <li>SendTask 不提供实现方式组且入口已在替换菜单隐藏(replace-menu-filter):
+ *       Flowable 只支持 flowable:type(mail/camel/dmn)或 Web Service
+ *       operationRef,delegateExpression/expression 会被引擎静默忽略并遭发布
+ *       校验拒绝;官方文档的邮件等示例也全部写在 serviceTask 上。粘贴的
+ *       sendTask XML 不清理属性,保留原样由引擎发布校验报错(fail loud)。</li>
+ *   <li>BusinessRuleTask 不提供实现方式组且入口已在替换菜单隐藏
+ *       (replace-menu-filter):Flowable 7 的 BusinessRuleParseHandler 一律
+ *       创建 Drools 行为(需 kie-api 依赖),工厂方法只认 class,
+ *       flowable:expression/delegateExpression 被完全忽略,缺 kie-api 时部署
+ *       直接 NoClassDefFoundError。调 DMN 决策表用 Service Task + 表达式
+ *       dmnRuleService(教程第 6.1 节)。粘贴的 businessRuleTask XML 保留
+ *       原样,由引擎部署报错(fail loud)。</li>
  * </ul>
  *
  * <p>读写均走 bpmn-js 命令栈({@code modeling.updateModdleProperties} /
@@ -843,64 +851,6 @@ function fieldListEntry(
   })
 }
 
-// ---------------------------------------------------------------------------
-// Process Context:代码节点消费/产出标注
-// ---------------------------------------------------------------------------
-// (userTask 的输出映射已并入 UserPromptModal 弹窗统一编辑)
-
-/**
- * 代码节点可选的消费/产出变量标注 entries(design §5:纯设计时元数据)。
- *
- * <p>textarea 每行一个变量名,序列化为 {@code <dsh:inputVariables>/<dsh:variableRef ref="..."/>}
- * (outputVariables 同构);校验器据此做引用存在性与来源闭环检查。
- */
-function ioVariablesEntries(
-  element: BpmnElement,
-  injector: Injector,
-  type: 'dsh:InputVariables' | 'dsh:OutputVariables',
-  label: string,
-  description: string,
-): Entry[] {
-  const get = (): string => {
-    const container = findDshElement(element, type)
-    if (!container) return ''
-    const refs = (container.get('variableRef') as BpmnModdleElement[]) ?? []
-    return refs
-      .map(r => (r.get('ref') as string) ?? '')
-      .filter(s => s.trim())
-      .join('\n')
-  }
-  const set = (value: string) => {
-    const modeling = injector.get<ModelingService>('modeling')
-    const moddle = injector.get<ModdleService>('moddle')
-    const lines = value.split('\n').map(s => s.trim()).filter(Boolean)
-    if (lines.length === 0) {
-      removeDshElement(element, injector, type)
-      return
-    }
-    const ext = ensureExtensionElements(element, injector)
-    const values = (ext.get('values') as BpmnModdleElement[]) ?? []
-    const kept = values.filter(v => v.$type !== type)
-    const container = moddle.create(type, {
-      variableRef: lines.map(name => moddle.create('dsh:VariableRef', { ref: name })),
-    })
-    modeling.updateModdleProperties(element, ext, { values: [...kept, container] })
-  }
-  return [
-    textAreaEntry({
-      id: `dsh-io-${type.slice(4).toLowerCase()}`,
-      element,
-      label,
-      description,
-      rows: 3,
-      monospace: true,
-      placeholder: '每行一个上下文变量名',
-      getValue: get,
-      setValue: set,
-    }, injector),
-  ]
-}
-
 /** UserTask 的 DSH 配置组 entries。 */
 function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
   const entries: Entry[] = []
@@ -1006,8 +956,7 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
 }
 
 /**
- * async + failedJobRetryTimeCycle 公共 entries
- * (ServiceTask / SendTask / BusinessRuleTask 三组共用)。
+ * async + failedJobRetryTimeCycle 公共 entries(ServiceTask 组使用)。
  *
  * <p>重试周期存为 extensionElements 子元素:
  * <pre>{@code
@@ -1063,7 +1012,7 @@ function serviceTaskFlowableEntries(element: BpmnElement, injector: Injector): E
       element,
       label: '委托表达式 (delegateExpression)',
       description:
-        '${Spring Bean 名}:delegate 代码中通过 execution.getVariable() 读取上下文、setVariable() 写入结果变量;${dshServiceTaskDelegate} 是默认 DSH 调用入口(写回 dsh_auto_output / dsh_auto_notes)',
+        '${定制 delegate 的 Spring Bean 名}:delegate 代码中 execution.getVariable() 读上下文、setVariable() 写结果变量;需 LLM 智能服务时在 delegate 里注入 DshHeadlessClient 调用',
       getValue: () => ((bo.get('delegateExpression') as string) ?? ''),
       setValue: value =>
         modeling.updateProperties(element, {
@@ -1212,38 +1161,6 @@ function scriptTaskEntries(element: BpmnElement, injector: Injector): Entry[] {
   ]
 }
 
-/**
- * SendTask/BusinessRuleTask 的 Flowable 实现方式配置组 entries。
- *
- * <p>expression / delegateExpression 二选一,引擎按存在的属性路由。
- * class(实现类)不推荐:引擎反射 new 实例,拿不到 Spring 注入,已在 UI 中移除。
- */
-function autoTaskImplementationEntries(element: BpmnElement, injector: Injector): Entry[] {
-  const modeling = injector.get<ModelingService>('modeling')
-  const bo = element.businessObject
-  const implField = (
-    attr: 'expression' | 'delegateExpression',
-    label: string,
-    description: string,
-  ): Entry =>
-    textFieldEntry({
-      id: `flowable-impl-${attr}`,
-      element,
-      label,
-      description,
-      getValue: () => (bo.get(attr) as string) ?? '',
-      setValue: value =>
-        modeling.updateProperties(element, {
-          [attr]: value && value.trim() ? value : undefined,
-        }),
-    }, injector)
-  return [
-    implField('expression', '表达式 (expression)', 'UEL 方法调用,如 ${mailer.send(execution)};Bean 与方法需自行注册'),
-    implField('delegateExpression', '委托表达式 (delegateExpression)', '如 ${dshServiceTaskDelegate};二选一,引擎按属性路由'),
-    ...asyncAndRetryEntries(element, injector),
-  ]
-}
-
 /** CallActivity 的配置组 entries(calledElement 原生 + inheritVariables/async flowable)。 */
 function callActivityEntries(element: BpmnElement, injector: Injector): Entry[] {
   const modeling = injector.get<ModelingService>('modeling')
@@ -1372,15 +1289,7 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
       groups.push({
         id: 'dsh-service-task',
         label: 'Flowable 实现方式',
-        entries: [
-          ...serviceTaskFlowableEntries(element, injector),
-          ...ioVariablesEntries(element, injector, 'dsh:InputVariables',
-            '消费变量标注 (inputVariables)',
-            '可选;每行一个上下文变量名,标注 delegate 代码 getVariable 直读的输入,供流程自解释与发布校验闭环'),
-          ...ioVariablesEntries(element, injector, 'dsh:OutputVariables',
-            '产出变量标注 (outputVariables)',
-            '可选;每行一个上下文变量名,标注 delegate 代码 setVariable 写入的产出;纯设计时元数据,引擎不解析'),
-        ],
+        entries: serviceTaskFlowableEntries(element, injector),
       })
     } else if (is(element, 'bpmn:SequenceFlow')) {
       groups.push({
@@ -1398,29 +1307,7 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
       groups.push({
         id: 'bpmn-script-task',
         label: '脚本任务配置',
-        entries: [
-          ...scriptTaskEntries(element, injector),
-          ...ioVariablesEntries(element, injector, 'dsh:InputVariables',
-            '消费变量标注 (inputVariables)',
-            '可选;每行一个上下文变量名,标注脚本读取的输入'),
-          ...ioVariablesEntries(element, injector, 'dsh:OutputVariables',
-            '产出变量标注 (outputVariables)',
-            '可选;每行一个上下文变量名,标注脚本写入的产出;纯设计时元数据,引擎不解析'),
-        ],
-      })
-    } else if (isAny(element, ['bpmn:SendTask', 'bpmn:BusinessRuleTask'])) {
-      groups.push({
-        id: 'flowable-implementation',
-        label: 'Flowable 实现方式',
-        entries: [
-          ...autoTaskImplementationEntries(element, injector),
-          ...ioVariablesEntries(element, injector, 'dsh:InputVariables',
-            '消费变量标注 (inputVariables)',
-            '可选;每行一个上下文变量名,标注节点读取的输入'),
-          ...ioVariablesEntries(element, injector, 'dsh:OutputVariables',
-            '产出变量标注 (outputVariables)',
-            '可选;每行一个上下文变量名,标注节点写入的产出;纯设计时元数据,引擎不解析'),
-        ],
+        entries: scriptTaskEntries(element, injector),
       })
     } else if (is(element, 'bpmn:CallActivity')) {
       groups.push({

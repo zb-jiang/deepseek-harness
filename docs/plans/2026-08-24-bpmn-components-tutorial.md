@@ -192,143 +192,106 @@ mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
 
 ### 一句话总结
 
-自定义 JavaDelegate = 你亲手写的"机器人"。逻辑固定、不动脑、不需要 LLM 的活，都适合这种方式。要动脑的活交给下面 1.2 节的 DSH 大门。
+自定义 JavaDelegate = 你亲手写的"机器人"。逻辑固定、不动脑、不需要 LLM 的活，都适合这种方式。要动脑的活，按 1.2 节在委托里调 `DshHeadlessClient`。
 
 ***
 
-## 1.2 深入：DSH 自动节点统一入口 `dshServiceTaskDelegate`
+## 1.2 深入：让自动节点"动脑"——定制 delegate 调 `DshHeadlessClient`
 
-**是什么**：DSH 自动节点的"统一大门"——引擎走到 ServiceTask 时，它负责把流程变量打包、寄给 DSH 的"大脑"（LLM agent）、再把大脑的回信拆包写回变量树。
+**是什么**：Service Task 的定位是"通过代码调用 Java delegate"。1.1 节的纯自定义委托适合不动脑的活；要动脑的活（写摘要、做判断、生成内容），引擎仓库提供了可复用组件 `DshHeadlessClient`——你写一个自己的委托注入它，把任务交给 DSH 的"大脑"（LLM）去想。
 
-**比喻**：像一个**专业翻译兼秘书**。老板（引擎）说"处理这份文件"，秘书把文件内容、背景信息整理好，发给外包的专家团队（DSH web profile 里的 LLM），等专家回报告后，把报告要点记到公司的共享文档（流程变量树）里，老板继续看下一步。
+**比喻**：`DshHeadlessClient` 是引擎雇的**专职快递员**。你（定制 delegate）写好任务指令——要 LLM 干什么、按什么 JSON 字段交回报告；快递员负责"打包 → 寄给 DSH headless → 等回信 → 拆出 JSON"。报告怎么写回流程变量树，完全由你的代码决定。
 
 ### 内部流程（四步走）
 
 ```
 [引擎执行到 ServiceTask]
         ↓
-① 收集变量：把流程变量树整棵打包
+① 你的 delegate 读上下文：execution.getVariable(...) 挑要给 LLM 看的变量
         ↓
-② HTTP POST：寄给 DSH web profile daemon
+② 调 DshHeadlessClient.execute(指令, 变量, activityId)
+   指令 + 变量 JSON + "最终回复只输出一个 JSON 对象"组成一次性任务文本
         ↓
-③ 等回信：DSH 内部调 LLM / 跑 skill / 执行脚本
+③ 启动 DSH headless 子进程执行 LLM：
+   node --import tsx/esm apps/cli/src/bin.ts --profile headless "<任务>"
+   （工作目录 = DSH 仓库根；stdout 收到的最终回复即产出）
         ↓
-④ 写回变量：output → dsh_auto_output, notes → dsh_auto_notes
+④ 你的 delegate 把返回的 JSON 按自己的语义 setVariable 写回变量树
         ↓
 [引擎继续走下游节点]
 ```
 
-### 代码解剖（删减版，保留核心逻辑）
+### 代码骨架（以"请假摘要"自动节点为例）
 
 ```java
-@Component("dshServiceTaskDelegate")  // ← 这就是 BPMN 里 ${dshServiceTaskDelegate} 对应的名字
-public class DshServiceTaskDelegate implements JavaDelegate {
+@Component("autoSummarizeDelegate")  // ← BPMN 里 ${autoSummarizeDelegate} 对应的名字
+public class AutoSummarizeDelegate implements JavaDelegate {
 
-    // 写回变量时用的两个固定变量名
-    public static final String VAR_AUTO_OUTPUT = "dsh_auto_output";
-    public static final String VAR_AUTO_NOTES  = "dsh_auto_notes";
+    private final DshHeadlessClient dshHeadlessClient;
+
+    public AutoSummarizeDelegate(DshHeadlessClient dshHeadlessClient) {
+        this.dshHeadlessClient = dshHeadlessClient;  // Spring 自动注入引擎组件
+    }
 
     @Override
     public void execute(DelegateExecution execution) {
-        // ① 收集变量：把整张流程变量树打包
-        String processInstanceId = execution.getProcessInstanceId();   // 流程实例 ID
-        String activityId = execution.getCurrentActivityId();          // 当前节点 ID
-        Map<String, Object> variables = execution.getVariables();      // ← 整张记事卡
+        // ① 挑要给 LLM 看的变量（这里传全部），指令里写明输出 JSON 的字段约定
+        Map<String, Object> output = dshHeadlessClient.execute(
+            "你是请假审批助手。根据流程变量判断该请假是否紧急，"
+                + "输出 {\"urgency\": \"紧急|普通\", \"summary\": \"一句话摘要\"}",
+            execution.getVariables(),
+            execution.getCurrentActivityId());
 
-        // 构造请求体（JSON）
-        AutoNodeRequest request = new AutoNodeRequest(
-            processInstanceId,
-            activityId,
-            variables  // 上游节点产出的全部变量都在这
-        );
-
-        // ② HTTP POST 发给 DSH web profile daemon
-        AutoNodeResponse response = webClient.post()
-            .uri("/api/enterprise/auto-node/execute")  // DSH 的自动节点执行端点
-            .bodyValue(request)
-            .retrieve()
-            .bodyToMono(AutoNodeResponse.class)
-            .block(Duration.ofSeconds(60));  // 最多等 60 秒（LLM 可能慢）
-
-        // ④ 写回流程变量树
-        execution.setVariable(VAR_AUTO_OUTPUT, response.output());  // 结构化结果（JSON）
-        execution.setVariable(VAR_AUTO_NOTES,  response.notes());   // 自然语言备注（可选）
+        // ② 写回哪些变量、叫什么名字，你的代码说了算（语义化命名）
+        execution.setVariable("leaveSummary", output.get("summary"));
+        execution.setVariable("urgency", output.get("urgency"));
     }
 }
 ```
 
-### 请求体和响应体长什么样？
+两个要点：
 
-**发出去的结构（`AutoNodeRequest`）**：
-
-```json
-{
-  "processInstanceId": "a1b2c3",
-  "processDefinitionId": "leaveRequest:1:abc",
-  "activityId": "autoSummarize",
-  "inputSnapshot": {
-    "studentName": "张三",
-    "days": 5,
-    "reason": "家里有事"
-  }
-}
-```
-
-**收回来的结构（`AutoNodeResponse`）**：
-
-```json
-{
-  "output": {
-    "summary": "张三同学因家里有事请假 5 天",
-    "urgency": "普通"
-  },
-  "notes": "已核对请假天数未超过学期上限",
-  "success": true
-}
-```
-
-**写回变量树后**，下游节点可以直接读：
-
-- `${dsh_auto_output.summary}` → `"张三同学因家里有事请假 5 天"`
-- `${dsh_auto_output.urgency}` → `"普通"`
+- **没有固定的 `dsh_auto_output` / `dsh_auto_notes`**。写回的变量名由你的 delegate 语义化命名，下游网关直接写 `${leaveSummary}`、`${urgency == '紧急'}`，不必再从大 JSON 里挖字段。
+- **BPMN 上 ServiceTask 不需要任何 dsh: 扩展属性**。属性面板"Flowable 实现方式"组的 `delegateExpression` 填 `${autoSummarizeDelegate}` 即可；Service Task 没有 userPrompt——任务指令写在你的 delegate 代码里，不在画布上。
 
 ### 引擎侧配置（`application.yml`）
 
-DSH web profile 默认假设和 Flowable 引擎**同机部署**，通过 `127.0.0.1:3080` 回调：
+headless 子进程在 DSH 仓库根目录下启动，**仅当流程里有调 headless 的自动节点时**才需要配：
 
 ```yaml
 dsh:
-  web-profile:
-    base-url: http://127.0.0.1:3080
-    auto-node-path: /api/enterprise/auto-node/execute
-    call-timeout-seconds: 60   # LLM 慢可调高
+  headless:
+    node-bin: node
+    repo-root: ${DSH_REPO_ROOT:}   # DSH 仓库根目录（环境变量 DSH_REPO_ROOT 注入）
+    cli-entry: apps/cli/src/bin.ts
+    call-timeout-seconds: 300      # LLM 含 thinking 耗时长，默认 300 秒
 ```
 
-如果 DSH 和引擎**拆成两台机器**，改 `base-url` 为 DSH 那台的地址即可。
+引擎进程的环境变量里要有 `DEEPSEEK_API_KEY`（headless 的 LLM 调用读它，子进程继承引擎环境）；`node` 要在 PATH 上。`repo-root` 未配置时引擎照常启动，走到调用 `DshHeadlessClient` 的节点才报错——没有自动节点的流程完全不用配。
 
 ### 失败处理（重要）
 
-如果 DSH 挂了、LLM 超时、或返回 `success=false`，`DshServiceTaskDelegate` 会**抛异常**。此时：
+`repo-root` 未配置、子进程非 0 退出、超时（默认 300 秒）、回复里解析不出 JSON，`DshHeadlessClient` 都会**抛异常**。此时：
 
 - **同步模式**：异常直接往上抛，流程事务回滚，实例停在这个节点
 - **异步模式**（勾了 async）：异常被 async-executor 捕获，Job 进入重试队列，按你配的 `failedJobRetryTimeCycle` 重试；全部失败后变成死信（deadletter），流程卡住等人工干预
 
 > 这就是为什么要给"要动脑的活"配 async + 重试策略——LLM 不稳定，必须给它"多几次机会"。
 
-### 自定义委托 vs DSH 大门，怎么选？
+### 纯自定义委托 vs 委托 + DshHeadlessClient，怎么选？
 
-| <br /> | `${sendReminderDelegate}`（自定义委托，1.1 节） | `${dshServiceTaskDelegate}`（DSH 大门） |
+| <br /> | `${sendReminderDelegate}`（纯自定义委托，1.1 节） | 定制 delegate + `DshHeadlessClient` |
 | ------ | -------------------------------------- | ----------------------------------- |
-| 活由谁干   | 你亲手写的 Java 代码                          | DSH agent（LLM 思考后执行）                |
-| 适合     | 不动脑的活：发消息、查数据库、算数、调第三方接口               | 要动脑的活：写摘要、做判断、跑 skill、生成内容          |
-| 逻辑放哪   | 全部写死在 Java 类里                          | DSH web profile 侧配置                 |
-| 改逻辑    | 改 Java 代码 + 重启引擎                       | 改配置/prompt，一般不用改代码                  |
+| 活由谁干   | 你亲手写的 Java 代码                          | DSH headless（LLM 思考后回答）             |
+| 适合     | 不动脑的活：发消息、查数据库、算数、调第三方接口               | 要动脑的活：写摘要、做判断、生成内容                 |
+| 逻辑放哪   | 全部写死在 Java 类里                          | 指令写在 delegate 代码里，思考由 LLM 完成       |
+| 写回变量   | delegate 自己 setVariable（语义化命名）          | delegate 拿到 JSON 后自己 setVariable（语义化命名） |
 
-> 判断口诀：**要动脑的活交给 DSH 大门，不动脑的活自己写委托。**
+> 判断口诀：**要动脑的活，在委托里调 `DshHeadlessClient`；不动脑的活，纯手写委托。**
 
 ### 一句话总结
 
-`DshServiceTaskDelegate` = 引擎和 DSH 大脑之间的**专属快递通道**。你只要在画布上填 `${dshServiceTaskDelegate}`，剩下的"打包 → 寄送 → 等回信 → 拆包"全由它自动完成。
+`DshHeadlessClient` = 引擎和 DSH 大脑之间的**可复用快递员**。写一个自己的 delegate 注入它、在画布上填 `${你的delegate名}`，"打包 → 寄送 → 等回信 → 拆包"全由它完成，拆出来的东西怎么写回变量树由你的代码决定。
 
 ***
 
@@ -396,34 +359,9 @@ public class SmsSender {
 
 ***
 
-## 2. Send Task 发送任务 —— 寄快递
+## 1.4 深入：异步执行 + 失败重试
 
-是什么：把一个包裹（消息）交给快递员，寄出去就继续走自己的路，不等回信。
-
-什么时候用：流程需要"通知别人一件事"，但不关心对方什么时候处理完。比如发通知、发短信、推送到别的系统。
-
-和 Service Task 的区别：Service Task 泛指一切自动干活；Send Task 特指"发消息"这个动作。在 Flowable 引擎内部，两者跑的是同一套机制，唯一的区别是画布上的图标。——选哪个纯粹是画给"看流程图的人"看的，让TA一眼知道"这一步是发通知的"。
-
-DEMO：请假审批批批通过批批后，给家长发一条企业微信消息"您孩子的请假申请已通过"，发完流程直接结束。
-
-```
-[班主任审批] → <通过?> →(是)→ [给家长发企业微信(发送任务)] → (结束)
-```
-
-教程（怎么操作）：
-
-1. 拖一个 Task，小扳手换成   Send Task  （信封图标），起名"给家长发通知"
-2. 选中它，属性面板出现   "Flowable 实现方式"   组，里面共 4 个配置项：
-   - 两个实现方式二选一（一般发消息用委托表达式）：
-     - 委托表达式 (delegateExpression)  ：填 `${sendWecomDelegate}`，和 1.1 节的自定义委托写法完全一样
-     - 表达式 (expression)  ：填 `${bean名.方法名(参数)}`见 1.3 节"表达式模式详解"，用之前必须先搞清楚每个词是谁定义的
-   - 异步执行 (async)   勾选框 +   失败重试策略 (failedJobRetryTimeCycle)   输入框——见 2.2 节
-
-***
-
-## 2.1 深入：异步执行 + 失败重试
-
-Send Task 属性组里现在有这两个配置项：
+Service Task 属性组里有这两个配置项：
 
 - 异步执行 (async)   勾选框
 - 失败重试策略 (failedJobRetryTimeCycle)   输入框，填 ISO-8601 循环格式，如 `R5/PT1M`
@@ -432,13 +370,13 @@ Send Task 属性组里现在有这两个配置项：
 画布上勾选/填写后生成的 XML（重试策略是 `extensionElements` 的子元素，不是属性）：
 
 ```xml
-<sendTask id="Activity_sendWecom" name="给家长发企业微信"
+<serviceTask id="Activity_sendWecom" name="给家长发企业微信"
     flowable:delegateExpression="${sendWecomDelegate}"
     flowable:async="true">
   <extensionElements>
     <flowable:failedJobRetryTimeCycle>R5/PT1M</flowable:failedJobRetryTimeCycle>
   </extensionElements>
-</sendTask>
+</serviceTask>
 ```
 
 为什么重试策略依赖异步开关？（引擎的底层机制）
@@ -459,7 +397,7 @@ Send Task 属性组里现在有这两个配置项：
 
 ***
 
-## 2.2 深入：发一条真实的企业微信通知
+## 1.5 深入：发一条真实的企业微信通知
 
 场景：审批通过后往企业微信群里推一条消息。这次我们写一个真发 HTTP 请求的委托，和 1.1 节的"日志版"对比，看真实系统怎么写。
 
@@ -481,7 +419,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 /**
- * 往企业微信群机器人发通知的发送任务委托。
+ * 往企业微信群机器人发通知的委托。
  * 企业微信"群机器人"提供一个 webhook 地址,POST 一段 JSON 即可发消息。
  * BPMN 中通过 flowable:delegateExpression="${sendWecomDelegate}" 引用。
  */
@@ -531,7 +469,7 @@ public class SendWecomDelegate implements JavaDelegate {
 | `@Value("${dsh.wecom.webhook-url}")`   | 从 application.yml 里读 webhook 地址————地址是配置，不是代码——，换个群不用改代码                      |
 | `Map.of("msgtype", "markdown", ...)`   | 企业微信机器人要求的消息格式：一个带 msgtype 的 JSON                                             |
 | `rest.postForEntity(...)`              | 真正发 HTTP POST 的一行                                                             |
-| `throw new IllegalStateException(...)` | 发失败败败故意抛异常败败——告诉引擎"这步没干成"。勾了异步执行时引擎按重试策略自动重试；不勾则事务回滚（见 2.2 节），这是和"失败就算了"的本质区别 |
+| `throw new IllegalStateException(...)` | 发失败败败故意抛异常败败——告诉引擎"这步没干成"。勾了异步执行时引擎按重试策略自动重试；不勾则事务回滚（见 1.4 节），这是和"失败就算了"的本质区别 |
 
 第 2 步：application.yml 里加配置：
 
@@ -541,7 +479,7 @@ dsh:
     webhook-url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的机器人key
 ```
 
-第 3 步：画布接线：Send Task → "委托表达式"填 `${sendWecomDelegate}`；要可靠投递就再勾"异步执行"、"失败重试策略"填 `R5/PT1M`（细节见 2.2 节）
+第 3 步：画布接线：Service Task → "委托表达式"填 `${sendWecomDelegate}`；要可靠投递就再勾"异步执行"、"失败重试策略"填 `R5/PT1M`（细节见 1.4 节）
 
 第 4 步：验证：跑完审批后，看企业微信群————真收到了一条 markdown 卡片消息——。
 
@@ -549,7 +487,7 @@ dsh:
 
 ## 3. Receive Task 接收任务 —— 等快递上门
 
-是什么：和 Send Task 正好相反。流程走到这里会停下来休息，直到外部系统"敲门喊一声"才继续。
+是什么：和发通知的 Service Task 正好相反。Service Task 干完活自动走；Receive Task 走到这里会停下来休息，直到外部系统"敲门喊一声"才继续。
 
 是什么感觉：网购后在家等快递。包裹签收（收到消息）之前，你哪儿也不去。
 
@@ -879,7 +817,7 @@ XML 形态：
 
 ***
 
-## 6. Business Rule Task 业务规则任务 —— 查规则对照表
+## 6. DMN 决策表 —— 查规则对照表（用 Service Task 接进流程）
 
 是什么：像老中医看病——把"症状"输进去，查一张提前编好的规则对照表（DMN 决策表），直接得出"药方"。规则本身写在一张单独的表格里，和流程图分开维护。
 
@@ -893,12 +831,12 @@ DEMO：学校有一张"请假审批层级表"：
 | 3\~7 天 | 班主任 + 年级主任       |
 | > 7 天  | 班主任 + 年级主任 + 教务处 |
 
-业务规则任务读入 `days`，输出 `level`，后面的网关按 `level` 分流。
+查表节点读入 `days`，输出 `level`，后面的网关按 `level` 分流。
 
 教程（怎么操作）：
 
-1. 拖一个 Task，小扳手换成   Business Rule Task  （表格图标），起名"决定审批层级"
-2. 引擎眼里它就是个"特殊外形的服务任务"：表达式 / 委托表达式两种实现方式和 Service Task 一模一样（属性面板的"Flowable 实现方式"组也长得一样），专门用来调 DMN 决策表（见 6.1 节的两种 DEMO）
+1. 拖一个 Task，小扳手换成   Service Task  （齿轮图标；菜单里没有 Business Rule Task 表格图标——它已隐藏），起名"决定审批层级"
+2. 为什么藏起来？Flowable 7 里 businessRuleTask 是 Drools 规则引擎的专用元素：解析器只认 Java class 或内置的 Drools 行为（需要额外的 kie-api 依赖），画布上配的表达式/委托表达式会被引擎**完全忽略**，部署直接报 `NoClassDefFoundError`。所以查 DMN 决策表一律用 Service Task：属性面板"Flowable 实现方式"组里填表达式或委托表达式（见 6.1 节的两种 DEMO）
 3. 务实建议  ：如果规则只有两三条，直接用排他网关 + 条件表达式更简单；规则多、变得频繁时才值得上决策表
 
 ***
@@ -915,6 +853,7 @@ DMN 决策表（DMN 文件放 `apps/flowable-engine/src/main/resources/dmn/` 目
 <?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
              id="approvalLevelDefs"
+             name="approvalLevel"
              namespace="http://dsh.ai/dmn">
 
   <decision id="approvalLevel" name="请假审批层级">
@@ -970,7 +909,7 @@ ${execution.setVariables(dmnRuleService.createExecuteDecisionBuilder().decisionK
 生成的 XML：
 
 ```xml
-<businessRuleTask id="Activity_decideLevel" name="决定审批层级"
+<serviceTask id="Activity_decideLevel" name="决定审批层级"
     flowable:expression="${execution.setVariables(dmnRuleService.createExecuteDecisionBuilder()
         .decisionKey('approvalLevel')
         .variables(execution.getVariables())
@@ -1032,7 +971,7 @@ public class ApprovalLevelDelegate implements JavaDelegate {
 生成的 XML：
 
 ```xml
-<businessRuleTask id="Activity_decideLevel" name="决定审批层级"
+<serviceTask id="Activity_decideLevel" name="决定审批层级"
     flowable:delegateExpression="${approvalLevelDelegate}" />
 ```
 
@@ -1887,7 +1826,7 @@ DEMO：班主任审批通过后，流程主动发一条消息给"全校通知系
 
 深入：Message Throw 的实际用法
 
-在 实际场景中，Message Throw Event 很少单独用——因为"发通知"通常是一个需要调外部 API 的动作，更适合用 Service Task（第 1 节）或 Send Task（第 2 节）实现。
+在 实际场景中，Message Throw Event 很少单独用——因为"发通知"通常是一个需要调外部 API 的动作，更适合用 Service Task（第 1 节）实现。
 
 Message Throw Event 的真正价值在在在事件驱动架构在在中：A 流程抛出一个消息，B 流程（用 Message Start Event 或 Message Intermediate Catch）监听这个消息，实现流程间的解耦通信。
 

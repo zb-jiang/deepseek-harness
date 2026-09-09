@@ -34,6 +34,5 @@ export const appsApi = {
   create: (body: CreateApplicationRequest) => post<ApplicationDto>('/api/applications', body),
   update: (appId: string, body: UpdateApplicationRequest) =>
     patch<ApplicationDto>(`/api/applications/${appId}`, body),
-  activate: (appId: string) => post<ApplicationDto>(`/api/applications/${appId}/activate`),
   archive: (appId: string) => del<ApplicationDto>(`/api/applications/${appId}`),
 }

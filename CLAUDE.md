@@ -10,6 +10,7 @@ AGENTS.md
 - 企业服务器（常驻不可关机）：
   - flowable-engine（`apps/flowable-engine`，Spring Boot 3 + Flowable 7，:8090）：流程引擎。ACT_* 表建在 Supabase PG 的 `flowable` schema（引擎自动建表）。自定义端点 `/dsh/tasks/*`（待办）、`/dsh/history/*`（历史）；认领/完成/部署/启实例用 Flowable 官方 REST `/process-api/*`。
   - web-console（`apps/web-console`，Spring Boot :8080 + React 前端打成一个 jar）：管理面。治理元数据在 public schema（platform_users / applications / app_roles / app_memberships / workflow_definitions / audit_events，JDBC 直连，不碰 ACT_*）；流程设计（bpmn-js + dsh 属性面板）/校验/发布；实例启动/终止。调 flowable 走 REST + JWT 透传。
+  - DSH headless profile, 用于定制 delegate 调用 LLM 智能服务时使用。
 - Supabase：认证中心（JWT 签发）+ 统一存储。建表 SQL 手工执行，见 `docs/plans/2026-08-19-supabase-setup-guide.md`（无 migration 文件）。
 
 ## 认证模型
@@ -23,7 +24,7 @@ AGENTS.md
 - user task 的办理人：候选角色的所有成员（经 SoD 过滤）。single/countersign 下所有成员同时各有一个待办；sequential（串签）按顺序逐人收到。
 - 处理策略：用 Flowable 原生多实例。候选成员列表作为多实例 collection，每个实例 assignee=单个成员 user.id（直接指派，不再用候选/认领机制）。single=并行多实例+完成条件 `${nrOfCompletedInstances >= 1}`（任一人提交即通过，其余待办引擎自动删除）；countersign（会签）=并行多实例、无完成条件；sequential（串签）=串行多实例（sequential=true，逐个办理）。
 - 办理流程：员工端 DSH 点击待办 → 打开 AI 对话窗口，节点 userPrompt（上下文变量 `{{}}` 插值后）作为任务指令出现 → 用户与 AI 对话（AI 可用节点 skillRefs 引用的 skill）→ 用户确认 AI 回复满足要求 → 点击「提交待办」→ 弹出映射确认对话框 → 员工将 JSON 字段与流程上下文变量做最终映射（可新增/修改/删除）→ 点击「确认」→ 员工端根据最终映射构造 variables Map 提交到引擎 → 待办完成，流程继续。
-- 提交契约（已确认）：员工端执行 JSON → 流程变量的映射，引擎端 `/dsh/tasks/{id}/complete` 接收已映射好的 variables Map，按声明类型转换后写入流程上下文；设计时 `dsh:outputMappings` 仅作为默认映射模板，员工提交对话框关闭后不保留本次编辑。
+- 提交契约（已确认）：员工端执行 JSON → 流程变量的映射，引擎端 `/dsh/tasks/{id}/complete` 接收已映射好的 variables Map，按声明类型转换后写入流程上下文。
 - 员工端 DSH 有 daemon 定期扫描自己名下待办涉及的 skill 并本地预装。
 - 节点属性面板：user task 保留 候选角色（candidateRoleId）、user prompt、skill 引用（skillRefs）、超时时长+升级目标角色/用户（timeoutPolicy）、SoD 责权分离 checkbox（sodRules）、输出映射（outputMappings，见 Process Context 机制节）；处理策略不再单独配置，由多实例类型表达（见上）。
 - user prompt 编辑器：变量选择器从上下文声明清单展开字段树（object 按字段清单嵌套展开），插入 `{{变量.字段}}` 占位符；文案骨架「你当前的角色为…，请基于<输入变量1>，<输入变量2>… 应用 skill… 做… 工作，最终生成的结果符合下面的 JSON 格式…」。

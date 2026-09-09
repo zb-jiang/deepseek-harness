@@ -53,12 +53,6 @@
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
 
-        <!-- WebFlux 仅用 WebClient:自动节点 HTTP 回调 DSH web profile -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
-        </dependency>
-
         <!-- Flowable 7 Spring Boot Starter:引擎 + REST API + Spring Boot 自动配置 -->
         <dependency>
             <groupId>org.flowable</groupId>

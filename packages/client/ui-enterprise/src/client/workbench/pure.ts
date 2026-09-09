@@ -4,25 +4,73 @@
  * <p>无 React、无副作用;组件与单测共用,是档案栏三块动态内容
  * (AI 输出 / 提交映射 / 流程进度)的唯一推导逻辑。
  */
-import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { AssistantMessageNode, ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ContextVariable, ContextVariableField, HistoricActivity, OutputMapping,
 } from '../task-api.ts'
 
 // ── AI 输出 JSON 提取 ──
 
+/** 助手节点的可见正文(拼合 text 块,跳过 reasoning/tool-call)。 */
+function assistantText(node: AssistantMessageNode): string {
+  return node.blocks.flatMap(block => block.kind === 'text' ? [block.text] : []).join('')
+}
+
 /**
- * 取会话中最后一条已完成助手消息的可见正文。
+ * 取会话中最近一个可解析的 JSON:从最后一条助手消息向前扫描,首个提取成功
+ * 的 JSON 即返回。继续对话产生无 JSON 的新消息时,输出区保持显示此前最近
+ * 的 JSON(历史块不因后续纯文本回复而丢失);要选更早的历史块,走档案栏
+ * 下拉选块(collectJsonBlocks)。
  * @param nodes 会话节点序列(seq 升序)。
- * @returns 拼接的文本块;无助手消息时为 null。
+ * @returns 解析后的 JSON 值;整段会话无合法 JSON 时为 undefined。
  */
-export function lastAssistantText(nodes: readonly ConversationNode[]): string | null {
+export function latestJson(nodes: readonly ConversationNode[]): unknown | undefined {
   for (let i = nodes.length - 1; i >= 0; i--) {
     const node = nodes[i]
     if (node?.kind !== 'assistant') continue
-    return node.blocks.flatMap(block => block.kind === 'text' ? [block.text] : []).join('')
+    const parsed = extractJson(assistantText(node))
+    if (parsed !== undefined) return parsed
   }
-  return null
+  return undefined
+}
+
+/** 会话中一个可提交的 JSON 块(每条助手消息至多一个,提取规则同 latestJson)。 */
+export type JsonBlock = {
+  /** 来源助手消息的回复序号(第 N 条助手回复,1 起)。 */
+  messageNo: number
+  /** 块内容的单行预览(超长截断),下拉选项展示用。 */
+  preview: string
+  /** 解析后的 JSON 值。 */
+  value: unknown
+}
+
+/**
+ * 按时间顺序收集会话中全部 JSON 块(档案栏下拉选块数据源)。
+ * @param nodes 会话节点序列(seq 升序)。
+ * @returns JSON 块列表;无 JSON 时为空数组。
+ */
+export function collectJsonBlocks(nodes: readonly ConversationNode[]): JsonBlock[] {
+  const blocks: JsonBlock[] = []
+  let messageNo = 0
+  for (const node of nodes) {
+    if (node?.kind !== 'assistant') continue
+    messageNo++
+    const value = extractJson(assistantText(node))
+    if (value === undefined) continue
+    blocks.push({ messageNo, preview: previewOf(value), value })
+  }
+  return blocks
+}
+
+/** 块值 → 单行预览(紧凑 JSON,60 字符截断)。 */
+function previewOf(value: unknown): string {
+  let text: string
+  try {
+    text = JSON.stringify(value) ?? String(value)
+  } catch {
+    text = String(value)
+  }
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text
 }
 
 /**

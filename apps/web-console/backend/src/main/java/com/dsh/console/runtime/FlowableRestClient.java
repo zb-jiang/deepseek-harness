@@ -290,4 +290,145 @@ public class FlowableRestClient {
         });
         return result;
     }
+
+    /**
+     * 按 process definition key 统计运行中实例数(跨全部部署版本)。
+     *
+     * <p>流程重新发布走 Flowable 版本化(同 key 新版本),运行中实例可能挂在
+     * 旧版本上;按 procdefId 查只能数到当前版本,守卫判定必须按 key 聚合。
+     *
+     * @param procdefKey BPMN process 元素 id(同流程各版本一致)
+     * @return 运行中实例总数;查询异常返回 -1(调用方按"无法确认"拒绝)
+     */
+    public int countRunningInstancesByProcdefKey(String procdefKey) {
+        JsonNode resp = flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/process-api/runtime/process-instances")
+                .queryParam("processDefinitionKey", procdefKey)
+                .queryParam("size", 1)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+        return resp == null ? -1 : resp.path("total").asInt(-1);
+    }
+
+    /**
+     * 按部署版本(procdef id)统计运行中实例数。
+     *
+     * <p>角色停用守卫用:逐版本判定"该版本是否有运行中实例",只解析
+     * 真正有实例在跑的版本的 BPMN XML。
+     *
+     * @param procdefId Flowable procdef id(具体版本)
+     * @return 该版本运行中实例数;查询异常返回 -1(调用方按"无法确认"拒绝)
+     */
+    public int countRunningInstancesByProcdefId(String procdefId) {
+        JsonNode resp = flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/process-api/runtime/process-instances")
+                .queryParam("processDefinitionId", procdefId)
+                .queryParam("size", 1)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+        return resp == null ? -1 : resp.path("total").asInt(-1);
+    }
+
+    /**
+     * 列流程定义 key 的全部部署版本 procdef id(重新发布各产生一个版本)。
+     *
+     * <p>角色停用守卫用:配合 {@link #countRunningInstancesByProcdefId} 定位
+     * 有运行中实例的版本。分页拉全(每页 100)。
+     *
+     * @throws IllegalStateException Flowable 响应缺 total 字段
+     */
+    public List<String> listProcessDefinitionIdsByKey(String key) {
+        List<String> ids = new ArrayList<>();
+        int start = 0;
+        int pageSize = 100;
+        while (true) {
+            final int startParam = start;
+            JsonNode resp = flowableRestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                    .path("/process-api/repository/process-definitions")
+                    .queryParam("key", key)
+                    .queryParam("start", startParam)
+                    .queryParam("size", pageSize)
+                    .build())
+                .retrieve()
+                .body(JsonNode.class);
+            if (resp == null || !resp.has("total")) {
+                throw new IllegalStateException("Flowable 流程定义查询响应缺 total 字段: key=" + key);
+            }
+            int total = resp.path("total").asInt(-1);
+            if (total < 0) {
+                throw new IllegalStateException("Flowable 流程定义查询响应 total 非法: key=" + key);
+            }
+            for (JsonNode item : resp.path("data")) {
+                ids.add(item.path("id").asText());
+            }
+            start += pageSize;
+            if (start >= total) {
+                return ids;
+            }
+        }
+    }
+
+    /**
+     * 查流程定义的 key(BPMN process 元素 id)。
+     *
+     * @throws NotFoundException 流程定义不存在
+     */
+    public String getProcessDefinitionKey(String procdefId) {
+        JsonNode resp = flowableRestClient.get()
+            .uri("/process-api/repository/process-definitions/{id}", procdefId)
+            .retrieve()
+            .onStatus(status -> status.value() == 404,
+                (req, resp404) -> { throw new NotFoundException("流程定义不存在: " + procdefId); })
+            .body(JsonNode.class);
+        if (resp == null || resp.path("key").asText().isEmpty()) {
+            throw new IllegalStateException("Flowable procdef 响应缺 key 字段: " + procdefId);
+        }
+        return resp.path("key").asText();
+    }
+
+    /**
+     * 统计某办理人(auth_subject)名下未完成的运行中任务数。
+     *
+     * @param assignee 办理人标识(Supabase Auth user.id)
+     * @return 未完成任务数;查询异常返回 -1(调用方按"无法确认"拒绝)
+     */
+    public int countOpenTasksByAssignee(String assignee) {
+        JsonNode resp = flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/process-api/runtime/tasks")
+                .queryParam("assignee", assignee)
+                .queryParam("size", 1)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+        return resp == null ? -1 : resp.path("total").asInt(-1);
+    }
+
+    /**
+     * 统计某办理人在指定流程(跨全部部署版本)名下的未完成任务数。
+     *
+     * <p>成员停用守卫用:只数该应用内该成员已认领(assigned)的任务;
+     * 未认领的候选任务可由其他成员认领,不阻塞停用。
+     *
+     * @param assignee    办理人标识(Supabase Auth user.id)
+     * @param procdefKey  BPMN process 元素 id(同流程各版本一致)
+     * @return 未完成任务数;查询异常返回 -1(调用方按"无法确认"拒绝)
+     */
+    public int countOpenTasksByAssigneeAndProcdefKey(String assignee, String procdefKey) {
+        JsonNode resp = flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/process-api/runtime/tasks")
+                .queryParam("assignee", assignee)
+                .queryParam("processDefinitionKey", procdefKey)
+                .queryParam("size", 1)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+        return resp == null ? -1 : resp.path("total").asInt(-1);
+    }
 }

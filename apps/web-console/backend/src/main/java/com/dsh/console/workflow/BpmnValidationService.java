@@ -28,7 +28,11 @@ import org.w3c.dom.NodeList;
  *   <li>每个 human 节点的 {@code flowable:candidateGroups} 或 {@code dsh:assignmentRule.candidateRoleId}
  *       引用的 role_id 必属于该 BPMN 所属应用。</li>
  *   <li>userTask 至少要有候选角色或候选用户(spec §7.2 规则 1)。</li>
- *   <li>serviceTask 必须配 {@code flowable:delegateExpression}(值任意,spec §10.1 自动节点规则)。</li>
+ *   <li>serviceTask 必须配 {@code flowable:delegateExpression} 或 {@code flowable:expression}
+ *       之一(引擎 ServiceTaskParseHandler 两种都路由;spec §10.1 自动节点规则)。</li>
+ *   <li>表达式面(flowable:expression / delegateExpression 属性、conditionExpression /
+ *       completionCondition 正文)不得含全角弯引号(''):中文输入法高频误入,JUEL
+ *       编译期才报错且被引擎包成无定位的 "Error parsing XML",必须在发布前拦下。</li>
  * </ul>
  *
  * <p>Process Context 发布校验四查(design 2026-09-01 §8):
@@ -36,10 +40,12 @@ import org.w3c.dom.NodeList;
  *   <li>prompt 引用存在性:userTask 的 userPrompt {@code {{var.field}}} 占位符,
  *       根变量已声明且点路径沿字段清单合法。</li>
  *   <li>条件表达式引用存在性:网关/连线/Conditional 事件 {@code ${}} 静态解析,
- *       标识符已声明或属内置豁免(引擎多实例内置变量 + 应用隔离三变量)。</li>
+ *       标识符已声明或属内置豁免(引擎多实例内置变量 + 应用隔离三变量);
+ *       字符串字面量与方法调用名不作为变量引用。</li>
  *   <li>映射 target 存在性:userTask 输出映射的 target 根变量已声明且点路径合法。</li>
  *   <li>变量引用来源闭环:prompt、条件表达式、消费声明引用的变量必有来源
- *       (start-param / initial / 输出映射 target / 产出声明 / 豁免)。</li>
+ *       (start-param / initial / 输出映射 target / 产出声明 / 豁免);
+ *       流程含代码型节点(delegate / 脚本 / DMN / receive / callActivity)时整体豁免。</li>
  * </ol>
  */
 @Service
@@ -101,10 +107,17 @@ public class BpmnValidationService {
         Set<String> validRoleIds = appRoles.stream()
             .map(r -> r.id().toString())
             .collect(Collectors.toSet());
-        validateRoleReferences(root, validRoleIds, errors);
+        Set<String> activeRoleIds = appRoles.stream()
+            .filter(r -> "active".equals(r.status()))
+            .map(r -> r.id().toString())
+            .collect(Collectors.toSet());
+        validateRoleReferences(root, validRoleIds, activeRoleIds, errors);
 
-        // 3) serviceTask 必配 delegateExpression
+        // 3) serviceTask 必配 delegateExpression 或 expression
         validateServiceTaskImplementations(root, errors);
+
+        // 3.5) 表达式面全角弯引号守卫
+        validateNoCurlyQuotesInExpressions(doc, errors);
 
         // 4) Process Context 四查
         validateContextReferences(doc, errors);
@@ -117,39 +130,94 @@ public class BpmnValidationService {
 
     // ===== 应用隔离与节点定义(原有) =====
 
-    private void validateRoleReferences(Element root, Set<String> validRoleIds, List<String> errors) {
+    private void validateRoleReferences(Element root, Set<String> validRoleIds,
+                                        Set<String> activeRoleIds, List<String> errors) {
         NodeList userTasks = root.getOwnerDocument().getElementsByTagNameNS(BPMN_NS, "userTask");
         for (int i = 0; i < userTasks.getLength(); i++) {
             Element task = (Element) userTasks.item(i);
             String taskId = task.getAttribute("id");
             String taskName = task.getAttribute("name");
 
-            // flowable:candidateGroups 引用的 role_id 必属本应用
+            // flowable:candidateGroups 引用的 role_id 必属本应用且为 active
             String candidateGroups = task.getAttributeNS(FLOWABLE_NS, "candidateGroups");
             if (candidateGroups != null && !candidateGroups.isBlank()) {
                 for (String gid : candidateGroups.split(",")) {
                     String trimmed = gid.trim();
-                    if (!trimmed.isEmpty() && !validRoleIds.contains(trimmed)) {
+                    if (trimmed.isEmpty()) {
+                        continue;
+                    }
+                    if (!validRoleIds.contains(trimmed)) {
                         errors.add(String.format(
                             "userTask[id=%s, name=%s] 的 candidateGroups 引用了不属于本应用的 role_id: %s (spec §12.10 应用隔离不变量)",
+                            taskId, taskName, trimmed));
+                    } else if (!activeRoleIds.contains(trimmed)) {
+                        errors.add(String.format(
+                            "userTask[id=%s, name=%s] 的 candidateGroups 引用了已停用的角色: %s(先启用角色再发布)",
                             taskId, taskName, trimmed));
                     }
                 }
             }
 
-            // dsh:assignmentRule.candidateRoleId 必属本应用
+            // dsh:assignmentRule.candidateRoleId 必属本应用且为 active
             NodeList dshAssignments = task.getElementsByTagNameNS(DSH_NS, "assignmentRule");
             for (int j = 0; j < dshAssignments.getLength(); j++) {
                 Element ar = (Element) dshAssignments.item(j);
                 String candidateRoleId = ar.getAttribute("candidateRoleId");
-                if (candidateRoleId != null && !candidateRoleId.isBlank()
-                    && !validRoleIds.contains(candidateRoleId)) {
+                if (candidateRoleId == null || candidateRoleId.isBlank()) {
+                    continue;
+                }
+                if (!validRoleIds.contains(candidateRoleId)) {
                     errors.add(String.format(
                         "userTask[id=%s] 的 dsh:assignmentRule.candidateRoleId 不属于本应用: %s",
+                        taskId, candidateRoleId));
+                } else if (!activeRoleIds.contains(candidateRoleId)) {
+                    errors.add(String.format(
+                        "userTask[id=%s] 的 dsh:assignmentRule.candidateRoleId 引用了已停用的角色: %s(先启用角色再发布)",
                         taskId, candidateRoleId));
                 }
             }
         }
+    }
+
+    /**
+     * 解析 BPMN XML 中引用的全部角色 ID(candidateGroups + assignmentRule.candidateRoleId)。
+     *
+     * <p>供角色停用守卫解析运行中实例所执行的流程版本使用;
+     * 解析失败返回空集(发布路径的合法性由 {@link #validate} 把关)。
+     */
+    public Set<String> parseRoleReferences(String bpmnXml) {
+        Set<String> refs = new HashSet<>();
+        if (bpmnXml == null || bpmnXml.isBlank()) {
+            return refs;
+        }
+        Document doc;
+        try {
+            doc = BpmnContextParser.parseXml(bpmnXml);
+        } catch (Exception e) {
+            return refs;
+        }
+        NodeList userTasks = doc.getElementsByTagNameNS(BPMN_NS, "userTask");
+        for (int i = 0; i < userTasks.getLength(); i++) {
+            Element task = (Element) userTasks.item(i);
+            String candidateGroups = task.getAttributeNS(FLOWABLE_NS, "candidateGroups");
+            if (candidateGroups != null && !candidateGroups.isBlank()) {
+                for (String gid : candidateGroups.split(",")) {
+                    String trimmed = gid.trim();
+                    if (!trimmed.isEmpty()) {
+                        refs.add(trimmed);
+                    }
+                }
+            }
+            NodeList dshAssignments = task.getElementsByTagNameNS(DSH_NS, "assignmentRule");
+            for (int j = 0; j < dshAssignments.getLength(); j++) {
+                Element ar = (Element) dshAssignments.item(j);
+                String candidateRoleId = ar.getAttribute("candidateRoleId");
+                if (candidateRoleId != null && !candidateRoleId.isBlank()) {
+                    refs.add(candidateRoleId.trim());
+                }
+            }
+        }
+        return refs;
     }
 
     private void validateServiceTaskImplementations(Element root, List<String> errors) {
@@ -157,12 +225,46 @@ public class BpmnValidationService {
         for (int i = 0; i < serviceTasks.getLength(); i++) {
             Element task = (Element) serviceTasks.item(i);
             String delegate = task.getAttributeNS(FLOWABLE_NS, "delegateExpression");
-            if (delegate == null || delegate.isBlank()) {
+            String expression = task.getAttributeNS(FLOWABLE_NS, "expression");
+            if ((delegate == null || delegate.isBlank()) && (expression == null || expression.isBlank())) {
                 errors.add(String.format(
-                    "serviceTask[id=%s, name=%s] 缺少 flowable:delegateExpression(spec §10.1 自动节点规则)",
+                    "serviceTask[id=%s, name=%s] 缺少 flowable:delegateExpression 或 flowable:expression(spec §10.1 自动节点规则)",
                     task.getAttribute("id"), task.getAttribute("name")));
             }
         }
+    }
+
+    /**
+     * 表达式面全角弯引号守卫:扫描 flowable:expression / flowable:delegateExpression
+     * 属性值与 conditionExpression / completionCondition 元素正文。
+     *
+     * <p>弯引号('' U+2018/U+2019)是合法 XML 属性字符,画布与引擎 XML 解析层全部放行,
+     * 直到引擎 JUEL 编译表达式才词法报错,且异常被 BpmnParse 包成无定位信息的
+     * "Error parsing XML"。常见来源是中文输入法把半角单引号打成全角弯引号。
+     */
+    private void validateNoCurlyQuotesInExpressions(Document doc, List<String> errors) {
+        NodeList all = doc.getElementsByTagName("*");
+        for (int i = 0; i < all.getLength(); i++) {
+            Element el = (Element) all.item(i);
+            String id = el.getAttribute("id");
+            String where = el.getLocalName() + (id.isBlank() ? "" : "[" + id + "]");
+            String expression = el.getAttributeNS(FLOWABLE_NS, "expression");
+            String delegate = el.getAttributeNS(FLOWABLE_NS, "delegateExpression");
+            if (containsCurlyQuote(expression) || containsCurlyQuote(delegate)) {
+                errors.add(where + " 的 flowable:expression/delegateExpression 含全角弯引号(''),"
+                    + "请改为半角单引号 '(常见于中文输入法误入)");
+            }
+            if (BPMN_NS.equals(el.getNamespaceURI())
+                    && ("conditionExpression".equals(el.getLocalName())
+                        || "completionCondition".equals(el.getLocalName()))
+                    && containsCurlyQuote(el.getTextContent())) {
+                errors.add(where + " 条件表达式含全角弯引号(''),请改为半角单引号 '(常见于中文输入法误入)");
+            }
+        }
+    }
+
+    private static boolean containsCurlyQuote(String s) {
+        return s != null && (s.indexOf('\u2018') >= 0 || s.indexOf('\u2019') >= 0);
     }
 
     // ===== Process Context 四查(design 2026-09-01 §8) =====
@@ -181,7 +283,7 @@ public class BpmnValidationService {
             }
         }
 
-        // 来源集:start-param / initial / 输出映射 target 根 / 产出声明 / 豁免
+        // 来源集:start-param / initial / 输出映射 target 根 / 豁免
         Set<String> sources = new LinkedHashSet<>();
         for (ContextVariable v : declarations) {
             if ("start-param".equals(v.source())
@@ -205,16 +307,28 @@ public class BpmnValidationService {
         // 查 2:条件表达式(sequenceFlow / conditionalEvent)
         checkConditionExpressions(doc, byName, referenced, errors);
 
-        // 消费/产出声明:inputVariables 收引用,outputVariables 收来源
-        checkIoVariableDeclarations(doc, byName, referenced, sources, errors);
-
-        // 查 4:来源闭环
-        for (String ref : referenced) {
-            if (!sources.contains(ref)) {
-                errors.add(String.format(
-                    "变量 %s 被引用但没有来源(start-param / 初始值 / 输出映射 / 产出声明均无)", ref));
+        // 查 4:来源闭环。流程含代码型节点(delegate / 脚本 / DMN / receive / callActivity)时豁免:
+        // 这些节点在代码或输出列里 setVariable,写什么由代码本身表达(design §6),
+        // 静态分析无法证伪,强查只会误报(如 DMN 产出 level)。
+        if (!hasCodeNodes(doc)) {
+            for (String ref : referenced) {
+                if (!sources.contains(ref)) {
+                    errors.add(String.format(
+                        "变量 %s 被引用但没有来源(start-param / 初始值 / 输出映射均无)", ref));
+                }
             }
         }
+    }
+
+    /** 流程中存在会写流程变量的代码型节点(service / send / script / businessRule / receive / callActivity)。 */
+    private static boolean hasCodeNodes(Document doc) {
+        for (String tag : new String[] {"serviceTask", "sendTask", "scriptTask",
+            "businessRuleTask", "receiveTask", "callActivity"}) {
+            if (doc.getElementsByTagNameNS(BPMN_NS, tag).getLength() > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 查 1:userPrompt {{}} 占位符——根变量已声明、点路径沿字段清单合法。 */
@@ -294,7 +408,9 @@ public class BpmnValidationService {
                           Set<String> referenced, List<String> errors) {
         // 去掉字符串字面量再提标识符,避免 'approved' 误报
         String withoutLiterals = expr.replaceAll("'[^']*'", "").replaceAll("\"[^\"]*\"", "");
-        Matcher m = JUEL_EXPRESSION.matcher(withoutLiterals);
+        // 去掉方法调用名(.contains( / .startsWith( 等),方法名不是变量引用
+        String withoutMethods = withoutLiterals.replaceAll("\\.\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*\\(", "(");
+        Matcher m = JUEL_EXPRESSION.matcher(withoutMethods);
         while (m.find()) {
             Matcher ids = IDENTIFIER.matcher(m.group(1));
             Set<String> seenInExpr = new HashSet<>();
@@ -309,31 +425,6 @@ public class BpmnValidationService {
                     errors.add(String.format(
                         "%s 的条件表达式引用未声明变量: %s(先在「上下文变量」面板声明)", location, id));
                 }
-            }
-        }
-    }
-
-    /** 消费声明收引用、产出声明收来源;两者都要求变量已声明。 */
-    private void checkIoVariableDeclarations(Document doc, Map<String, ContextVariable> byName,
-                                             Set<String> referenced, Set<String> sources,
-                                             List<String> errors) {
-        NodeList refs = doc.getElementsByTagNameNS(DSH_NS, "variableRef");
-        for (int i = 0; i < refs.getLength(); i++) {
-            Element ref = (Element) refs.item(i);
-            String name = attrOrNull(ref, "ref");
-            if (name == null || name.isBlank()) {
-                continue;
-            }
-            boolean isOutput = isInside(ref, "outputVariables");
-            if (!byName.containsKey(name)) {
-                errors.add(String.format(
-                    "%s声明的变量未声明: %s", isOutput ? "产出" : "消费", name));
-                continue;
-            }
-            if (isOutput) {
-                sources.add(name);
-            } else {
-                referenced.add(name);
             }
         }
     }
@@ -418,20 +509,6 @@ public class BpmnValidationService {
             }
         }
         return result;
-    }
-
-    /** 判断元素是否在指定 local name 的 dsh: 祖先内。 */
-    private static boolean isInside(Element el, String ancestorLocalName) {
-        org.w3c.dom.Node node = el.getParentNode();
-        while (node != null) {
-            if (node instanceof Element e
-                && DSH_NS.equals(e.getNamespaceURI())
-                && ancestorLocalName.equals(e.getLocalName())) {
-                return true;
-            }
-            node = node.getParentNode();
-        }
-        return false;
     }
 
     private static String attrOrNull(Element el, String name) {

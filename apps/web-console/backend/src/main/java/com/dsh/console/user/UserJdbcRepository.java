@@ -158,6 +158,22 @@ public class UserJdbcRepository {
     }
 
     /**
+     * 统计给定 ID 集合中状态为 active 的用户数(应用唯一活跃管理员守卫)。
+     */
+    public int countActiveIn(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        return jdbcClient.sql("""
+            SELECT COUNT(*) FROM public.platform_users
+            WHERE status = 'active' AND id = ANY(:ids)
+            """)
+            .param("ids", ids.toArray(new UUID[0]))
+            .query(Integer.class)
+            .single();
+    }
+
+    /**
      * RowMapper:snake_case 列 → camelCase 字段,处理 TEXT[] → List<String>。
      */
     static class UserRowMapper implements RowMapper<UserDto> {

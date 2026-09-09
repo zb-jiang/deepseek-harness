@@ -8,6 +8,11 @@
  * 不覆盖员工已编辑的内容;预填失败原因记入 prefillNotice(侧栏提示,便于诊断);
  * 提交完成后解绑、记录回执并刷新队列。
  *
+ * <p>任务会话仍处草稿期(未发送过消息、输入框已清空)时,员工在对话区顶部切换
+ * 目录后重新点击待办,绑定会迁移到新工作区的当前空白会话(原生目录切换已把草稿
+ * 与图片移交过去,认领即跟随);已有对话历史的任务会话不迁移,点击待办回到原会话
+ * (历史留在原地可达)。
+ *
  * <p>绑定状态刻意用普通对象而非 Map/Set:快照存储引擎经 immer produce 起草,
  * 而运行时导入的 immer 未启用 MapSet 插件,Map 草稿在首次变更时抛
  * "[Immer] minified error nr: 0"。已完成任务的会话映射另存 localStorage,
@@ -165,6 +170,10 @@ export class EnterpriseWorkbench {
    * open 之前写入新会话的输入机(原生 New Session 的 draft hand-off 模式)。
    * 预填失败原因记入 prefillNotice 供侧栏提示。无可用工作区时清空当前
    * 选择(与原生 New Session 行为一致);建连失败记入队列错误面。
+   *
+   * <p>绑定会话仍存续时先尝试 adoptCurrentBlank:员工切换到其他工作区的
+   * 空白会话(原生目录选择已移交草稿/图片)后重新点击待办,任务绑定迁移过去,
+   * 工作区不再退回原会话所在地;不满足迁移守卫时维持回到原会话。
    * @param task - 队列中选中的待办。
    */
   async openTask(task: Task): Promise<void> {
@@ -183,6 +192,9 @@ export class EnterpriseWorkbench {
       sessionId = await this.createTaskSession(workspaceId)
       if (sessionId === undefined) return
       this.bind(task.id, sessionId)
+    } else {
+      const adopted = this.adoptCurrentBlank(task.id, sessionId)
+      if (adopted !== undefined) sessionId = adopted
     }
     const prefillNotice = this.prefillPrompt(task, sessionId)
     this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
@@ -330,6 +342,72 @@ export class EnterpriseWorkbench {
   /** 建立任务↔会话双向绑定(重绑时覆盖旧正向记录)。 */
   private bind(taskId: string, sessionId: SessionId): void {
     this.bindings.update((draft) => {
+      draft.taskToSession[taskId] = sessionId
+      draft.sessionToTask[sessionId] = taskId
+    })
+  }
+
+  /**
+   * 把仍处草稿期的任务迁移到当前空白会话(员工切换工作区后重新点击待办)。
+   *
+   * <p>原生对话区顶部的目录选择会把当前会话的草稿与图片移交给新工作区的
+   * 空白会话再导航过去;绑定仍指向旧工作区的原会话时,点击待办会跳回旧工作区,
+   * 员工无法在自选目录下处理待办。这里在守卫全过时把绑定认领到当前空白会话,
+   * 移交过来的草稿/图片原地可用。
+   *
+   * <p>守卫(任一不满足即返回 undefined,维持回到原会话的现状):
+   * <ol>
+   *   <li>当前会话存在、≠ 绑定会话、是空白会话、且未绑定其他任务
+   *       (认领会话不能劫持已有对话或他人任务);</li>
+   *   <li>绑定会话仍是空白(未发送过消息)且输入框无草稿/图片
+   *       (有内容滞留说明内容还在原会话,迁移会丢;已有对话历史的
+   *       任务会话同样不迁移——历史留在原地仍可达);</li>
+   *   <li>两会话分属不同工作区,且当前会话的工作区可解析
+   *       (绑定会话的工作区已被删除时视为不同,允许迁移)。</li>
+   * </ol>
+   *
+   * @param taskId - 目标待办 id。
+   * @param boundId - 当前绑定的会话。
+   * @returns 迁移后的会话 id;未迁移为 undefined。
+   */
+  private adoptCurrentBlank(taskId: string, boundId: SessionId): SessionId | undefined {
+    const sessions = this.deps.sessions.list.getSnapshot()
+    const current = sessions.current
+    if (current === undefined || current === boundId) return undefined
+    const currentRow = sessions.byId[current]
+    const boundRow = sessions.byId[boundId]
+    if (currentRow === undefined || boundRow === undefined) return undefined
+    if (!currentRow.blank || !boundRow.blank) return undefined
+    if (this.bindings.getSnapshot().sessionToTask[current] !== undefined) return undefined
+    const boundState = this.sessionInput(boundId)?.state.getSnapshot()
+    if (boundState === undefined || boundState.draft !== '' || boundState.imageIds.length > 0) {
+      return undefined
+    }
+    const workspaces = this.deps.workspaces.list.getSnapshot()
+    const workspaceOf = (id: SessionId): WorkspaceId | undefined =>
+      workspaces.items.find(item => item.sessionIds.includes(id))?.workspaceId
+    const currentWorkspace = workspaceOf(current)
+    if (currentWorkspace === undefined || currentWorkspace === workspaceOf(boundId)) {
+      return undefined
+    }
+    this.rebind(taskId, current)
+    // 迁移后的指令补填只面向空草稿:已携带的草稿本就是移交过来的任务指令
+    // (或员工自己的内容),标记已填避免 prefillPrompt 误报"输入框已有内容"。
+    const draft = this.sessionInput(current)?.state.getSnapshot().draft ?? ''
+    if (draft === '') this.prefilledTasks.delete(taskId)
+    else this.prefilledTasks.add(taskId)
+    return current
+  }
+
+  /** 迁移任务绑定到新会话,并清掉旧会话上的反向索引(旧会话退化为普通会话)。 */
+  private rebind(taskId: string, sessionId: SessionId): void {
+    this.bindings.update((draft) => {
+      const previous = draft.taskToSession[taskId]
+      if (previous !== undefined && previous !== sessionId) {
+        // spread+rest 移除键,绕开 lint 的 no-dynamic-delete(与 unbind 同理)
+        const { [previous]: _stale, ...rest } = draft.sessionToTask
+        draft.sessionToTask = rest
+      }
       draft.taskToSession[taskId] = sessionId
       draft.sessionToTask[sessionId] = taskId
     })

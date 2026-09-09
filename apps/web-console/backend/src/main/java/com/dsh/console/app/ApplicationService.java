@@ -8,8 +8,10 @@ import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
 import com.dsh.console.security.AuthContext;
 import com.dsh.console.security.PlatformRole;
 import com.dsh.console.user.UserJdbcRepository;
+import com.dsh.console.workflow.WorkflowDefinitionJdbcRepository;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,15 +31,18 @@ public class ApplicationService {
 
     private final ApplicationJdbcRepository appRepository;
     private final UserJdbcRepository userRepository;
+    private final WorkflowDefinitionJdbcRepository workflowRepository;
     private final AuditService auditService;
 
     private static final String DEFAULT_ICON_BASE64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTUiIHN0cm9rZS13aWR0aD0iMiI+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBhdGggZD0iTTIxIDE1bC01LTUtMTYgMTYiLz48L3N2Zz4=";
 
     public ApplicationService(ApplicationJdbcRepository appRepository,
                               UserJdbcRepository userRepository,
+                              WorkflowDefinitionJdbcRepository workflowRepository,
                               AuditService auditService) {
         this.appRepository = appRepository;
         this.userRepository = userRepository;
+        this.workflowRepository = workflowRepository;
         this.auditService = auditService;
     }
 
@@ -98,26 +103,30 @@ public class ApplicationService {
             ? null : request.appAdminUserIds().toArray(new UUID[0]);
         int rows = appRepository.update(appId, request.name(), request.description(), icon, adminIds);
         if (rows == 0) {
-            throw new IllegalStateException("应用更新失败:应用不存在或状态非 draft/active");
+            throw new IllegalStateException("应用更新失败:应用不存在或已归档");
         }
         auditService.record("APP_UPDATE", "application", null, updaterId,
             java.util.Map.of("appId", appId, "name", request.name()));
         return getById(appId);
     }
 
-    @Transactional
-    public ApplicationDto activate(UUID appId, UUID activatorId) {
-        int rows = appRepository.activate(appId);
-        if (rows == 0) {
-            throw new IllegalStateException("应用激活失败:状态非 draft");
-        }
-        auditService.record("APP_ACTIVATE", "application", null, activatorId,
-            java.util.Map.of("appId", appId));
-        return getById(appId);
-    }
-
+    /**
+     * 归档应用(终态)。
+     *
+     * <p>守卫:应用下流程定义须全部归档(流程归档已保证其运行中实例清零,
+     * 传递保证应用下无运行中实例)。
+     */
     @Transactional
     public ApplicationDto archive(UUID appId, UUID archiverId) {
+        List<String> notArchived = workflowRepository.listByApp(appId).stream()
+            .filter(wf -> !"archived".equals(wf.status()))
+            .map(wf -> "「" + wf.name() + "」(" + wf.status() + ")")
+            .collect(Collectors.toList());
+        if (!notArchived.isEmpty()) {
+            throw new IllegalStateException(
+                "应用下存在未归档的流程: %s(先归档全部流程再归档应用)"
+                    .formatted(String.join("、", notArchived)));
+        }
         int rows = appRepository.archive(appId, archiverId);
         if (rows == 0) {
             throw new IllegalStateException("应用归档失败:状态已是 archived");

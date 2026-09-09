@@ -417,13 +417,15 @@ flowable:
 dsh:
   supabase:
     jwt-issuer: ${SUPABASE_URL}/auth/v1
-  web-profile:
-    base-url: ${DSH_WEB_PROFILE_BASE_URL}
-    auto-node-path: /api/enterprise/auto-node/execute
-    call-timeout-seconds: 60
+  # DSH headless 集成:定制 delegate 注入 DshHeadlessClient 时才用到,repo-root 未配置引擎照常启动
+  headless:
+    node-bin: node
+    repo-root: ${DSH_REPO_ROOT:}
+    cli-entry: apps/cli/src/bin.ts
+    call-timeout-seconds: 300
 ```
 
-环境变量见 `.env.ps1.example`。
+环境变量见 `.env.ps1.example`。`DSH_REPO_ROOT` / `DEEPSEEK_API_KEY` 只在流程含调 `DshHeadlessClient` 的自动节点时需要(headless 的 LLM 调用读它们);纯人工流程不配置也能正常跑。
 
 ### 10.3 Web Console 后端(Java Spring Boot,服务器端)
 

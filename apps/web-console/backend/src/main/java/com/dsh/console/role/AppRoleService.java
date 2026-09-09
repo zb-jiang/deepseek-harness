@@ -7,8 +7,10 @@ import com.dsh.console.role.dto.AppRoleDto;
 import com.dsh.console.role.dto.CreateAppRoleRequest;
 import com.dsh.console.role.dto.UpdateAppRoleRequest;
 import com.dsh.console.security.AuthContext;
+import com.dsh.console.workflow.WorkflowInstanceGuard;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,13 +29,16 @@ public class AppRoleService {
 
     private final AppRoleJdbcRepository roleRepository;
     private final ApplicationService applicationService;
+    private final WorkflowInstanceGuard workflowInstanceGuard;
     private final AuditService auditService;
 
     public AppRoleService(AppRoleJdbcRepository roleRepository,
                           ApplicationService applicationService,
+                          WorkflowInstanceGuard workflowInstanceGuard,
                           AuditService auditService) {
         this.roleRepository = roleRepository;
         this.applicationService = applicationService;
+        this.workflowInstanceGuard = workflowInstanceGuard;
         this.auditService = auditService;
     }
 
@@ -55,7 +60,9 @@ public class AppRoleService {
     @Transactional
     public AppRoleDto create(UUID appId, CreateAppRoleRequest request, UUID creatorId, AuthContext auth) {
         applicationService.checkCanAccessApp(auth, appId);
-        // 校验 parent_role_id 同应用
+        // 串行化同应用的角色层级变更,堵并发互设父角色的成环竞态
+        roleRepository.lockHierarchy(appId);
+        // 校验 parent_role_id 同应用(新建角色无子角色,挂到任一现有角色下不可能成环)
         if (request.parentRoleId() != null) {
             AppRoleDto parent = roleRepository.findById(request.parentRoleId())
                 .orElseThrow(() -> new IllegalArgumentException("父角色不存在: " + request.parentRoleId()));
@@ -73,6 +80,8 @@ public class AppRoleService {
     @Transactional
     public AppRoleDto update(UUID roleId, UpdateAppRoleRequest request, UUID updaterId, AuthContext auth) {
         AppRoleDto existing = getById(roleId, auth);
+        // 串行化同应用的角色层级变更,堵并发互设父角色的成环竞态
+        roleRepository.lockHierarchy(existing.appId());
         // 校验 parent_role_id 同应用 + 无循环
         if (request.parentRoleId() != null) {
             AppRoleDto parent = roleRepository.findById(request.parentRoleId())
@@ -92,10 +101,35 @@ public class AppRoleService {
 
     /**
      * 禁用角色(status → disabled)。V1 软删除,不删除行(BPMN 引用历史 role_id)。
+     *
+     * <p>守卫:① 无活跃子角色;② 引用该角色的流程均无运行中实例
+     * (跨全部部署版本,由 {@link WorkflowInstanceGuard} 判定)。
      */
     @Transactional
     public AppRoleDto disable(UUID roleId, UUID disablerId, AuthContext auth) {
         AppRoleDto existing = getById(roleId, auth);
+
+        // 守卫 1:存在活跃子角色(已停用的子角色不算)
+        List<String> activeChildren = roleRepository.listByApp(existing.appId()).stream()
+            .filter(r -> roleId.equals(r.parentRoleId()) && "active".equals(r.status()))
+            .map(AppRoleDto::name)
+            .toList();
+        if (!activeChildren.isEmpty()) {
+            throw new IllegalStateException("角色「%s」存在活跃子角色: %s(先停用子角色再停用父角色)"
+                .formatted(existing.name(), String.join("、", activeChildren)));
+        }
+
+        // 守卫 2:引用该角色的流程存在运行中实例
+        List<String> blockingWorkflows =
+            workflowInstanceGuard.workflowsBlockingRoleDisable(existing.appId(), roleId);
+        if (!blockingWorkflows.isEmpty()) {
+            String names = blockingWorkflows.stream()
+                .map(n -> "「" + n + "」")
+                .collect(Collectors.joining("、"));
+            throw new IllegalStateException("角色「%s」被以下引用它的流程的运行中实例使用: %s(先等待实例结束或终止实例)"
+                .formatted(existing.name(), names));
+        }
+
         roleRepository.setStatus(roleId, "disabled");
         auditService.record("ROLE_DISABLE", "app_role", null, disablerId,
             java.util.Map.of("roleId", roleId));

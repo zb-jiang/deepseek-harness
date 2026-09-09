@@ -23,7 +23,8 @@ import com.dsh.flowable.repository.DshMembershipRepository;
  *       取任务指令(userPrompt)与 skill 引用(skillRefs)。</li>
  *   <li><b>userPrompt {@code {{}}} 插值</b>(design 2026-09-01 §7):任务创建时把模板中
  *       {@code {{var.field}}} 占位符替换为流程变量快照——string 直接替换,object/array 序列化为
- *       JSON 文本嵌入,值缺失保留原占位符。每个候选人的任务各自持有创建时刻快照,互不干扰。</li>
+ *       JSON 文本嵌入,值缺失(变量未设置或路径中途断开)替换为「空」。每个候选人的任务各自持有
+ *       创建时刻快照,互不干扰。</li>
  *   <li><b>SoD 候选过滤</b>(§6.7 B1):解析 {@code dsh:actionPolicy.sodRules},如果非空:
  *       <ul>
  *         <li>从 BPMN 显式配的 {@code flowable:candidateUsers} 或 {@code dsh:assignmentRule.candidateRoleId}
@@ -148,8 +149,9 @@ public class DshTaskListener implements TaskListener {
 
     /**
      * 解析点路径占位符:根段从流程变量取,后续段深入 Map 字段;
-     * 值缺失(null 或路径中途断开)保留原占位符文本,string 直接替换,
-     * 其余类型(object/array/数字等)序列化为 JSON 文本嵌入。
+     * 值缺失(null 或路径中途断开)替换为「空」——变量未设置常见于分支跳过
+     * 未走过的节点,保留占位符原文会把模板语法泄漏给模型与办理人;
+     * string 直接替换,其余类型(object/array/数字等)序列化为 JSON 文本嵌入。
      */
     private String resolvePlaceholder(String path, DelegateTask delegateTask) {
         String[] segments = path.split("\\.");
@@ -162,7 +164,7 @@ public class DshTaskListener implements TaskListener {
             }
         }
         if (value == null) {
-            return "{{" + path + "}}";
+            return "空";
         }
         if (value instanceof String s) {
             return s;

@@ -86,17 +86,6 @@ public class ApplicationController {
     }
 
     /**
-     * 激活应用:draft → active。
-     */
-    @PostMapping("/{appId}/activate")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
-    public ApiResponse<ApplicationDto> activate(@PathVariable UUID appId,
-                                                @AuthenticationPrincipal AuthContext auth) {
-        applicationService.checkCanAccessApp(auth, appId);
-        return ApiResponse.ok(applicationService.activate(appId, auth.platformUserId()));
-    }
-
-    /**
      * 归档应用(软删除:status → archived,终态)。
      */
     @DeleteMapping("/{appId}")

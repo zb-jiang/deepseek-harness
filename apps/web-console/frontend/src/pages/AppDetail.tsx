@@ -125,17 +125,6 @@ export default function AppDetailPage() {
     }
   }
 
-  const handleActivate = async () => {
-    if (!app) return
-    try {
-      const updated = await appsApi.activate(app.id)
-      message.success(`已激活 ${updated.name}`)
-      setApp(updated)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '激活失败')
-    }
-  }
-
   const handleArchive = async () => {
     if (!app) return
     try {
@@ -154,9 +143,6 @@ export default function AppDetailPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           {app?.name ?? '应用详情'}
         </Typography.Title>
-        {app && app.status === 'draft' && (
-          <Button type="primary" onClick={handleActivate}>激活</Button>
-        )}
         {app && (
           <>
             <Button icon={<EditOutlined />} onClick={() => {
@@ -334,9 +320,24 @@ function RolesTab({ appId }: { appId: string }) {
     }
   }
 
-  const parentRoleOptions = data
-    .filter(r => !editTarget || r.id !== editTarget.id)
-    .map(r => ({ label: r.name, value: r.id }))
+  // 父角色候选:编辑时排除自己及全部后代(选后代做父角色会成环);新建时全部可选
+  const parentRoleOptions = useMemo(() => {
+    if (!editTarget) {
+      return data.map(r => ({ label: r.name, value: r.id }))
+    }
+    const excluded = new Set<string>([editTarget.id])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const r of data) {
+        if (r.parentRoleId && excluded.has(r.parentRoleId) && !excluded.has(r.id)) {
+          excluded.add(r.id)
+          changed = true
+        }
+      }
+    }
+    return data.filter(r => !excluded.has(r.id)).map(r => ({ label: r.name, value: r.id }))
+  }, [data, editTarget])
 
   const handleDisable = async (role: AppRoleDto) => {
     try {
@@ -360,6 +361,20 @@ function RolesTab({ appId }: { appId: string }) {
 
   const columns: ColumnsType<AppRoleDto> = [
     { title: '角色名', dataIndex: 'name', key: 'name' },
+    {
+      title: '角色 ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 160,
+      render: (_, role) => (
+        <Typography.Text
+          copyable={{ text: role.id, tooltips: ['复制角色 ID', '已复制'] }}
+          style={{ fontFamily: 'monospace' }}
+        >
+          {shortId(role.id)}
+        </Typography.Text>
+      ),
+    },
     { title: '描述', dataIndex: 'description', key: 'description', render: v => v || '-' },
     {
       title: '状态',

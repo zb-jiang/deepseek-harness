@@ -269,6 +269,24 @@
   letter-spacing: normal;
 }
 
+.select {
+  max-width: 55%;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.select:focus-visible {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+}
+
 .submitButton {
   width: 100%;
   margin-top: 10px;

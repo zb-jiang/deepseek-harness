@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { HistoricActivity } from '../task-api.ts'
 import {
-  activityStatuses, buildVariables, defaultMappings, executionRecords, extractJson,
-  lastAssistantText, targetOptions,
+  activityStatuses, buildVariables, collectJsonBlocks, defaultMappings, executionRecords,
+  extractJson, latestJson, targetOptions,
 } from './pure.ts'
 
 function assistantNode(text: string): ConversationNode {
@@ -14,31 +14,67 @@ function assistantNode(text: string): ConversationNode {
   }
 }
 
-describe('lastAssistantText', () => {
-  it('returns the last assistant message text', () => {
+describe('latestJson', () => {
+  it('scans backwards past plain-text replies to the latest JSON', () => {
     const nodes: ConversationNode[] = [
-      assistantNode('第一轮'),
+      assistantNode('结果\n```json\n{"a":1}\n```'),
       { kind: 'user', seq: 2, time: 0, content: [], source: null },
-      assistantNode('第二轮'),
+      assistantNode('补充说明,没有 JSON'),
     ]
-    expect(lastAssistantText(nodes)).toBe('第二轮')
+    expect(latestJson(nodes)).toEqual({ a: 1 })
+  })
+
+  it('prefers the newest JSON when several assistant messages carry one', () => {
+    const nodes: ConversationNode[] = [
+      assistantNode('```json\n{"first":1}\n```'),
+      assistantNode('```json\n{"second":2}\n```'),
+    ]
+    expect(latestJson(nodes)).toEqual({ second: 2 })
   })
 
   it('skips reasoning and tool-call blocks', () => {
     const nodes: ConversationNode[] = [{
       kind: 'assistant', seq: 3, time: 0, turn: 1, step: 1,
       blocks: [
-        { kind: 'reasoning', text: '思考' },
-        { kind: 'text', text: '结论A' },
-        { kind: 'text', text: '结论B' },
+        { kind: 'reasoning', text: '思考 {"x":1}' },
+        { kind: 'text', text: '结论 {"y":2}' },
       ],
     }]
-    expect(lastAssistantText(nodes)).toBe('结论A结论B')
+    expect(latestJson(nodes)).toEqual({ y: 2 })
   })
 
-  it('returns null without assistant messages', () => {
-    expect(lastAssistantText([])).toBeNull()
-    expect(lastAssistantText([{ kind: 'user', seq: 1, time: 0, content: [], source: null }])).toBeNull()
+  it('returns undefined without any JSON in the conversation', () => {
+    expect(latestJson([])).toBeUndefined()
+    expect(latestJson([{ kind: 'user', seq: 1, time: 0, content: [], source: null }])).toBeUndefined()
+    expect(latestJson([assistantNode('纯文本没有结构')])).toBeUndefined()
+  })
+})
+
+describe('collectJsonBlocks', () => {
+  it('collects every JSON block with its reply number in order', () => {
+    const nodes: ConversationNode[] = [
+      assistantNode('结果\n```json\n{"a":1}\n```'),
+      { kind: 'user', seq: 2, time: 0, content: [], source: null },
+      assistantNode('第二轮 {"b":2} 完成'),
+    ]
+    expect(collectJsonBlocks(nodes)).toEqual([
+      { messageNo: 1, preview: '{"a":1}', value: { a: 1 } },
+      { messageNo: 2, preview: '{"b":2}', value: { b: 2 } },
+    ])
+  })
+
+  it('numbers blocks by assistant replies, skipping JSON-less ones', () => {
+    const nodes: ConversationNode[] = [
+      assistantNode('先聊两句,没有 JSON'),
+      assistantNode('```json\n[1, 2]\n```'),
+    ]
+    expect(collectJsonBlocks(nodes)).toEqual([
+      { messageNo: 2, preview: '[1,2]', value: [1, 2] },
+    ])
+  })
+
+  it('returns empty without any JSON', () => {
+    expect(collectJsonBlocks([])).toEqual([])
   })
 })
 

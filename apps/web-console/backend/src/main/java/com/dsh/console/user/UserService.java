@@ -1,10 +1,14 @@
 package com.dsh.console.user;
 
+import com.dsh.console.app.ApplicationJdbcRepository;
+import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.runtime.FlowableRestClient;
 import com.dsh.console.user.dto.UserDto;
 import com.dsh.console.user.dto.UpdateUserRequest;
 import com.dsh.console.user.dto.UserActionRequest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -22,10 +26,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
     private final UserJdbcRepository userRepository;
+    private final ApplicationJdbcRepository appRepository;
+    private final FlowableRestClient flowableRestClient;
     private final AuditService auditService;
 
-    public UserService(UserJdbcRepository userRepository, AuditService auditService) {
+    public UserService(UserJdbcRepository userRepository,
+                       ApplicationJdbcRepository appRepository,
+                       FlowableRestClient flowableRestClient,
+                       AuditService auditService) {
         this.userRepository = userRepository;
+        this.appRepository = appRepository;
+        this.flowableRestClient = flowableRestClient;
         this.auditService = auditService;
     }
 
@@ -71,9 +82,39 @@ public class UserService {
 
     /**
      * 禁用用户:任意状态 → disabled。
+     *
+     * <p>守卫:① 名下无未完成的已分配任务(运行中实例的 assignee,按 auth_subject 查);
+     * ② 不是任何活跃应用的唯一活跃管理员(先增派其他管理员)。
      */
     @Transactional
     public UserDto disable(UUID userId, UUID disablerId, String reason) {
+        UserDto user = getById(userId);
+
+        // 守卫 1:未完成的已分配任务
+        if (user.authSubject() != null && !user.authSubject().isBlank()) {
+            int openTasks = flowableRestClient.countOpenTasksByAssignee(user.authSubject());
+            if (openTasks > 0) {
+                throw new IllegalStateException(
+                    "用户「%s」名下尚有 %d 个未完成任务,不能禁用(先改派或等任务完成)"
+                        .formatted(user.displayName(), openTasks));
+            }
+        }
+
+        // 守卫 2:活跃应用的唯一活跃管理员
+        List<String> soleAdminApps = new ArrayList<>();
+        for (ApplicationDto app : appRepository.listByAdminUser(userId)) {
+            List<UUID> otherAdmins = new ArrayList<>(app.appAdminUserIds());
+            otherAdmins.remove(userId);
+            if (otherAdmins.isEmpty() || userRepository.countActiveIn(otherAdmins) == 0) {
+                soleAdminApps.add(app.name());
+            }
+        }
+        if (!soleAdminApps.isEmpty()) {
+            throw new IllegalStateException(
+                "用户「%s」是以下活跃应用的唯一活跃管理员: %s(先增派其他管理员再禁用)"
+                    .formatted(user.displayName(), String.join("、", soleAdminApps)));
+        }
+
         int rows = userRepository.disable(userId, disablerId, reason);
         if (rows == 0) {
             throw new IllegalStateException("用户禁用失败:用户不存在或已禁用");
