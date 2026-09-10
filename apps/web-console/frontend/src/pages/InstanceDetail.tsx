@@ -433,8 +433,14 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
   ]
 
   const variableColumns: ColumnsType<ProcessVariableDto> = [
-    { title: '变量名', dataIndex: 'name', key: 'name', render: v => <Typography.Text code>{v}</Typography.Text> },
-    { title: '类型', dataIndex: 'type', key: 'type', render: (v: string | null) => v ?? '-' },
+    {
+      title: '变量名',
+      dataIndex: 'name',
+      key: 'name',
+      width: 240,
+      render: v => <Typography.Text code style={{ whiteSpace: 'nowrap' }}>{v}</Typography.Text>,
+    },
+    { title: '类型', dataIndex: 'type', key: 'type', width: 100, render: (v: string | null) => v ?? '-' },
     {
       title: '值',
       dataIndex: 'value',
@@ -451,6 +457,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
       title: '最后更新',
       dataIndex: 'lastUpdatedTime',
       key: 'lastUpdatedTime',
+      width: 180,
       render: (v: string | null) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-'),
     },
   ]
@@ -577,6 +584,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
         loading={loading}
         pagination={false}
         size="small"
+        tableLayout="fixed"
       />
 
       <Modal

@@ -75,18 +75,10 @@ export default function ConsoleLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider theme="dark" width={220} style={{ overflow: 'auto', height: '100vh', position: 'sticky', top: 0 }}>
-        <div
-          style={{
-            color: '#fff',
-            textAlign: 'center',
-            padding: '16px 8px',
-            fontSize: 16,
-            fontWeight: 600,
-            borderBottom: '1px solid #1f1f1f',
-          }}
-        >
-          DSH Web Console
+      <Sider theme="dark" width={220} className="dsh-sider" style={{ overflow: 'auto', height: '100vh', position: 'sticky', top: 0 }}>
+        <div className="dsh-brand">
+          <span className="dsh-brand-logo">DS</span>
+          <span>DSH Web Console</span>
         </div>
         <Menu
           theme="dark"
@@ -98,16 +90,7 @@ export default function ConsoleLayout() {
         />
       </Sider>
       <Layout>
-        <Header
-          style={{
-            background: '#fff',
-            padding: '0 24px',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            boxShadow: '0 1px 4px rgba(0,21,41,0.08)',
-          }}
-        >
+        <Header className="dsh-header">
           <Dropdown menu={userMenu} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />

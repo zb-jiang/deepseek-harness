@@ -23,7 +23,15 @@ export default function App() {
     <ConfigProvider
       locale={zhCN}
       theme={{
-        token: { colorPrimary: '#1677ff' },
+        token: {
+          colorPrimary: '#4d5cf5',
+          colorInfo: '#4d5cf5',
+          colorLink: '#4d5cf5',
+          borderRadius: 10,
+          fontFamily:
+            "'Segoe UI', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+          colorBgLayout: '#f2f4fb',
+        },
       }}
     >
       <AntdApp>

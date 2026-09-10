@@ -67,17 +67,10 @@ export default function RegisterPage() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #f5f7fa 0%, #e4ecf7 100%)',
-      }}
-    >
-      <Card style={{ width: 420, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+    <div className="auth-shell">
+      <Card style={{ width: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div className="auth-brand">DS</div>
           <Typography.Title level={3} style={{ marginBottom: 4 }}>
             注册账号
           </Typography.Title>

@@ -21,16 +21,9 @@ export default function PendingPage() {
   const text = STATUS_TEXT[status] ?? status
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f5f5f5',
-      }}
-    >
+    <div className="auth-shell">
       <Card style={{ width: 420, textAlign: 'center' }}>
+        <div className="auth-brand">DS</div>
         <Typography.Title level={3} style={{ marginBottom: 8 }}>
           账号状态:{text}
         </Typography.Title>
