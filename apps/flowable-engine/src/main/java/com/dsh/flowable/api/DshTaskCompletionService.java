@@ -28,7 +28,8 @@ import org.springframework.stereotype.Service;
  *
  * <p>值按声明类型转换:integer→Long、float→Double、boolean→Boolean、object→Map、
  * array 元素(单个值或 List)追加;date(yyyy-MM-dd)与 datetime(yyyy-MM-dd'T'HH:mm:ss)
- * 按严格格式校验后以字符串存储(字典序即时间序)。未声明变量拒绝写入(fail loud)。
+ * 按严格格式校验后以字符串存储(字典序即时间序)。未声明变量拒绝写入、系统注入变量
+ * (source=system)拒绝覆盖(fail loud)。
  *
  * <p>并发提交同一 array target 时读-改-写窗口由 Flowable 乐观锁检测,
  * 冲突请求报错由客户端重试。
@@ -68,6 +69,10 @@ public class DshTaskCompletionService {
             DshContextVariable decl = findDeclaration(declarations, name);
             if (decl == null) {
                 throw new IllegalArgumentException("变量 " + name + " 未在流程上下文声明中定义");
+            }
+            if (DshContextVariable.SYSTEM_SOURCE.equals(decl.source())) {
+                throw new IllegalArgumentException(
+                    "变量 " + name + " 为系统注入变量(source=system,启动时按登录人注入),不允许任务提交覆盖");
             }
             Object converted = convertByType(value, decl);
             if ("array".equals(decl.type())) {

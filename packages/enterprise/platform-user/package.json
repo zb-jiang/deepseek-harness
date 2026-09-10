@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-platform-user",
   "description": "Platform-user governance seam (ctx.platformUsers) for enterprise account approval, roles, and status management",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
   },

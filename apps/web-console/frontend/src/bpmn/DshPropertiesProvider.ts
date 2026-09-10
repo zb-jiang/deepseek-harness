@@ -401,6 +401,36 @@ function removeContextVariable(element: BpmnElement, item: unknown): void {
 }
 
 /**
+ * 来源切换:start-param/空只写 source 属性;选 system 时把声明整写为 initiator
+ * 固定结构(object + userId/name/email 三个 string 字段),与启动时注入值和
+ * 发布校验器第五查对齐,设计师不必手填结构。
+ */
+function applySourceSelection(
+  runtime: CtxVarRuntime,
+  element: BpmnElement,
+  variable: BpmnModdleElement,
+  source: string,
+): void {
+  if (source !== 'system') {
+    runtime.modeling.updateModdleProperties(element, variable, {
+      source: source || undefined,
+    })
+    return
+  }
+  const { moddle, modeling } = runtime
+  const fields = (['userId', 'name', 'email'] as const).map(fieldName =>
+    moddle.create('dsh:Field', { name: fieldName, type: 'string' }))
+  modeling.updateModdleProperties(element, variable, {
+    source: 'system',
+    name: 'initiator',
+    type: 'object',
+    itemType: undefined,
+    initialValue: undefined,
+    field: fields,
+  })
+}
+
+/**
  * 展开 object 字段清单为点路径选项(递归嵌套);array 变量只提供根
  * (元素无静态点路径,JUEL 用 ${list[0]} 索引)。
  */
@@ -514,8 +544,8 @@ function roleOptions(): Array<{ value: string; label: string }> {
  * 流程根元素的「上下文变量」面板 entries(design 2026-09-01 §4)。
  *
  * <p>ListEntry 增删变量;每个变量 CollapsibleEntry 展开:名称/类型/说明/初始值
- * (按类型出控件)/启动传入标记/array 元素类型/object 字段清单。
- * 节点产出来源不手选,由发布校验器从输出映射与产出声明自动推导。
+ * (按类型出控件)/来源(启动传入 start-param / 系统注入 system / 空)/array 元素类型
+ * /object 字段清单。节点产出来源不手选,由发布校验器从输出映射与产出声明自动推导。
  */
 /**
  * 上下文变量列表项组件。
@@ -569,14 +599,19 @@ function ContextVariableListItem(props: {
       setValue: v => setAttr('description', v.trim() || undefined),
     }, injector),
     ...initialValueEntries(element, injector, variable, idx, type),
-    checkboxEntry({
-      id: `ctx-var-${idx}-startParam`,
+    selectEntry({
+      id: `ctx-var-${idx}-source`,
       element,
-      label: '启动传入 (start-param)',
-      description: '勾选后实例启动可传入该变量(严格声明制:未声明的启动参数被拒绝);与初始值可共存兜底',
-      getValue: () => variable.get('source') === 'start-param',
-      setValue: v => setAttr('source', v ? 'start-param' : undefined),
-    }),
+      label: '来源',
+      description: 'start-param=实例启动可传入(严格声明制);system=系统注入(initiator,启动时按登录人写入 userId/name/email);空=节点产出或仅初始值',
+      getOptions: () => [
+        { value: '', label: '节点产出 / 初始值' },
+        { value: 'start-param', label: '启动传入 (start-param)' },
+        { value: 'system', label: '系统注入 (initiator)' },
+      ],
+      getValue: () => (variable.get('source') as string) ?? '',
+      setValue: v => applySourceSelection(runtime, element, variable, v),
+    }, injector),
   ]
 
   if (type === 'array') {

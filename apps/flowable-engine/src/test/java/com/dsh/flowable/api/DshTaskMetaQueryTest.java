@@ -107,6 +107,25 @@ class DshTaskMetaQueryTest {
         assertThat(mine.get(0).startUserName()).isNull();
     }
 
+    /**
+     * 生产启动路径(web-console 经 REST)不写 startUserId,发起人取应用隔离变量
+     * dsh_applicant_user_id 回退:REST 启动不带认证用户上下文,
+     * 待办卡片发起人依赖该回退才有值。
+     */
+    @Test
+    void startUserFallsBackToApplicantVariableWhenStartUserIdMissing() {
+        String procdefId = deployApprovalProcess();
+        // 不设 authenticated user,模拟 web-console REST 启动:startUserId 为空
+        processEngine.getRuntimeService()
+            .startProcessInstanceById(procdefId, null,
+                Map.of("dsh_applicant_user_id", "user-9"));
+
+        List<TaskDto> mine = controller.getMyTasks(jwtFor("user-1"));
+        assertThat(mine).hasSize(1);
+        assertThat(mine.get(0).startUserId()).isEqualTo("user-9");
+        assertThat(mine.get(0).startUserName()).isEqualTo("张三");
+    }
+
     private Jwt jwtFor(String subject) {
         Instant now = Instant.now();
         return new Jwt(

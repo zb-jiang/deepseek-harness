@@ -1256,6 +1256,9 @@ importers:
       '@deepseek-ai/dsh-platform-user-supabase':
         specifier: workspace:^
         version: link:../../enterprise/platform-user-supabase
+      '@deepseek-ai/dsh-user-identity-context':
+        specifier: workspace:^
+        version: link:../../enterprise/user-identity-context
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -2102,9 +2105,6 @@ importers:
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../runtime
-      '@deepseek-ai/dsh-client-test-runtime':
-        specifier: workspace:^
-        version: link:../../test-support/client-runtime
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation
@@ -3987,6 +3987,9 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
 
   packages/enterprise/platform-user:
     devDependencies:
@@ -4037,6 +4040,30 @@ importers:
       '@deepseek-ai/dsh-platform-user':
         specifier: workspace:^
         version: link:../platform-user
+
+  packages/enterprise/user-identity-context:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-platform-user':
+        specifier: workspace:^
+        version: link:../platform-user
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
 
   packages/examples/acp-demo:
     dependencies:

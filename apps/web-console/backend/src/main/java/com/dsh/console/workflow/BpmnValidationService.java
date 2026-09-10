@@ -35,17 +35,20 @@ import org.w3c.dom.NodeList;
  *       编译期才报错且被引擎包成无定位的 "Error parsing XML",必须在发布前拦下。</li>
  * </ul>
  *
- * <p>Process Context 发布校验四查(design 2026-09-01 §8):
+ * <p>Process Context 发布校验五查(design 2026-09-01 §8):
  * <ol>
  *   <li>prompt 引用存在性:userTask 的 userPrompt {@code {{var.field}}} 占位符,
  *       根变量已声明且点路径沿字段清单合法。</li>
  *   <li>条件表达式引用存在性:网关/连线/Conditional 事件 {@code ${}} 静态解析,
  *       标识符已声明或属内置豁免(引擎多实例内置变量 + 应用隔离三变量);
- *       字符串字面量与方法调用名不作为变量引用。</li>
- *   <li>映射 target 存在性:userTask 输出映射的 target 根变量已声明且点路径合法。</li>
+ *       字符串字面量与成员访问名(属性/方法)不作为变量引用。</li>
+ *   <li>映射 target 存在性:userTask 输出映射的 target 根变量已声明且点路径合法;
+ *       指向系统注入变量(initiator)拒绝。</li>
  *   <li>变量引用来源闭环:prompt、条件表达式、消费声明引用的变量必有来源
- *       (start-param / initial / 输出映射 target / 产出声明 / 豁免);
+ *       (start-param / system / initial / 输出映射 target / 产出声明 / 豁免);
  *       流程含代码型节点(delegate / 脚本 / DMN / receive / callActivity)时整体豁免。</li>
+ *   <li>system 声明结构:initiator 的类型为 object、字段清单恰为
+ *       userId/name/email(均 string),与启动时注入值对齐。</li>
  * </ol>
  */
 @Service
@@ -267,7 +270,7 @@ public class BpmnValidationService {
         return s != null && (s.indexOf('\u2018') >= 0 || s.indexOf('\u2019') >= 0);
     }
 
-    // ===== Process Context 四查(design 2026-09-01 §8) =====
+    // ===== Process Context 五查(design 2026-09-01 §8) =====
 
     private void validateContextReferences(Document doc, List<String> errors) {
         List<ContextVariable> declarations = BpmnContextParser.parseContextVariables(doc);
@@ -283,11 +286,15 @@ public class BpmnValidationService {
             }
         }
 
-        // 来源集:start-param / initial / 输出映射 target 根 / 豁免
+        // 来源集:start-param / system / initial / 输出映射 target 根 / 豁免
         Set<String> sources = new LinkedHashSet<>();
         for (ContextVariable v : declarations) {
             if ("start-param".equals(v.source())
                 || (v.initialValue() != null && !v.initialValue().isBlank())) {
+                sources.add(v.name());
+            }
+            if (BpmnContextParser.SYSTEM_SOURCE.equals(v.source())) {
+                validateSystemVariable(v, errors);
                 sources.add(v.name());
             }
         }
@@ -352,6 +359,32 @@ public class BpmnValidationService {
         }
     }
 
+    /** 查 5:system 声明结构——当前唯一 system 注入器是发起人变量。 */
+    private static void validateSystemVariable(ContextVariable v, List<String> errors) {
+        if (!BpmnContextParser.INITIATOR_VARIABLE_NAME.equals(v.name())) {
+            errors.add("source=system 的变量当前仅支持 "
+                + BpmnContextParser.INITIATOR_VARIABLE_NAME + ",实际: " + v.name());
+            return;
+        }
+        if (!"object".equals(v.type())) {
+            errors.add(String.format(
+                "%s 声明必须为 object 类型,实际: %s", v.name(), v.type()));
+            return;
+        }
+        Set<String> fieldNames = new LinkedHashSet<>();
+        for (ContextVariable f : v.fields()) {
+            fieldNames.add(f.name());
+            if (!"string".equals(f.type())) {
+                errors.add(String.format(
+                    "%s 的字段 %s 类型必须为 string,实际: %s", v.name(), f.name(), f.type()));
+            }
+        }
+        if (!Set.of("userId", "name", "email").equals(fieldNames)) {
+            errors.add(String.format(
+                "%s 的字段清单必须恰为 userId/name/email(均 string),实际: %s", v.name(), fieldNames));
+        }
+    }
+
     /** 查 3:输出映射 target——根变量已声明、点路径合法;target 根计入来源集。 */
     private void checkOutputMappings(Element userTask, String location,
                                       Map<String, ContextVariable> byName,
@@ -368,6 +401,12 @@ public class BpmnValidationService {
                 if (decl == null) {
                     errors.add(String.format(
                         "%s 的输出映射 target 指向未声明变量: %s", location, rootName));
+                    continue;
+                }
+                if (BpmnContextParser.SYSTEM_SOURCE.equals(decl.source())) {
+                    errors.add(String.format(
+                        "%s 的输出映射 target 指向系统注入变量: %s(按登录人注入,不允许节点产出覆盖)",
+                        location, rootName));
                     continue;
                 }
                 sources.add(rootName);
@@ -408,9 +447,9 @@ public class BpmnValidationService {
                           Set<String> referenced, List<String> errors) {
         // 去掉字符串字面量再提标识符,避免 'approved' 误报
         String withoutLiterals = expr.replaceAll("'[^']*'", "").replaceAll("\"[^\"]*\"", "");
-        // 去掉方法调用名(.contains( / .startsWith( 等),方法名不是变量引用
-        String withoutMethods = withoutLiterals.replaceAll("\\.\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*\\(", "(");
-        Matcher m = JUEL_EXPRESSION.matcher(withoutMethods);
+        // 去掉成员访问名(.field 属性 / .method() 方法调用):成员名不是变量引用
+        String withoutMembers = withoutLiterals.replaceAll("\\.\\s*[a-zA-Z_][a-zA-Z0-9_]*", "");
+        Matcher m = JUEL_EXPRESSION.matcher(withoutMembers);
         while (m.find()) {
             Matcher ids = IDENTIFIER.matcher(m.group(1));
             Set<String> seenInExpr = new HashSet<>();
@@ -480,15 +519,31 @@ public class BpmnValidationService {
         return result;
     }
 
-    /** dsh: 命名空间下指定 local name 的直接子元素(不递归,避免嵌套误收)。 */
+    /**
+     * dsh: 命名空间下指定 local name 的扩展元素。dsh 扩展按 BPMN 规范挂在父元素的
+     * {@code bpmn:extensionElements} 下,故同时查父元素直接子(手写 XML 兼容)与
+     * 直接子 extensionElements 的 dsh: 子元素;不递归更深层,避免嵌套误收
+     * (如 ContextVariable 的 field)。
+     */
     private static List<Element> dshChildren(Element parent, String localName) {
         List<Element> result = new ArrayList<>();
         NodeList children = parent.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            if (children.item(i) instanceof Element e
-                && DSH_NS.equals(e.getNamespaceURI())
-                && localName.equals(e.getLocalName())) {
+            if (!(children.item(i) instanceof Element e)) {
+                continue;
+            }
+            if (DSH_NS.equals(e.getNamespaceURI()) && localName.equals(e.getLocalName())) {
                 result.add(e);
+            } else if (BPMN_NS.equals(e.getNamespaceURI())
+                && "extensionElements".equals(e.getLocalName())) {
+                NodeList extChildren = e.getChildNodes();
+                for (int j = 0; j < extChildren.getLength(); j++) {
+                    if (extChildren.item(j) instanceof Element c
+                        && DSH_NS.equals(c.getNamespaceURI())
+                        && localName.equals(c.getLocalName())) {
+                        result.add(c);
+                    }
+                }
             }
         }
         return result;

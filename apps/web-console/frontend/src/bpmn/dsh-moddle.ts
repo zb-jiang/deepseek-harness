@@ -95,9 +95,10 @@ export const dshModdleDescriptor = {
     },
     {
       // 单个上下文变量:name 流程内唯一;type 八种(string/integer/float/boolean/
-      // date/datetime/object/array);source="start-param" 标记启动传入;
-      // initialValue 初始值(与 start-param 可共存兜底);itemType 为 array 的
-      // 元素类型;object/array 元素为 object 时挂 field 字段清单。
+      // date/datetime/object/array);source="start-param" 标记启动传入,
+      // source="system" 标记系统注入(当前唯一注入器 initiator,启动时按登录人
+      // 写入 userId/name/email);initialValue 初始值(与 start-param 可共存兜底);
+      // itemType 为 array 的元素类型;object/array 元素为 object 时挂 field 字段清单。
       name: 'ContextVariable',
       superClass: ['Element'],
       properties: [

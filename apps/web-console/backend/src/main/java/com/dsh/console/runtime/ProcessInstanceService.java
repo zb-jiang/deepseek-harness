@@ -89,7 +89,8 @@ public class ProcessInstanceService {
      * 启动流程实例。
      *
      * <p>启动校验(design 2026-09-01 §4 严格声明制):按已部署 BPMN 的上下文声明
-     * 拒绝未声明/未标记 start-param 的传入变量,按类型反序列化,initial 兜底注入。
+     * 拒绝未声明/未标记 start-param 的传入变量,按类型反序列化,initial 兜底注入;
+     * source=system 的 initiator 声明按登录人(auth)自动注入。
      */
     @Transactional
     public ProcessInstanceDto start(StartProcessInstanceRequest request, AuthContext auth) {
@@ -98,7 +99,7 @@ public class ProcessInstanceService {
 
         Map<String, Object> contextVariables = startValidation.buildVariables(
             startValidation.loadDeclarations(wf.publishedProcdefId()),
-            request.variables());
+            request.variables(), auth);
 
         // 应用隔离三变量(spec §7.7.4 + §13.4)与上下文变量合并。
         // dsh_applicant_user_id 存流程身份(auth_subject = JWT sub),与引擎侧

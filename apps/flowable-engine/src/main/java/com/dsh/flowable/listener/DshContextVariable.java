@@ -6,15 +6,17 @@ import java.util.List;
  * 流程级上下文变量声明(process 的 {@code dsh:contextVariables} 解析结果,design 2026-09-01 §4)。
  *
  * <p>变量四要素 + array 的 itemType + object/array 的字段清单;来源 {@code source}
- * 为 {@code "start-param"} 时表示可由启动参数传入,其余来源(initial / 节点产出)
- * 由 web-console 校验器推导,引擎只关心类型转换(提交端点按 type 反序列化)。
+ * 为 {@code "start-param"} 时表示可由启动参数传入,{@code "system"} 表示系统注入
+ * (当前唯一注入器是发起人变量 {@code initiator},由 web-console 启动时按登录人写入,
+ * 引擎侧提交端点拒绝覆盖),其余来源(initial / 节点产出)由 web-console 校验器推导,
+ * 引擎只关心类型转换(提交端点按 type 反序列化)。
  *
  * @param name         变量名,流程内唯一
  * @param type         八种:string / integer / float / boolean / date / datetime / object / array
  * @param description  设计时说明文本
  * @param initialValue 初始值常量(严格格式字符串;与 start-param 可共存兜底);nullable
  * @param itemType     array 的元素类型;仅 type=array 时有意义;nullable
- * @param source       来源标记;"start-param" = 启动传入;nullable
+ * @param source       来源标记;"start-param" = 启动传入;"system" = 系统注入;nullable
  * @param fields       object 字段清单(array 且 itemType=object 时为元素字段清单);nullable
  */
 public record DshContextVariable(
@@ -26,6 +28,9 @@ public record DshContextVariable(
     String source,
     List<Field> fields
 ) {
+
+    /** 系统注入来源标记;与 web-console BpmnContextParser.SYSTEM_SOURCE 对齐。 */
+    public static final String SYSTEM_SOURCE = "system";
 
     /**
      * object 字段清单条目,支持嵌套(field 类型为 object 时可再挂 field)。

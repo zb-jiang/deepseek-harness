@@ -5,6 +5,8 @@
 
 > 为什么通知用 Service Task 而不是 Send Task：Flowable 发布校验器（flowable-executable-process）要求 sendTask 必须配 `type` 或 `operation` 属性，`delegateExpression` 不被认作合法实现；demo 的通知本质是 JavaDelegate 调用，Service Task 语义准确且校验直接放行。
 >
+> 发起人身份：上下文声明 `initiator`（`source="system"`）由 web-console 启动时按登录人自动注入（userId/name/email），所有 prompt 的 `{{initiator.name}}` 即申请人，员工不再手填姓名；调用方传入或任务提交覆盖该变量均被拒绝。
+>
 > 本文档自包含：所有 XML / Java / SKILL.md 全部给出，复制即可用。
 
 ***
@@ -162,7 +164,11 @@ pnpm dsh --profile enterprise
   <bpmn2:process id="expenseReimbursement" name="差旅报销审批" isExecutable="true">
     <bpmn2:extensionElements>
       <dsh:contextVariables>
-        <dsh:contextVariable name="applicantName" type="string" description="申请人姓名" />
+        <dsh:contextVariable name="initiator" type="object" description="流程发起人(启动时按登录人自动注入,不允许提交)" source="system">
+          <dsh:field name="userId" type="string" description="Supabase Auth user.id" />
+          <dsh:field name="name" type="string" description="显示名" />
+          <dsh:field name="email" type="string" description="邮箱" />
+        </dsh:contextVariable>
         <dsh:contextVariable name="amount" type="float" description="报销金额(发票合计)" />
         <dsh:contextVariable name="reason" type="string" description="报销事由" />
         <dsh:contextVariable name="invoiceList" type="array" description="发票清单(员工提交时 AI 逐张提取)" itemType="object">
@@ -182,34 +188,35 @@ pnpm dsh --profile enterprise
         <dsh:contextVariable name="transactionId" type="string" description="打款流水号" />
         <dsh:contextVariable name="urgentNotified" type="boolean" description="内部标记:已超时催办出纳" />
         <dsh:contextVariable name="employeeNotified" type="boolean" description="内部标记:已通知员工结果(到账/被拒)" />
+        <dsh:contextVariable name="applicantName" type="string" />
       </dsh:contextVariables>
     </bpmn2:extensionElements>
     <bpmn2:startEvent id="startEvent" name="开始" />
     <bpmn2:sequenceFlow id="flow_start_submit" sourceRef="startEvent" targetRef="submitExpense" />
     <bpmn2:userTask id="submitExpense" name="员工提交报销单">
       <bpmn2:extensionElements>
-        <dsh:assignmentRule candidateRoleId="17ba3ecf-a752-4ad2-baf2-df10b29ee22e" />
+        <dsh:assignmentRule candidateRoleId="ROLE_SUBMITTER_UUID" />
         <dsh:skillRef>expense-form-assistant</dsh:skillRef>
-        <dsh:userPrompt text="请提交差旅报销单：上传本次全部发票（可多张），说明申请人姓名与报销事由。调用 expense-form-assistant skill 逐张提取发票信息（发票号、金额、开票日期、类型）、做要素审核并计算合计金额，最后输出纯JSON。" />
+        <dsh:userPrompt text="请说明报销事由并上传本次全部发票（可多张）。调用 expense-form-assistant skill 逐张提取发票信息（发票号、金额、开票日期、类型）、做要素审核并计算合计金额，最后输出纯JSON。" />
         <dsh:outputMappings>
-          <dsh:mapping source="applicantName" target="applicantName" />
           <dsh:mapping source="amount" target="amount" />
           <dsh:mapping source="reason" target="reason" />
           <dsh:mapping source="invoiceList" target="invoiceList" />
           <dsh:mapping source="auditPassed" target="auditPassed" />
           <dsh:mapping source="auditNotes" target="auditNotes" />
+          <dsh:mapping source="applicantName" target="applicantName" />
         </dsh:outputMappings>
       </bpmn2:extensionElements>
       <bpmn2:multiInstanceLoopCharacteristics>
-        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances >= 1}</bpmn2:completionCondition>
+        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances &gt;= 1}</bpmn2:completionCondition>
       </bpmn2:multiInstanceLoopCharacteristics>
     </bpmn2:userTask>
     <bpmn2:sequenceFlow id="flow_submit_rule" sourceRef="submitExpense" targetRef="decideLevel" />
-    <bpmn2:serviceTask id="decideLevel" name="DMN:决定审批层级" flowable:expression="${execution.setVariables(dmnRuleService.createExecuteDecisionBuilder().decisionKey('approvalLevel').variables(execution.getVariables()).executeWithSingleResult())}" />
+    <bpmn2:serviceTask id="decideLevel" name="DMN:决定审批层级" flowable:expression="${execution.setVariables(dmnRuleService.createExecuteDecisionBuilder().decisionKey(&#39;approvalLevel&#39;).variables(execution.getVariables()).executeWithSingleResult())}" />
     <bpmn2:sequenceFlow id="flow_rule_submit" sourceRef="decideLevel" targetRef="directManagerApprove" />
     <bpmn2:userTask id="directManagerApprove" name="直属主管审批">
       <bpmn2:extensionElements>
-        <dsh:assignmentRule candidateRoleId="4efcfd90-cd34-4cb5-86b2-e7c12f9ec7d2" />
+        <dsh:assignmentRule candidateRoleId="ROLE_DIRECT_MANAGER_UUID" />
         <dsh:skillRef>direct-manager-approver</dsh:skillRef>
         <dsh:userPrompt text="请调用 direct-manager-approver skill 审批 {{applicantName}} 的差旅报销：事由「{{reason}}」，发票合计 {{amount}} 元，发票清单 {{invoiceList}}，AI 预审 {{auditPassed}}/{{auditNotes}}。核对是否符合部门规定，输出包含 approvalResult（approve/reject）与 approvalComment 的纯JSON。" />
         <dsh:outputMappings>
@@ -218,7 +225,7 @@ pnpm dsh --profile enterprise
         </dsh:outputMappings>
       </bpmn2:extensionElements>
       <bpmn2:multiInstanceLoopCharacteristics>
-        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances >= 1}</bpmn2:completionCondition>
+        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances &gt;= 1}</bpmn2:completionCondition>
       </bpmn2:multiInstanceLoopCharacteristics>
     </bpmn2:userTask>
     <bpmn2:boundaryEvent id="boundaryTimeoutDirectMgr" name="24h超时升级" attachedToRef="directManagerApprove">
@@ -244,7 +251,7 @@ pnpm dsh --profile enterprise
     </bpmn2:sequenceFlow>
     <bpmn2:userTask id="deptManagerApprove" name="部门经理审批">
       <bpmn2:extensionElements>
-        <dsh:assignmentRule candidateRoleId="bd5e32ff-d4ae-411d-8392-4eaca6a6d891" />
+        <dsh:assignmentRule candidateRoleId="ROLE_DEPT_MANAGER_UUID" />
         <dsh:skillRef>dept-manager-approver</dsh:skillRef>
         <dsh:userPrompt text="请调用 dept-manager-approver skill 审批 {{applicantName}} 的差旅报销：发票合计 {{amount}} 元，事由「{{reason}}」，直属主管意见：{{approvalComment}}。核对预算与合规性，输出包含 approvalResult（approve/reject）与 approvalComment的纯JSON。" />
         <dsh:outputMappings>
@@ -253,7 +260,7 @@ pnpm dsh --profile enterprise
         </dsh:outputMappings>
       </bpmn2:extensionElements>
       <bpmn2:multiInstanceLoopCharacteristics>
-        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances >= 1}</bpmn2:completionCondition>
+        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances &gt;= 1}</bpmn2:completionCondition>
       </bpmn2:multiInstanceLoopCharacteristics>
     </bpmn2:userTask>
     <bpmn2:sequenceFlow id="flow_dept_to_gateway2" sourceRef="deptManagerApprove" targetRef="gatewayDeptOutcome" />
@@ -273,7 +280,7 @@ pnpm dsh --profile enterprise
     </bpmn2:sequenceFlow>
     <bpmn2:userTask id="cfoFinalApprove" name="费用专员终审">
       <bpmn2:extensionElements>
-        <dsh:assignmentRule candidateRoleId="3a22f74d-3a8c-4a07-b903-02747dc6f346" />
+        <dsh:assignmentRule candidateRoleId="ROLE_CFO_UUID" />
         <dsh:skillRef>cfo-final-approver</dsh:skillRef>
         <dsh:userPrompt text="请调用 cfo-final-approver skill 终审 {{applicantName}} 的大额差旅报销：发票合计 {{amount}} 元，发票清单 {{invoiceList}}，前序审批意见：{{approvalComment}}。核对预算总览与合规性，输出包含 approvalResult（approve/reject）与 approvalComment的纯JSON。" />
         <dsh:outputMappings>
@@ -295,7 +302,7 @@ pnpm dsh --profile enterprise
     </bpmn2:sequenceFlow>
     <bpmn2:userTask id="financeVerify" name="财务专员票据审核">
       <bpmn2:extensionElements>
-        <dsh:assignmentRule candidateRoleId="4d504d91-fec4-4d9c-86bd-137187b87d33" />
+        <dsh:assignmentRule candidateRoleId="ROLE_FINANCE_UUID" />
         <dsh:skillRef>invoice-verifier</dsh:skillRef>
         <dsh:userPrompt text="请调用 invoice-verifier skill 验票：发票清单 {{invoiceList}}，发票合计 {{amount}} 元。核对发票要素、金额勾稽与日期，输出包含 financeVerified（true/false）与 financeNotes 的纯JSON格式。" />
         <dsh:outputMappings>
@@ -304,7 +311,7 @@ pnpm dsh --profile enterprise
         </dsh:outputMappings>
       </bpmn2:extensionElements>
       <bpmn2:multiInstanceLoopCharacteristics>
-        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances >= 1}</bpmn2:completionCondition>
+        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances &gt;= 1}</bpmn2:completionCondition>
       </bpmn2:multiInstanceLoopCharacteristics>
     </bpmn2:userTask>
     <bpmn2:sequenceFlow id="flow_finance_to_gate" sourceRef="financeVerify" targetRef="gatewayFinOutcome" />
@@ -332,7 +339,7 @@ pnpm dsh --profile enterprise
     <bpmn2:sequenceFlow id="flow_notify_cashier" sourceRef="notifyPayment" targetRef="cashierConfirm" />
     <bpmn2:userTask id="cashierConfirm" name="出纳打款确认">
       <bpmn2:extensionElements>
-        <dsh:assignmentRule candidateRoleId="d152434c-49a8-466e-b622-74022e913fcd" />
+        <dsh:assignmentRule candidateRoleId="ROLE_CASHIER_UUID" />
         <dsh:skillRef>cashier-payment</dsh:skillRef>
         <dsh:userPrompt text="请调用 cashier-payment skill 执行打款：收款人 {{applicantName}}，金额 {{amount}} 元，事由 {{reason}}。网银打款完成后输出包含 paymentConfirmed=true 与 transactionId（交易流水号）字段的纯JSON。" />
         <dsh:outputMappings>
@@ -341,10 +348,10 @@ pnpm dsh --profile enterprise
         </dsh:outputMappings>
       </bpmn2:extensionElements>
       <bpmn2:multiInstanceLoopCharacteristics>
-        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances >= 1}</bpmn2:completionCondition>
+        <bpmn2:completionCondition xsi:type="bpmn2:tFormalExpression">${nrOfCompletedInstances &gt;= 1}</bpmn2:completionCondition>
       </bpmn2:multiInstanceLoopCharacteristics>
     </bpmn2:userTask>
-    <bpmn2:boundaryEvent id="boundaryPayUrge" name="24h未打款催办" attachedToRef="cashierConfirm" cancelActivity="false">
+    <bpmn2:boundaryEvent id="boundaryPayUrge" name="24h未打款催办" cancelActivity="false" attachedToRef="cashierConfirm">
       <bpmn2:timerEventDefinition id="timerPayUrge">
         <bpmn2:timeDuration xsi:type="bpmn2:tFormalExpression">PT4M</bpmn2:timeDuration>
       </bpmn2:timerEventDefinition>
@@ -418,9 +425,6 @@ pnpm dsh --profile enterprise
       <bpmndi:BPMNShape id="cashierConfirm_di" bpmnElement="cashierConfirm">
         <dc:Bounds x="2320" y="196" width="100" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="boundaryPayUrge_di" bpmnElement="boundaryPayUrge">
-        <dc:Bounds x="2352" y="258" width="36" height="36" />
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="urgeCashier_di" bpmnElement="urgeCashier">
         <dc:Bounds x="2510" y="264" width="100" height="80" />
       </bpmndi:BPMNShape>
@@ -432,6 +436,9 @@ pnpm dsh --profile enterprise
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="endEvent_di" bpmnElement="endEvent">
         <dc:Bounds x="2930" y="218" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="boundaryPayUrge_di" bpmnElement="boundaryPayUrge">
+        <dc:Bounds x="2352" y="258" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="boundaryTimeoutDirectMgr_di" bpmnElement="boundaryTimeoutDirectMgr">
         <dc:Bounds x="992" y="158" width="36" height="36" />
@@ -751,15 +758,15 @@ triggers:
 
 ## 你要做的事
 
-询问申请人姓名、报销事由、并提醒用户上传发票文件，把用户提供的信息（多张发票文件 + 申请人姓名 + 报销事由）映射成提交 JSON。JSON 顶层字段：**applicantName**（申请人姓名）、**amount**（合计金额）、**reason**（事由）、**invoiceList**（发票数组，每张含 invoiceNo/amount/issuedOn/expenseType 四字段）、**auditPassed**（审核是否通过）、**auditNotes**（审核说明）。
+询问报销事由、提醒用户上传发票文件，把用户提供的信息（多张发票文件 + 报销事由）和当前用户的用户名映射成提交 JSON。JSON 顶层字段：**applicantName**（申请人）、**amount**（合计金额）、**reason**（事由）、**invoiceList**（发票数组，每张含 invoiceNo/amount/issuedOn/expenseType 四字段）、**auditPassed**（审核是否通过）、**auditNotes**（审核说明）。
 
-> 契约：这六个字段名用于输出的JSON格式中，一个都不能改。
+> 契约：这6个字段名用于输出的JSON格式中，一个都不能少。
 
 ## 执行步骤
 
 ### Step 1: 解析输入
 
-- 询问用户姓名作为申请人姓名，询问报销事由
+- 询问报销事由
 - 用户上传了几张发票文件 → **逐张**识别，每张提取发票号、金额、开票日期（yyyy-MM-dd）、类型；每张发票各自一条，不能只汇总
 - 用户直接说了（如"出差北京 三张发票 688+890+802"）→ 按描述拆成 3 条
 
@@ -1046,12 +1053,12 @@ triggers:
 1. **复制角色 UUID**：角色页逐个复制 6 个 UUID
 2. **粘贴 BPMN**：应用详情 → 新建流程 → XML 视图 → 粘贴 §3 XML（先做 6 个占位符全局替换）→ 保存草稿
 3. **检查画布**：切回图形视图应看到完整流程图（18 个任务/网关节点 + 4 个事件节点 + 2 个边界定时器，共 27 条连线）；点几个节点核对属性面板里的角色引用
-4. **校验 + 发布**：点校验（角色引用、多实例、条件表达式都会查）→ 发布。发布后记下流程定义
+4. **校验 + 发布**：点校验（角色引用、多实例、条件表达式、initiator 声明结构都会查）→ 发布。发布后记下流程定义
 
 ### 阶段五：启动实例、跑流程
 
 1. **启动 DSH 员工端**：终端 C 按 §1.3（3 个环境变量 + `pnpm dsh --profile enterprise`），登录张三账号
-2. **启动流程实例**：**这一步在 Web Console**（V1 由管理员代启动）——实例页 → 启动实例 → 选刚发布的流程 → 变量可不填 → 确认。第一个待办"员工提交报销单"进入报销人角色候选
+2. **启动流程实例**：**这一步在 Web Console**（V1 由管理员代启动）——实例页 → 启动实例 → 选刚发布的流程 → 变量可不填 → 确认。系统自动注入 `initiator`（按当前登录管理员；员工端自助发起上线后即为申请人本人），第一个待办"员工提交报销单"进入报销人角色候选
 3. **张三提交**：DSH 员工端待办列表 → 打开"员工提交报销单" → 上传多张发票图片（或说"出差北京 3 晚住宿 688+890+802"）→ skill 逐张提取发票信息、审核要素、算好合计生成 JSON → 核对发票清单与审核结论 → 提交
 4. **依次推进**（每步都是：DSH 退出登录 → 登下一个用户 → 处理待办）：
    | 步骤 | 登录  | 待办                 | skill                   |

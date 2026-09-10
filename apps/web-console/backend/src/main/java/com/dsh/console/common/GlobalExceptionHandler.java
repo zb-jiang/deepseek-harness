@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 /**
  * 全局异常处理。
@@ -68,6 +69,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
             .body(ApiResponse.fail(ApiError.of("FLOWABLE_REST_ERROR",
                 "调用流程引擎失败:" + e.getMessage())));
+    }
+
+    /** 客户端已断开(页面刷新/跳转/请求取消):连接已断,响应体写不回去,只记一行无堆栈。 */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientDisconnected(AsyncRequestNotUsableException e) {
+        log.debug("Client disconnected before response completed: {}", e.getMessage());
     }
 
     /** 兜底:返回 500。 */

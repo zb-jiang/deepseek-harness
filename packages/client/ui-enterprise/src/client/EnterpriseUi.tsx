@@ -142,6 +142,14 @@ export function useAuth() {
       const client = await getSupabaseClient()
       await client.auth.signOut()
     } catch { /* ignore signout errors */ }
+    // 通知本地 webserver 使身份缓存失效（须在 clearToken 之前，携带旧 token）。
+    try {
+      const token = readToken()
+      await fetch('/api/enterprise/auth/signout', {
+        method: 'POST',
+        headers: token === null ? {} : { authorization: `Bearer ${token}` },
+      })
+    } catch { /* 缓存自愈：下一次 /me 会重建身份 */ }
     clearToken()
     setAuthSnapshot({ currentUser: null, loading: false })
   }, [])

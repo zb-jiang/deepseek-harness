@@ -22,6 +22,25 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     platformUsers: PlatformUserService
   }
+
+  interface Events {
+    /**
+     * A platform user identity was verified through an auth touchpoint
+     * (emitted by `platform-user-api` after `getUserByToken` resolves).
+     * Listeners typically maintain a latest-verified-identity cache.
+     * @param user - the verified platform user record.
+     * @mode emit
+     */
+    'platform-user/verified'(user: PlatformUser): void
+    /**
+     * The employee signed out on this DSH instance (emitted by
+     * `platform-user-api` on the signout touchpoint). Listeners holding a
+     * latest-verified-identity cache must forget it. Carries no payload:
+     * the touchpoint does not prove which identity signed out.
+     * @mode emit
+     */
+    'platform-user/signout'(): void
+  }
 }
 
 /** One provider implementation of the platform-user seam. */

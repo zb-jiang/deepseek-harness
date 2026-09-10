@@ -113,6 +113,52 @@ describe('platform-user-api', () => {
     expect(parsed.status).toBe('active')
   })
 
+  it('GET /me 成功后发出 platform-user/verified 事件', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    const verified: PlatformUser[] = []
+    ctx.on('platform-user/verified', (user) => { verified.push(user) })
+    const { res } = mockRes()
+    await handler(mockReq('GET', '/api/enterprise/auth/me', {
+      authorization: 'Bearer valid-token',
+    }), res)
+    expect(verified).toHaveLength(1)
+    expect(verified[0]!.authSubject).toBe('auth-1')
+  })
+
+  it('GET /me 失败时不发出 verified 事件', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    const verified: PlatformUser[] = []
+    ctx.on('platform-user/verified', (user) => { verified.push(user) })
+    const { res, state } = mockRes()
+    await handler(mockReq('GET', '/api/enterprise/auth/me', {
+      authorization: 'Bearer bogus-token',
+    }), res)
+    expect(state.statusCode).toBe(401)
+    expect(verified).toEqual([])
+  })
+
+  it('POST /signout 返回 204 并发出 platform-user/signout 事件', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    let signouts = 0
+    ctx.on('platform-user/signout', () => { signouts += 1 })
+    const { res, state } = mockRes()
+    await handler(mockReq('POST', '/api/enterprise/auth/signout'), res)
+    expect(state.statusCode).toBe(204)
+    expect(state.body).toBe('')
+    expect(signouts).toBe(1)
+  })
+
+  it('GET /signout 方法不匹配返回 404', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    const { res, state } = mockRes()
+    await handler(mockReq('GET', '/api/enterprise/auth/signout'), res)
+    expect(state.statusCode).toBe(404)
+  })
+
   it('GET /me 缺少 Authorization 头返回 401', async () => {
     apply(ctx, TEST_CONFIG)
     const handler = stubWebServer.routes[0]!.handler

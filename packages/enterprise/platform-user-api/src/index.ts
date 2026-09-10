@@ -5,6 +5,12 @@
  * |--------|----------------------------|-----------------|
  * | GET    | /api/enterprise/auth/me    | current user    |
  * | GET    | /api/enterprise/auth/config | Supabase config |
+ * | POST   | /api/enterprise/auth/signout | announce signout |
+ *
+ * Every verified `/me` response emits `platform-user/verified`; the signout
+ * touchpoint emits `platform-user/signout`. Identity-cache listeners (e.g.
+ * `user-identity-context`) subscribe to these events; this plugin itself
+ * holds no state.
  *
  * Governance writes (register, approve, disable, lock, restore, roles,
  * audit) live in the Web Console backend, not here.
@@ -131,7 +137,16 @@ async function dispatchAuth(
     }
     const accessToken = authHeader.slice('Bearer '.length)
     const user = await ctx.platformUsers.getUserByToken(accessToken)
+    ctx.emit('platform-user/verified', user)
     sendJson(res, 200, serializeUser(user))
+    return
+  }
+
+  // POST /api/enterprise/auth/signout - 员工登出的身份缓存失效触点
+  if (method === 'POST' && segments.length === 1 && segments[0] === 'signout') {
+    ctx.emit('platform-user/signout')
+    res.writeHead(204)
+    res.end()
     return
   }
 

@@ -26,6 +26,11 @@
         supabaseUrl: !!js process.env.SUPABASE_URL ?? ''
         supabaseAnonKey: !!js process.env.SUPABASE_ANON_KEY ?? ''
 
+    # 会话身份上下文：订阅 platform-user 事件维护 ctx.currentUser，
+    # 并在每轮第一个 step 向模型注入展示用身份块。
+    - id: user-identity-context
+      name: '@deepseek-ai/dsh-user-identity-context'
+
     # flowable-engine 任务 API 代理：/dsh/tasks、/dsh/history → engineBaseUrl。
     - id: flowable-task-proxy
       name: '@deepseek-ai/dsh-flowable-task-proxy'

@@ -1,8 +1,8 @@
 # Agent Note: Platform-User Governance Seam
 
-English | [中文](2026-08-19-platform-user-governance-seam.zh.md)
-
 Status: implemented
+
+English | [中文](2026-08-19-platform-user-governance-seam.zh.md)
 
 ## Problem
 

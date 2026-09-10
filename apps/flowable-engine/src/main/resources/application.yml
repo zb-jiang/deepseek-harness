@@ -23,7 +23,8 @@ spring:
     password: ${SUPABASE_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 10
+      # Supabase session pooler 上限 15;与 web-console 各分 5(合计 10<15,留余量)
+      maximum-pool-size: 5
       connection-timeout: 30000
 
 # Flowable 7 Spring Boot starter 配置前缀是顶级 flowable.*(不是 spring.flowable.*);

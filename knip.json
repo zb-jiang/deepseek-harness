@@ -703,6 +703,12 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/client/ui-enterprise": {
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx"
+      ]
+    },
     "packages/client/ui-renderer": {
       "entry": [
         "tests/**/*.spec.tsx"
@@ -796,6 +802,11 @@
       ]
     },
     "packages/bundle/web-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
+    "packages/bundle/enterprise-app": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
       ]

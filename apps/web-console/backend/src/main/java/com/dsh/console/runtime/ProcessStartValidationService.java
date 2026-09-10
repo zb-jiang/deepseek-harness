@@ -1,5 +1,6 @@
 package com.dsh.console.runtime;
 
+import com.dsh.console.security.AuthContext;
 import com.dsh.console.workflow.BpmnContextParser;
 import com.dsh.console.workflow.BpmnContextParser.ContextVariable;
 import com.dsh.console.runtime.dto.StartFormVariableDto;
@@ -20,7 +21,8 @@ import org.springframework.stereotype.Service;
  *   <li>传入值按声明类型反序列化:integer→Long、float→Double、boolean→Boolean、
  *       object→Map、array→List;date(yyyy-MM-dd)/datetime(ISO-8601)按严格格式校验后
  *       以字符串存储(字典序即时间序);</li>
- *   <li>未传入的 start-param / 声明变量按 initial 兜底注入。</li>
+ *   <li>未传入的 start-param / 声明变量按 initial 兜底注入;</li>
+ *   <li>{@code source="system"} 声明(initiator)按登录人自动注入,调用方传入同名变量拒绝。</li>
  * </ul>
  */
 @Service
@@ -72,25 +74,31 @@ public class ProcessStartValidationService {
      * 严格声明制校验并构造流程变量(隔离三变量之外的上下文部分)。
      *
      * @param requestVariables 启动请求传入的业务变量(可空)
-     * @return 按声明类型转换 + initial 兜底注入后的变量集
-     * @throws IllegalArgumentException 传入未声明 / 非 start-param 变量,
+     * @param auth             当前登录人(initiator 按其身份注入)
+     * @return 按声明类型转换 + initial 兜底注入 + system(initiator)自动注入后的变量集
+     * @throws IllegalArgumentException 传入未声明 / 非 start-param / 系统注入(initiator)变量,
      *                                  或值与声明类型不符、date/datetime 格式非法
      */
     public Map<String, Object> buildVariables(List<ContextVariable> declarations,
-                                              Map<String, Object> requestVariables) {
+                                              Map<String, Object> requestVariables,
+                                              AuthContext auth) {
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, ContextVariable> byName = new LinkedHashMap<>();
         for (ContextVariable v : declarations) {
             byName.put(v.name(), v);
         }
 
-        // 传入变量逐一校验(未声明 / 非 start-param 均拒绝)
+        // 传入变量逐一校验(未声明 / 非 start-param / 系统注入变量均拒绝)
         Map<String, Object> incoming = requestVariables == null ? Map.of() : requestVariables;
         for (Map.Entry<String, Object> e : incoming.entrySet()) {
             ContextVariable decl = byName.get(e.getKey());
             if (decl == null) {
                 throw new IllegalArgumentException(
                     "启动变量未在上下文声明中: " + e.getKey() + "(严格声明制,先在「上下文变量」面板声明)");
+            }
+            if (BpmnContextParser.SYSTEM_SOURCE.equals(decl.source())) {
+                throw new IllegalArgumentException(
+                    "启动变量 " + e.getKey() + " 为系统注入变量(按登录人自动注入),不允许调用方传入");
             }
             if (!START_PARAM.equals(decl.source())) {
                 throw new IllegalArgumentException(
@@ -102,7 +110,14 @@ public class ProcessStartValidationService {
             result.put(e.getKey(), convert(decl, e.getValue()));
         }
 
-        // initial 兜底注入(启动未传入的变量)
+        // system 来源按登录人自动注入(prompt {{initiator.name}} 等引用的值来源)
+        for (ContextVariable decl : declarations) {
+            if (BpmnContextParser.SYSTEM_SOURCE.equals(decl.source())) {
+                result.put(decl.name(), initiatorValue(auth));
+            }
+        }
+
+        // initial 兜底注入(启动未传入的变量;system 变量已注入,containsKey 跳过)
         for (ContextVariable decl : declarations) {
             if (result.containsKey(decl.name())
                 || decl.initialValue() == null || decl.initialValue().isBlank()) {
@@ -111,6 +126,29 @@ public class ProcessStartValidationService {
             result.put(decl.name(), convert(decl, decl.initialValue()));
         }
         return result;
+    }
+
+    /**
+     * 发起人变量的注入值:字段与发布校验器要求的固定字段清单(userId/name/email)对齐;
+     * 显示名缺失时沿 displayName → loginName → email → userId 兜底,保证字段非空
+     * (userPrompt 插值把 null 渲染为「空」,发起人卡片至少可显示 user.id)。
+     */
+    private Map<String, Object> initiatorValue(AuthContext auth) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("userId", auth.authSubject());
+        value.put("name", firstNonBlank(
+            auth.displayName(), auth.loginName(), auth.email(), auth.authSubject()));
+        value.put("email", firstNonBlank(auth.email(), ""));
+        return value;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return "";
     }
 
     /**

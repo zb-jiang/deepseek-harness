@@ -169,6 +169,7 @@
     { "path": "./packages/enterprise/platform-user" },
     { "path": "./packages/enterprise/platform-user-supabase" },
     { "path": "./packages/enterprise/platform-user-api" },
+    { "path": "./packages/enterprise/user-identity-context" },
     { "path": "./packages/enterprise/flowable-task-proxy" },
     { "path": "./packages/session/session-telemetry-otel" },
     { "path": "./packages/core/system-prompt" },

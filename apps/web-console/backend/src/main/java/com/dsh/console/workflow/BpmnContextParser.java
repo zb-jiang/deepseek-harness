@@ -21,6 +21,12 @@ public final class BpmnContextParser {
     /** bpmn: 命名空间。 */
     public static final String BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL";
 
+    /** 系统注入来源标记(source 属性值);当前唯一 system 注入器是发起人变量 initiator。 */
+    public static final String SYSTEM_SOURCE = "system";
+
+    /** 系统注入的发起人变量名;启动时按登录人注入 userId/name/email 三字段。 */
+    public static final String INITIATOR_VARIABLE_NAME = "initiator";
+
     private BpmnContextParser() {
     }
 

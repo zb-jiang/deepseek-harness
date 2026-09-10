@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-platform-user-supabase",
   "description": "Supabase-backed read-only provider for the platform-user seam (JWKS JWT verify + RLS self-read)",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
   },

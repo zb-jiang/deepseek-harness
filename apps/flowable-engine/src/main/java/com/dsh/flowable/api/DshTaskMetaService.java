@@ -83,8 +83,11 @@ public class DshTaskMetaService {
                 .processInstanceIds(instanceIds)
                 .list();
             for (ProcessInstance instance : instances) {
-                if (instance.getStartUserId() != null) {
-                    startUserByInstance.put(instance.getId(), instance.getStartUserId());
+                String startUserId = instance.getStartUserId() != null
+                    ? instance.getStartUserId()
+                    : applicantUserIdFromVariable(instance.getId());
+                if (startUserId != null) {
+                    startUserByInstance.put(instance.getId(), startUserId);
                 }
             }
         }
@@ -105,7 +108,19 @@ public class DshTaskMetaService {
     }
 
     /**
-     * 单个任务的展示元数据。
+ * 发起人回退:Flowable {@code startUserId} 仅在启动方经 IdentityService 设置过认证用户时
+ * 才有值,web-console 经 REST 启动的生产路径不写该字段;此时读应用隔离变量
+ * {@code dsh_applicant_user_id}(启动时按登录人 JWT sub 写入)。
+ *
+ * @return 申请人 auth_subject;变量缺失或非字符串时 null
+ */
+private String applicantUserIdFromVariable(String instanceId) {
+    Object applicant = runtimeService.getVariable(instanceId, "dsh_applicant_user_id");
+    return applicant instanceof String s && !s.isBlank() ? s : null;
+}
+
+/**
+ * 单个任务的展示元数据。
      *
      * @param task 任务
      * @return 元数据;task 或其实例 id 为 null 时字段全 null
