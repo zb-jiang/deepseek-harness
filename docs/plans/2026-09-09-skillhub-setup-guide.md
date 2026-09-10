@@ -10,14 +10,14 @@
 
 本平台用它获得的能力（对应 [设计文档](2026-09-09-skill-repo-design.md) 工作项 1 的需求）：
 
-| 需求 | SkillHub 对应能力 |
-| --- | --- |
-| 上传 / 更新 / 删除 | Web UI 发布 + CLI `publish` / `remove --remote` |
-| 版本控制 | 语义化版本 + `beta` / `stable` 标签 + `latest` 自动追踪 |
-| 管理界面 | 自带 Web UI（搜索、详情、版本历史、下载统计） |
-| 审核治理 | 命名空间（Owner/Admin/Member）+ 分级审核 + 审计日志 |
-| 访问控制 | 可见性 `public` / `namespace-only` / `private` + scoped API token |
-| 安全 | Skill Scanner 多引擎扫描（可选启用）+ 上传扩展名白名单 |
+| 需求           | SkillHub 对应能力                                                  |
+| ------------ | -------------------------------------------------------------- |
+| 上传 / 更新 / 删除 | Web UI 发布 + CLI `publish` / `remove --remote`                  |
+| 版本控制         | 语义化版本 + `beta` / `stable` 标签 + `latest` 自动追踪                   |
+| 管理界面         | 自带 Web UI（搜索、详情、版本历史、下载统计）                                     |
+| 审核治理         | 命名空间（Owner/Admin/Member）+ 分级审核 + 审计日志                          |
+| 访问控制         | 可见性 `public` / `namespace-only` / `private` + scoped API token |
+| 安全           | Skill Scanner 多引擎扫描（可选启用）+ 上传扩展名白名单                            |
 
 ## 2. 源码仓库结构
 
@@ -32,14 +32,14 @@ skillhub/
 
 ## 3. 前置要求（部署机）
 
-| 软件 | 版本要求 | 说明 |
-| --- | --- | --- |
-| JDK | **21+**（硬性要求） | 本机已有的 Java 17（`D:\Java`）不满足；另装一个 JDK 21（推荐 [Adoptium Temurin 21](https://adoptium.net/) MSI），与 Java 17 共存、按会话切换 `JAVA_HOME`，不影响 flowable-engine |
-| Node.js | 20+ LTS | 前端构建用 |
-| pnpm | 最新即可 | `npm install -g pnpm` |
-| Git | 任意近期版本 | 克隆源码 |
-| PostgreSQL | 16 | 见 §4.1 |
-| Redis | 任意 7.x 兼容实现 | Windows 无官方原生版，见 §4.2 |
+| 软件         | 版本要求          | 说明                                                                                                                                              |
+| ---------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| JDK        | **21+**（硬性要求） | 本机已有的 Java 17（`D:\Java`）不满足；另装一个 JDK 21（推荐 [Adoptium Temurin 21](https://adoptium.net/) MSI），与 Java 17 共存、按会话切换 `JAVA_HOME`，不影响 flowable-engine |
+| Node.js    | 20+ LTS       | 前端构建用                                                                                                                                           |
+| pnpm       | 最新即可          | `npm install -g pnpm`                                                                                                                           |
+| Git        | 任意近期版本        | 克隆源码                                                                                                                                            |
+| PostgreSQL | 16            | 见 §4.1                                                                                                                                          |
+| Redis      | 7.x 兼容即可      | 用社区 Windows 编译版，见 §4.2                                                                                                                          |
 
 版本自查：
 
@@ -59,7 +59,7 @@ pnpm -v
 2. 建库建用户（凭据与 SkillHub `application-local.yml` 默认值一致，后端零配置直连）：
 
 ```powershell
-& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -h localhost
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost
 ```
 
 ```sql
@@ -72,35 +72,44 @@ CREATE DATABASE skillhub OWNER skillhub;
 
 **注意**：SkillHub 用自己的库，别把它指向 Supabase 的 PG 实例（`ddl-auto: validate` + Flyway 会往库里写自己的表，与 Supabase 的 public schema 混在一起）。
 
-### 4.2 Redis（三选一）
+### 4.2 Redis
 
-Windows 没有官方原生 Redis，任选其一：
+Redis 官方只发 Linux/macOS 版，Windows 上用社区原生编译版 [redis-windows/redis-windows](https://github.com/redis-windows/redis-windows/)：GitHub Actions 用官方源码自动编译，7.x/8.x 都有，解压即用。非官方构建、无安全更新承诺，但 SkillHub 只把 Redis 当缓存/队列，开发/试用环境风险可控。
 
-| 方式 | 步骤 | 适用 |
-| --- | --- | --- |
-| **Memurai（推荐）** | [memurai.com](https://www.memurai.com/) 下载 Developer Edition 安装包，装完即注册为 Windows 服务自启 | 纯 Windows、最省事；Redis 7 兼容 |
-| WSL2 | `wsl --install -d Ubuntu` 后在 WSL 内 `sudo apt install redis-server` | 已有 WSL2 的机器 |
-| Docker 单容器 | `docker run -d --name skillhub-redis -p 6379:6379 redis:7-alpine` | 机器上已有 Docker Desktop |
+步骤：
 
-验证（Memurai 为例；WSL/Docker 用 `redis-cli ping`）：
+1. 到 [Releases 页](https://github.com/redis-windows/redis-windows/releases) 下载最新 zip，解压到固定目录，如 `D:\redis`。解压后应包含 `redis-server.exe`、`redis-cli.exe`、`redis.conf`（服务版还有 `RedisService.exe`）。
+2. 注册为 Windows 服务（管理员 PowerShell；`RedisService.exe` 是该项目推荐的常驻方式，自动处理路径转换）：
 
 ```powershell
-memurai-cli ping   # 返回 PONG 即可
+cd D:\redis
+.\RedisService.exe install -c D:\redis\redis.conf --dir D:\redis\data --port 6379
+net start Redis
 ```
 
-默认 `localhost:6379` 无密码即可，与后端默认配置一致；如有密码用 `SPRING_DATA_REDIS_PASSWORD` 覆盖。
+卸载服务用 `.\RedisService.exe uninstall`。zip 里没有 `RedisService.exe`、或它缺 .NET 运行时起不来时，退回前台方式：`.\redis-server.exe redis.conf`（窗口开着就在跑，另开终端验证）。
+
+验证：
+
+```powershell
+.\redis-cli.exe ping   # 返回 PONG 即可
+```
+
+**路径坑**：`redis-server.exe` 用 Cygwin 运行时编译，命令行传路径必须是 Cygwin 格式（`D:\x` 写成 `/cygdrive/d/x`），Windows 绝对路径会报 `can't open config file`；`redis.conf` 文件内部则推荐写正斜杠（如 `dir D:/redis/data`）。走 `RedisService.exe` 或相对路径可完全避开。
+
+默认 `localhost:6379` 无密码，与后端默认配置一致；如有密码用 `SPRING_DATA_REDIS_PASSWORD` 覆盖。
 
 ### 4.3 明确不需要的组件
 
 - **MinIO / 对象存储**：`skillhub.storage.provider` 默认 `local`（本地文件系统），skill 包落在 `STORAGE_BASE_PATH` 指定的目录（§6）。
-- **Skill Scanner**：独立 Python 服务，源码部署默认不跑，用 `SKILLHUB_SECURITY_SCANNER_ENABLED=false` 关闭（§6）。将来要启用再按上游 `scanner/` 目录文档部署。
+- **Skill Scanner**：独立 Python 服务，企业部署不跑。注意上游设计：`public` / `namespace-only` 可见性的 skill 发布**必须**先过安全扫描（`SkillPublishService.requiresSecurityScanner`，无配置可绕过）。企业 fork 已做两处放宽（`application-local.yml`）：扫描器默认关闭（`enabled` 默认 `false`），并新增 `skillhub.security.scanner.required-for-publish=false` 豁免发布强扫——这是 fork 相对上游的核心定制点之一，同步上游时留意。将来要启用再按上游 `scanner/` 目录文档部署。
 
 ## 5. 获取源码
 
 ```powershell
 # 建议先 fork 到企业自己的 Git 仓库再克隆（定制 logo/功能要进版本管理，且方便跟上游同步）
-git clone https://github.com/iflytek/skillhub.git D:\works\skillhub
-cd D:\works\skillhub
+git clone https://github.com/iflytek/skillhub.git D:\works\enterprise-skillhub
+cd D:\works\enterprise-skillhub
 ```
 
 ## 6. 构建并启动后端
@@ -110,7 +119,7 @@ cd D:\works\skillhub
 项目自带阿里云镜像配置但 Maven 不会自动读项目级配置，复制到用户目录：
 
 ```powershell
-Copy-Item D:\works\skillhub\server\.mvn\settings.xml $env:USERPROFILE\.m2\settings.xml
+Copy-Item D:\works\enterprise-skillhub\server\.mvn\settings.xml $env:USERPROFILE\.m2\settings.xml
 ```
 
 （目录不存在先 `mkdir $env:USERPROFILE\.m2`。）
@@ -123,7 +132,7 @@ $env:JAVA_HOME = "D:\jdk-21"
 $env:Path = "$env:JAVA_HOME\bin;" + $env:Path
 java -version   # 确认 21+
 
-cd D:\works\skillhub\server
+cd D:\works\enterprise-skillhub\server
 .\mvnw.cmd -pl skillhub-app -am clean package -DskipTests
 ```
 
@@ -132,32 +141,29 @@ cd D:\works\skillhub\server
 ### 6.3 启动（local profile）
 
 ```powershell
-# 三个环境变量按需调整路径
-$env:STORAGE_BASE_PATH = "D:\skillhub-storage"          # skill 包存储目录（默认 /tmp/... 在 Windows 不合适）
-$env:SKILLHUB_SECURITY_SCANNER_ENABLED = "false"        # 未部署 scanner 服务，关闭
-$env:BOOTSTRAP_ADMIN_PASSWORD = "<你的强密码>"           # 内置管理员密码（也可登录后在 UI 改）
+# 环境变量按需调整；扫描器与内置演示 skill 在企业 fork 的 local profile 已默认关闭，无需再设
+$env:STORAGE_BASE_PATH = "D:\works\enterprise-skillhub\skillhub-storage"          # skill 包存储目录（默认 /tmp/... 在 Windows 不合适）
+$env:BOOTSTRAP_ADMIN_PASSWORD = "passw0rd"           # 内置管理员密码（也可登录后在 UI 改）
 
-$jar = Get-ChildItem skillhub-app\target -Filter "skillhub-app-*.jar" |
-    Where-Object Name -notlike "*.original" | Select-Object -First 1
-java -jar $jar.FullName --spring.profiles.active=local --server.port=8095
+java -jar skillhub-app\target\skillhub-app-0.1.0.jar --spring.profiles.active=local --server.port=8095
 ```
 
 `--server.port=8095` 的原因：后端默认 8080，与 web-console 冲突，统一改 8095（端口总览见 §6.4）。启动日志出现 `Started SkillhubAppApplication` 即就绪；首次启动 Flyway 会自动建表。
 
 ### 6.4 端口总览
 
-| 服务 | 端口 | 说明 |
-| --- | --- | --- |
-| SkillHub Web UI | 3000 | Vite 开发服务器，§7 启动 |
-| SkillHub 后端 API | **8095** | 用 `--server.port` 从默认 8080 改过来，避开 web-console |
-| PostgreSQL | 5432 | §4.1 |
-| Redis | 6379 | §4.2 |
-| web-console | 8080（已有） | 见 [2026-08-19-supabase-setup-guide.md](2026-08-19-supabase-setup-guide.md) |
-| flowable-engine | 8090（已有） | — |
+| 服务              | 端口       | 说明                                                                         |
+| --------------- | -------- | -------------------------------------------------------------------------- |
+| SkillHub Web UI | 3000     | Vite 开发服务器，§7 启动                                                           |
+| SkillHub 后端 API | **8095** | 用 `--server.port` 从默认 8080 改过来，避开 web-console                              |
+| PostgreSQL      | 5432     | §4.1                                                                       |
+| Redis           | 6379     | §4.2                                                                       |
+| web-console     | 8080（已有） | 见 [2026-08-19-supabase-setup-guide.md](2026-08-19-supabase-setup-guide.md) |
+| flowable-engine | 8090（已有） | —                                                                          |
 
 ## 7. 启动前端
 
-前端开发服务器默认把 `/api`、`/oauth2` 代理到 `http://localhost:8080`，后端已改 8095，先改代理（文件 [web/vite.config.ts](file:///D:/works/skillhub/web/vite.config.ts) 底部 `server.proxy` 两处 target）：
+前端开发服务器默认把 `/api`、`/oauth2` 代理到 `http://localhost:8080`，后端已改 8095，先改代理（文件 [web/vite.config.ts](file:///D:/works/enterprise-skillhub/web/vite.config.ts) 底部 `server.proxy` 两处 target）：
 
 ```typescript
 proxy: {
@@ -175,7 +181,7 @@ proxy: {
 然后启动：
 
 ```powershell
-cd D:\works\skillhub\web
+cd D:\works\enterprise-skillhub\web
 pnpm install
 pnpm exec vite --host 127.0.0.1 --port 3000
 ```
@@ -188,21 +194,6 @@ Vite 带热更新——改 logo、改界面保存即生效，是定制开发的�
 - 后端 API 探活：`curl http://localhost:8095`（注意不是 8090），返回 JSON（非连接拒绝）即正常；API 文档在 `http://localhost:8095/swagger-ui.html`。
 - 登录 Web UI：管理员 `admin` + 启动时设的 `BOOTSTRAP_ADMIN_PASSWORD`（未设则上游默认 `ChangeMe!2026`，登录后立即在个人设置改掉）。
 - 本地开发免登录捷径：local profile 开了 mock 用户，浏览器装 ModHeader 之类插件加请求头 `X-Mock-User-Id: local-admin` 即可以超管身份浏览。
-
-## 9. Logo 与品牌定制指引
-
-品牌元素集中在前端，源码位置（均为相对 `web/` 的路径）：
-
-| 定制点 | 位置 |
-| --- | --- |
-| 站点图标 | `public/favicon.svg`（直接替换文件） |
-| 页面标题 | `index.html` 的 `<title>SkillHub</title>` |
-| 顶栏品牌图标 + 字标 | `src/app/layout.tsx` 中 `SkillHub` 文字与渐变方块（搜索 `brand-gradient`） |
-| 首页 hero 文案 | `src/pages/landing.tsx` |
-| 登录按钮 OAuth 图标 | `public/github-logo.svg` / `gitlab-logo.svg` / `oidc-logo.svg`（企业内用不到的登录方式可在 `src/features/auth/login-button.tsx` 连同逻辑一起隐藏） |
-| 界面文案 | `src/i18n/` 下语言文件，全局搜 `SkillHub` 清理残留 |
-
-改完在 Vite 热更新下即时预览。定制代码提交到企业自己的 fork；后续同步上游时用 Git rebase/merge 正常处理冲突。
 
 ## 10. 生产化配置
 
@@ -226,7 +217,7 @@ $env:SKILLHUB_PUBLISH_ALLOWED_FILE_EXTENSIONS = ".md,.json,.py,.ps1"
 5. **签发 API token**：Web UI 个人设置 → API 令牌，生成两枚——
    - 给 web-console 后端的**读 token**（设计器下拉、发布校验用）；
    - 给员工端 skill-sync 的**只读分发 token**（search/install 用，禁 publish/delete）。
-   token 只显示一次，妥善保存；用途与分级详见 [设计文档 §9](2026-09-09-skill-repo-design.md)。
+     token 只显示一次，妥善保存；用途与分级详见 [设计文档 §9](2026-09-09-skill-repo-design.md)。
 
 ## 12. 安装 SkillHub CLI 并发布 DEMO 的 6 个 skill
 
@@ -303,12 +294,13 @@ skillhub upgrade --check
 - **Maven 构建报「无效的源发行版 21」或编译错误**：当前会话 `JAVA_HOME` 还指向 Java 17，按 §6.2 切到 JDK 21（`java -version` 确认）。
 - **Maven 依赖下载超时**：确认 §6.1 的阿里云镜像已复制到 `%USERPROFILE%\.m2\settings.xml`。
 - **启动报 PostgreSQL 连接失败/认证失败**：PG 服务没起（`services.msc` 查 `postgresql-x64-16`）；或 §4.1 的 `skillhub` 用户/库没建；或用了非默认凭据但没设 `SPRING_DATASOURCE_*` 环境变量。
-- **启动报 Redis 连接失败**：§4.2 的服务没起（`memurai-cli ping` 验证）。
+- **启动报 Redis 连接失败**：§4.2 的服务没起（`redis-cli ping` 验证）。
+- **社区版 Redis 报** **`can't open config file`**：Cygwin 路径格式问题，命令行别给 `redis-server.exe` 传 Windows 绝对路径（§4.2「路径坑」）。
 - **前端页面能开但登录/搜索全挂**：`web/vite.config.ts` 代理 target 忘了从 8080 改 8095（§7），或后端没启动。
 - **8080 端口冲突**：后端已按 §6.3 用 `--server.port=8095` 规避；若 8095 也被占（检查 flowable-engine 是否误配），换 8096 等并同步改 vite 代理。
-- **发布 skill 一直卡在扫描中**：scanner 服务没部署但开关没关，设 `SKILLHUB_SECURITY_SCANNER_ENABLED=false` 重启后端（§6.3）。
+- **启动日志刷 `error.security.scanner.required`**：旧版本遗留，企业 fork 已修复——local profile 扫描器默认关闭、发布不再强制扫描、内置演示 skill 默认不发布；用改动后的代码重新构建（§6.2）再启动。
 - **CLI 登录报 401 带 Request ID**：token 错或 scope 不够；用返回的 Request ID 对照后端日志定位。
-- **`upgrade` 提示不替换本地文件**：本地相对 `registry + namespace + slug` 的受管安装才可升级（`metadata.json` 溯源），手工乱改过的目录先 `remove` 再重装。
+- **`upgrade`** **提示不替换本地文件**：本地相对 `registry + namespace + slug` 的受管安装才可升级（`metadata.json` 溯源），手工乱改过的目录先 `remove` 再重装。
 
 ## 15. 与后续工作项的衔接
 
