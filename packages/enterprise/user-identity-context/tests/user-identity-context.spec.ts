@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import * as userIdentityContext from '../src/index.ts'
 import { renderIdentityText } from '../src/text.ts'
 import { platformUser } from './helpers.ts'
@@ -22,7 +22,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: { nextTurn: [], nextStep: [] } as never,
     status: 'running',
     ctx: new Context(),
     send: () => {},
@@ -45,7 +45,7 @@ function openMessageTurn(session: Session, turn: number): void {
 
 function identityTexts(session: Session): string[] {
   const texts: string[] = []
-  for (const event of session.events) {
+  for (const event of session.snapshotEvents()) {
     if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'user-identity-context') {
@@ -90,7 +90,7 @@ describe('per-turn identity injection', () => {
     await fire(ctx, sessionAgent(session), 1, 1)
 
     expect(identityTexts(session)).toEqual([renderIdentityText(user)])
-    const event = session.events.at(-1)
+    const event = session.snapshotEvents().at(-1)
     expect(event?.type).toBe('user/message')
     if (event?.type !== 'user/message') throw new Error('missing identity block')
     expect(event.data.source).toEqual({

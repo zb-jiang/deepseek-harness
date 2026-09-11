@@ -40,12 +40,6 @@ export function TaskQueueSidebar({ wide, workbench, useSessions }: TaskQueueSide
     if (authed) void workbench.refresh()
   }, [authed, workbench])
 
-  // details 栏 pin 同步:任务会话/完成回执/只读档案期间展开右栏(blank
-  // 会话也可见)。此组件渲染必然晚于 root 挂载,layout 服务面已接线。
-  useEffect(() => {
-    workbench.syncPin()
-  }, [workbench, currentSession, bindings, tasks.selectedCompleted])
-
   if (!wide) {
     return (
       <button

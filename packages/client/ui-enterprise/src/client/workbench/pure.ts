@@ -4,7 +4,7 @@
  * <p>无 React、无副作用;组件与单测共用,是档案栏三块动态内容
  * (AI 输出 / 提交映射 / 流程进度)的唯一推导逻辑。
  */
-import type { AssistantMessageNode, ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { AssistantMessageNode, ConversationNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ContextVariable, ContextVariableField, HistoricActivity, OutputMapping,
 } from '../task-api.ts'

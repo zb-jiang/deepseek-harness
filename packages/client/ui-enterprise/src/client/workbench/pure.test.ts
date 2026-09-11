@@ -1,6 +1,6 @@
 /** 工作台纯函数层单测:JSON 提取、映射构建、活动状态归并。 */
 import { describe, expect, it } from 'vitest'
-import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { HistoricActivity } from '../task-api.ts'
 import {
   activityStatuses, buildVariables, collectJsonBlocks, defaultMappings, executionRecords,

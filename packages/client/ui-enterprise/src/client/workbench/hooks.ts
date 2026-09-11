@@ -2,7 +2,8 @@
  * 工作台共享 Hooks:SnapshotStore 订阅桥 + 时间格式化。
  */
 import { useSyncExternalStore } from 'react'
-import type { SessionId, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 /**
  * 订阅一个 SnapshotStore(useSyncExternalStore 直连;store 引用须稳定)。

@@ -1,5 +1,5 @@
 /**
- * 任务档案栏:enterprise profile 遮蔽 ui-conversation DetailsPanel 的整栏占据者。
+ * 任务档案标签页:rightbar 标签页系统 `sidebar.right.pane.tab` 座位的企业占据者。
  *
  * <p>当前会话绑定待办时展示任务档案四件套 —— 任务信息 / 任务指令(重新填入) /
  * 流程进度(部署版 BPMN 迷你图 + 执行记录,支持分支与并行)/ 上下文变量带值,
@@ -13,7 +13,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, JsonTree } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { EnterpriseWorkbench } from './enterprise-workbench.ts'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
+import { ARCHIVE_TAB_ID, type EnterpriseWorkbench } from './enterprise-workbench.ts'
+import { JSON_TREE_LABELS } from './jsonTreeLabels.ts'
 import { TaskSubmitDialog } from './TaskSubmitDialog.tsx'
 import type {
   CompletedTask, ContextVariable, HistoricActivity, HistoricVariable, Task,
@@ -28,16 +31,14 @@ import {
 import { formatShortTime, useSnapshot } from './workbench/hooks.ts'
 import css from './TaskArchivePanel.module.css'
 
-/** 档案栏注入面:工作台编排器 + 关闭动作。 */
+/** 档案标签页注入面:工作台编排器(关闭走 tabInfo 的 tab actions)。 */
 export type TaskArchivePanelInjected = {
   workbench: EnterpriseWorkbench
-  /** 头部关闭按钮(layout 面宽切换)。 */
-  closeDetails: () => void
 }
 
-/** 档案栏组件 props:session 标准套件 + 注入面。 */
+/** 档案标签页组件 props:session 标准套件 + tabInfo 钩子 + 注入面。 */
 export type TaskArchivePanelProps =
-  & PropsRuntime<'details'>
+  & PropsRuntime<'sidebar.right.pane.tab', typeof ARCHIVE_TAB_ID>
   & TaskArchivePanelInjected
 
 /** 流程进度/变量区块的数据面(一次按实例聚合拉取)。 */
@@ -123,12 +124,15 @@ function useArchiveData(task: ArchiveTaskRef | undefined, refreshKey: string | u
   return state
 }
 
-/** 任务档案栏(见模块文档)。 */
-export function TaskArchivePanel({ sessionId, useSession, workbench, closeDetails }: TaskArchivePanelProps) {
+/** 任务档案标签页(见模块文档)。 */
+export function TaskArchivePanel({ sessionId, useSession, useChat, useTabInfo, workbench }: TaskArchivePanelProps) {
   const tasks = useSnapshot(workbench.tasks)
   const bindings = useSnapshot(workbench.bindings)
-  const nodes = useSession(s => s.nodes)
+  const nodes = useChat(s => s.legacy.nodes)
   const running = useSession(s => s.running)
+  // 关闭动作:走本标签页的 tab actions(与标签条自带关闭同一语义)。
+  const tabInfo = useTabInfo()
+  const closeDetails = () => { tabInfo.tab.actions.close() }
 
   const taskId = bindings.sessionToTask[sessionId]
   const task = taskId === undefined ? undefined : tasks.items.find(item => item.id === taskId)
@@ -334,7 +338,7 @@ export function TaskArchivePanel({ sessionId, useSession, workbench, closeDetail
                     )}
                   </div>
                   {jsonTreeData !== null
-                    ? <JsonTree data={jsonTreeData} />
+                    ? <JsonTree data={jsonTreeData} label="AI 输出 JSON" labels={JSON_TREE_LABELS} />
                     : (
                       <div className={css.hint}>
                         {running

@@ -16,15 +16,17 @@
  * <p>绑定状态刻意用普通对象而非 Map/Set:快照存储引擎经 immer produce 起草,
  * 而运行时导入的 immer 未启用 MapSet 插件,Map 草稿在首次变更时抛
  * "[Immer] minified error nr: 0"。已完成任务的会话映射另存 localStorage,
- * 页面刷新后仍能回到原会话;details 栏的 pin(ui-layout 的 opt-in 能力)由
- * 侧栏渲染面经 syncPin 驱动,使 blank 任务会话也能展开右栏。
+ * 页面刷新后仍能回到原会话;任务档案经 rightbar 标签页系统呈现
+ * (openTask/openCompletedTask 打开 ARCHIVE_TAB_KIND 标签页)。
  */
-import type {
-  ISessions, IWorkspaces, SessionId, SnapshotStore, WorkspaceId,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IWorkspaces, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISidebarRight } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { completeTask, getCompletedTasks, getMyTasks } from './task-api.ts'
 import type { CompletedTask, Task } from './task-api.ts'
 
@@ -102,13 +104,20 @@ function saveCompletedSessions(map: Record<string, SessionId>): void {
   }
 }
 
-/** 控制器依赖的四个跨插件服务面。 */
+/** 控制器依赖的五个跨插件服务面。 */
 export interface WorkbenchDeps {
   readonly sessions: ISessions
   readonly workspaces: IWorkspaces
   readonly layout: ILayout
   readonly conversation: IConversation
+  readonly sidebarRight: ISidebarRight
 }
+
+/** 任务档案标签页的类型标识(rightbar 标签页系统 openTab 的 kind)。 */
+export const ARCHIVE_TAB_KIND = 'dsh-enterprise-archive'
+
+/** 任务档案标签页实现的注册 id(stage-two keyed 座位的 key)。 */
+export const ARCHIVE_TAB_ID = '@deepseek-ai/dsh-client-ui-enterprise/archive'
 
 /**
  * 工作台编排器。apply 时构造一次,经各插槽 inject 面闭包分发;
@@ -184,7 +193,15 @@ export class EnterpriseWorkbench {
     let sessionId: SessionId | undefined = sessionLive === true ? bound : undefined
     if (sessionId === undefined) {
       const workspaces = this.deps.workspaces.list.getSnapshot()
-      const workspaceId = workspaces.recentWorkspaceId ?? workspaces.items[0]?.workspaceId
+      const sessions = this.deps.sessions.list.getSnapshot()
+      // 与原生 startSession 同判据:当前会话所在工作区 → 最近活跃工作区 → 首个。
+      const currentSessionId = sessions.current
+      const currentWorkspaceId = currentSessionId === undefined
+        ? undefined
+        : workspaces.items.find(item => item.sessionIds.includes(currentSessionId))?.workspaceId
+      const workspaceId = currentWorkspaceId
+        ?? this.recentWorkspaceId(workspaces.items, sessions.byId)
+        ?? workspaces.items[0]?.workspaceId
       if (workspaceId === undefined) {
         this.deps.sessions.clear()
         return
@@ -199,7 +216,7 @@ export class EnterpriseWorkbench {
     const prefillNotice = this.prefillPrompt(task, sessionId)
     this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
     this.deps.sessions.open(sessionId)
-    this.deps.layout.openDetails()
+    this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND)
   }
 
   /**
@@ -230,7 +247,7 @@ export class EnterpriseWorkbench {
     } else {
       this.tasks.update((draft) => { draft.selectedCompleted = task })
     }
-    this.deps.layout.openDetails()
+    this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND)
   }
 
   /**
@@ -266,21 +283,6 @@ export class EnterpriseWorkbench {
     const taskId = this.bindings.getSnapshot().sessionToTask[sessionId]
     if (taskId === undefined) return undefined
     return this.tasks.getSnapshot().items.find(item => item.id === taskId)
-  }
-
-  /**
-   * 重算 details 栏 pin 并写入 layout:当前会话是任务会话/持有完成回执,
-   * 或处于已完成任务的只读档案视图时置位(blank 任务会话也能展开右栏),
-   * 否则交还原生"非 blank 会话"判据。由侧栏渲染面在状态变化时调用
-   * (渲染必然晚于 root 挂载,layout 服务面已接线)。
-   */
-  syncPin(): void {
-    const current = this.deps.sessions.list.getSnapshot().current
-    const bound = current !== undefined && this.taskOfSession(current) !== undefined
-    const receipt = current !== undefined
-      && this.bindings.getSnapshot().completedBySession[current] !== undefined
-    const readonly = this.tasks.getSnapshot().selectedCompleted !== null
-    this.deps.layout.setPinned(bound || receipt || readonly)
   }
 
   /** 侧栏窄轨展开(layout 面宽切换;与原生侧栏 toggle 同一动作)。 */
@@ -339,6 +341,31 @@ export class EnterpriseWorkbench {
     return this.deps.conversation.input.for(actx)
   }
 
+  /**
+   * 最近活跃工作区(与原生 navigation.recentWorkspace 同判据):取各工作区
+   * 内会话的最新 updatedAt,无会话时退化为创建时间,并列时保持 Host 顺序。
+   */
+  private recentWorkspaceId(
+    workspaces: readonly WorkspaceView[],
+    sessions: Record<string, { updatedAt: number }>,
+  ): WorkspaceId | undefined {
+    let selected: WorkspaceId | undefined
+    let selectedTime = Number.NEGATIVE_INFINITY
+    for (const workspace of workspaces) {
+      let latest = Number.NEGATIVE_INFINITY
+      for (const sessionId of workspace.sessionIds) {
+        const session = sessions[sessionId]
+        if (session !== undefined) latest = Math.max(latest, session.updatedAt)
+      }
+      if (latest === Number.NEGATIVE_INFINITY) latest = Date.parse(workspace.createdAt)
+      if (selected === undefined || latest > selectedTime) {
+        selected = workspace.workspaceId
+        selectedTime = latest
+      }
+    }
+    return selected
+  }
+
   /** 建立任务↔会话双向绑定(重绑时覆盖旧正向记录)。 */
   private bind(taskId: string, sessionId: SessionId): void {
     this.bindings.update((draft) => {
@@ -380,7 +407,7 @@ export class EnterpriseWorkbench {
     if (!currentRow.blank || !boundRow.blank) return undefined
     if (this.bindings.getSnapshot().sessionToTask[current] !== undefined) return undefined
     const boundState = this.sessionInput(boundId)?.state.getSnapshot()
-    if (boundState === undefined || boundState.draft !== '' || boundState.imageIds.length > 0) {
+    if (boundState === undefined || boundState.draft !== '' || boundState.attachmentIds.length > 0) {
       return undefined
     }
     const workspaces = this.deps.workspaces.list.getSnapshot()

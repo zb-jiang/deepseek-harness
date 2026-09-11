@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as UserInvariant from '../src/invariant.ts'
 import { renderIdentityText } from '../src/text.ts'
@@ -26,8 +26,9 @@ function event(
 ): SessionEvent<'user/message'> {
   return {
     type: 'user/message',
-    seq: 0,
+    seq: SessionSeq(0),
     time,
+    surfaceOp: 'append',
     data: createUserMessage({
       content: (content ?? [{ type: 'text', text }]) as ContentBlock[],
       source: plugin === 'user-identity-context'
@@ -212,7 +213,7 @@ describe('user-identity-context invariants', () => {
     expect(() => { ctx.emit('session/event', preparing(1, 1), user) }).not.toThrow()
     expect(() => {
       ctx.emit('session/event', preparing(1, 1), {
-        type: 'turn/start', seq: 0, time: 0, data: { turn: 1 },
+        type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 },
       })
       ctx.emit('tools/change')
     }).not.toThrow()

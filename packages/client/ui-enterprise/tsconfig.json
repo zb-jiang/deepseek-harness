@@ -11,10 +11,17 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../ui-slots" },
     { "path": "../ui-primitives" },
-    { "path": "../runtime" },
+    { "path": "../store" },
+    { "path": "../ui-renderer" },
+    { "path": "../ui-session" },
     { "path": "../ui-layout" },
     { "path": "../ui-conversation" },
+    { "path": "../ui-chat" },
     { "path": "../ui-sidebar" },
+    { "path": "../ui-sidebar-right" },
+    { "path": "../../core/session" },
+    { "path": "../../api/session-controller/tsconfig.client.json" },
+    { "path": "../../api/workspace-controller/tsconfig.client.json" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

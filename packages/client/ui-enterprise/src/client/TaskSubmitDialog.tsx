@@ -14,6 +14,7 @@ import {
   buildVariables, defaultMappings, targetOptions,
 } from './workbench/pure.ts'
 import type { SubmitMapping } from './workbench/pure.ts'
+import { JSON_TREE_LABELS } from './jsonTreeLabels.ts'
 import css from './TaskSubmitDialog.module.css'
 
 type TaskSubmitDialogProps = {
@@ -97,7 +98,7 @@ export function TaskSubmitDialog({
           <div className={css.jsonPanel}>
             <div className={css.panelLabel}>AI 输出 JSON（只读）</div>
             {jsonTreeData !== null ? (
-              <JsonTree data={jsonTreeData} />
+              <JsonTree data={jsonTreeData} label="AI 输出 JSON" labels={JSON_TREE_LABELS} />
             ) : (
               <div className={css.jsonError}>不是合法 JSON 对象/数组</div>
             )}
