@@ -5,6 +5,7 @@ import com.dsh.console.app.dto.CreateApplicationRequest;
 import com.dsh.console.app.dto.UpdateApplicationRequest;
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.security.AuthContext;
+import com.dsh.console.skillhub.dto.SkillHubSkillDto;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -74,7 +75,7 @@ public class ApplicationController {
     }
 
     /**
-     * 更新应用草稿(管理员可改 name/description/icon/app_admin_user_ids)。
+     * 更新应用草稿(管理员可改 name/description/icon/app_admin_user_ids/skillhub_namespace)。
      */
     @PatchMapping("/{appId}")
     @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
@@ -83,6 +84,19 @@ public class ApplicationController {
                                              @AuthenticationPrincipal AuthContext auth) {
         applicationService.checkCanAccessApp(auth, appId);
         return ApiResponse.ok(applicationService.update(appId, body, auth.platformUserId()));
+    }
+
+    /**
+     * 列应用绑定的 SkillHub namespace 下已发布 skill(后端持 token 代理访问,浏览器不直连)。
+     *
+     * <p>应用未绑定 namespace 时返回 400,提示先在应用管理配置。
+     */
+    @GetMapping("/{appId}/skills")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    public ApiResponse<List<SkillHubSkillDto>> listSkills(@PathVariable UUID appId,
+                                                          @AuthenticationPrincipal AuthContext auth) {
+        applicationService.checkCanAccessApp(auth, appId);
+        return ApiResponse.ok(applicationService.listSkillHubSkills(appId));
     }
 
     /**

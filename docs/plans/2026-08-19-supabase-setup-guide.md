@@ -202,7 +202,16 @@ CREATE TABLE public.applications (
 );
 
 CREATE INDEX idx_applications_status ON public.applications (status);
+```
 
+SkillHub namespace 列（2026-09-11）：应用绑定 SkillHub 命名空间（应用下流程的 skillRefs 仅可引用该命名空间下已发布 skill）。已建表的环境手工执行：
+
+```sql
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS skillhub_namespace text;
+COMMENT ON COLUMN public.applications.skillhub_namespace IS 'SkillHub 命名空间;应用下流程的 skillRefs 仅可引用该命名空间下已发布 skill';
+```
+
+```sql
 -- 5.2 应用角色表
 -- parent_role_id 指向父角色,上级继承下级权限并可处理下级待办
 CREATE TABLE public.app_roles (
@@ -445,12 +454,16 @@ spring:
     resources:
       static-locations: classpath:/static/
 
-# Supabase JWT 验证 + Flowable REST 客户端
+# Supabase JWT 验证 + Flowable REST 客户端 + SkillHub REST 客户端
 dsh:
   supabase:
     jwt-issuer: ${SUPABASE_URL}/auth/v1
   flowable:
     base-url: ${FLOWABLE_BASE_URL}
+  # 企业 Skill 仓库(SkillHub);浏览器不直连,后端持只读 token 代理
+  skillhub:
+    base-url: ${SKILLHUB_BASE_URL:http://127.0.0.1:8095}
+    api-token: ${SKILLHUB_API_TOKEN:}
 ```
 
 环境变量见 `.env.ps1.example`。

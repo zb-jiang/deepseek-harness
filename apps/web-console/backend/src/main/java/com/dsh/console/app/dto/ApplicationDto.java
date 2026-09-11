@@ -12,6 +12,8 @@ import java.util.UUID;
  * @param name              应用名
  * @param description       描述(可空)
  * @param icon              图标 base64 数据 URL(可空;后端自动填充默认图标)
+ * @param skillhubNamespace SkillHub namespace(可空;绑定后应用下流程的 skillRefs
+ *                          仅可引用该命名空间下已发布 skill)
  * @param status            状态:active / suspended / archived(创建即 active,无草稿态)
  * @param appAdminUserIds   应用管理员列表(platform_users.id 数组,至少一个)
  * @param createdAt          创建时间
@@ -25,6 +27,7 @@ public record ApplicationDto(
     String name,
     String description,
     String icon,
+    String skillhubNamespace,
     String status,
     List<UUID> appAdminUserIds,
     OffsetDateTime createdAt,

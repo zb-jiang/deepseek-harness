@@ -6,10 +6,15 @@ import com.dsh.console.app.dto.UpdateApplicationRequest;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
 import com.dsh.console.security.AuthContext;
-import com.dsh.console.security.PlatformRole;
+import com.dsh.console.skillhub.SkillHubRestClient;
+import com.dsh.console.skillhub.dto.SkillHubSkillDto;
 import com.dsh.console.user.UserJdbcRepository;
+import com.dsh.console.workflow.BpmnValidationService;
 import com.dsh.console.workflow.WorkflowDefinitionJdbcRepository;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -33,17 +38,20 @@ public class ApplicationService {
     private final UserJdbcRepository userRepository;
     private final WorkflowDefinitionJdbcRepository workflowRepository;
     private final AuditService auditService;
+    private final SkillHubRestClient skillHubRestClient;
 
     private static final String DEFAULT_ICON_BASE64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTUiIHN0cm9rZS13aWR0aD0iMiI+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBhdGggZD0iTTIxIDE1bC01LTUtMTYgMTYiLz48L3N2Zz4=";
 
     public ApplicationService(ApplicationJdbcRepository appRepository,
                               UserJdbcRepository userRepository,
                               WorkflowDefinitionJdbcRepository workflowRepository,
-                              AuditService auditService) {
+                              AuditService auditService,
+                              SkillHubRestClient skillHubRestClient) {
         this.appRepository = appRepository;
         this.userRepository = userRepository;
         this.workflowRepository = workflowRepository;
         this.auditService = auditService;
+        this.skillHubRestClient = skillHubRestClient;
     }
 
     public ApplicationDto getById(UUID appId) {
@@ -96,18 +104,102 @@ public class ApplicationService {
 
     @Transactional
     public ApplicationDto update(UUID appId, UpdateApplicationRequest request, UUID updaterId) {
+        ApplicationDto current = getById(appId);
+        // icon:null/blank 表示不更新,保留现有图标(缺省覆盖会把自定义图标重置为默认占位图)
         String icon = (request.icon() == null || request.icon().isBlank())
-            ? DEFAULT_ICON_BASE64 : request.icon();
+            ? current.icon() : request.icon();
         // null 表示不更新该字段;空数组才表示清空
         UUID[] adminIds = request.appAdminUserIds() == null
             ? null : request.appAdminUserIds().toArray(new UUID[0]);
-        int rows = appRepository.update(appId, request.name(), request.description(), icon, adminIds);
+        // skillhubNamespace:null 不更新;空串清除;与当前不同则先过存在性检查与引用覆盖守卫
+        String skillhubNamespace = request.skillhubNamespace();
+        if (skillhubNamespace != null) {
+            String newNamespace = skillhubNamespace.isBlank() ? null : skillhubNamespace;
+            if (!java.util.Objects.equals(newNamespace, current.skillhubNamespace())) {
+                if (newNamespace != null && !skillHubRestClient.namespaceExists(newNamespace)) {
+                    throw new IllegalArgumentException("SkillHub namespace 不存在: " + newNamespace);
+                }
+                ensureNamespaceChangeSafe(appId, newNamespace);
+            }
+        }
+        int rows = appRepository.update(appId, request.name(), request.description(), icon,
+            adminIds, skillhubNamespace);
         if (rows == 0) {
             throw new IllegalStateException("应用更新失败:应用不存在或已归档");
         }
-        auditService.record("APP_UPDATE", "application", null, updaterId,
-            java.util.Map.of("appId", appId, "name", request.name()));
+        // Map.of 不允许 null 值;skillhubNamespace 为 null(本次未涉及)时省略审计字段
+        java.util.Map<String, Object> auditDetail = new java.util.HashMap<>();
+        auditDetail.put("appId", appId);
+        auditDetail.put("name", request.name());
+        if (skillhubNamespace != null) {
+            auditDetail.put("skillhubNamespace", skillhubNamespace);
+        }
+        auditService.record("APP_UPDATE", "application", null, updaterId, auditDetail);
         return getById(appId);
+    }
+
+    /**
+     * 换绑/清除 SkillHub namespace 的守卫:本应用未归档流程定义已引用的 skill
+     * 必须能被目标 namespace 全量覆盖;清除绑定视为空覆盖,存在任何引用即拒绝。
+     *
+     * @param appId 目标应用
+     * @param newNamespace 目标 namespace;null 表示清除绑定
+     * @throws IllegalArgumentException 存在无法被新 namespace 覆盖的已引用 skill,
+     *                                  或 SkillHub 清单读取失败
+     */
+    private void ensureNamespaceChangeSafe(UUID appId, String newNamespace) {
+        // skill 名 → 引用它的流程名(未归档定义;草稿与已发布一并守护,发布前即拦截换绑)
+        Map<String, List<String>> refsBySkill = new LinkedHashMap<>();
+        workflowRepository.listByApp(appId).stream()
+            .filter(wf -> !"archived".equals(wf.status()))
+            .forEach(wf -> BpmnValidationService.collectSkillRefs(wf.draftBpmnXml())
+                .forEach(skill -> refsBySkill
+                    .computeIfAbsent(skill, k -> new java.util.ArrayList<>())
+                    .add(wf.name())));
+        if (refsBySkill.isEmpty()) {
+            return;
+        }
+        if (newNamespace == null) {
+            throw new IllegalArgumentException(
+                "流程仍在引用 skill(%s),不能清除 SkillHub namespace(先移除流程中的 skill 引用)"
+                    .formatted(String.join("、", refsBySkill.keySet())));
+        }
+        List<SkillHubSkillDto> available;
+        try {
+            available = skillHubRestClient.listNamespaceSkills(newNamespace);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                "无法读取 SkillHub namespace 清单,绑定变更被拒绝: " + e.getMessage());
+        }
+        Set<String> slugs = available.stream()
+            .map(SkillHubSkillDto::slug)
+            .collect(Collectors.toSet());
+        List<String> missing = refsBySkill.keySet().stream()
+            .filter(skill -> !slugs.contains(skill))
+            .collect(Collectors.toList());
+        if (!missing.isEmpty()) {
+            List<String> referencingWorkflows = refsBySkill.values().stream()
+                .flatMap(List::stream)
+                .distinct()
+                .collect(Collectors.toList());
+            throw new IllegalArgumentException(
+                "skill %s 正被流程「%s」引用且不在 namespace 「%s」中,绑定变更被拒绝"
+                    .formatted(String.join("、", missing),
+                        String.join("、", referencingWorkflows), newNamespace));
+        }
+    }
+
+    /**
+     * 列应用绑定的 SkillHub namespace 下全部已发布 skill。
+     *
+     * @throws IllegalArgumentException 应用未配置 SkillHub namespace
+     */
+    public List<SkillHubSkillDto> listSkillHubSkills(UUID appId) {
+        String namespace = getById(appId).skillhubNamespace();
+        if (namespace == null || namespace.isBlank()) {
+            throw new IllegalArgumentException("应用未配置 SkillHub namespace,请先在应用管理配置");
+        }
+        return skillHubRestClient.listNamespaceSkills(namespace);
     }
 
     /**

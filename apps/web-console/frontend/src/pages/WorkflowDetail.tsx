@@ -31,7 +31,7 @@ import {
 import { rolesApi } from '../api/roles'
 import { appsApi, type ApplicationDto } from '../api/apps'
 import BpmnModeler from '../bpmn/BpmnModeler'
-import { setDshRoleOptions } from '../bpmn/DshPropertiesProvider'
+import { setDshRoleOptions, setDshSkillOptions } from '../bpmn/DshPropertiesProvider'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default',
@@ -117,8 +117,9 @@ export default function WorkflowDetailPage() {
       setXmlDirty(false)
       setValidation(null)
       // 加载所属应用信息,用于显示应用名
+      let appData: ApplicationDto | null = null
       try {
-        const appData = await appsApi.get(data.appId)
+        appData = await appsApi.get(data.appId)
         setApp(appData)
       } catch {
         setApp(null)
@@ -129,6 +130,18 @@ export default function WorkflowDetailPage() {
         setDshRoleOptions(roles ?? [])
       } catch {
         setDshRoleOptions([])
+      }
+      // skill 选项注入 properties panel 的 skillRefs 多选:应用绑定了 SkillHub
+      // namespace 才拉清单;未绑定/拉取失败静默降级为空选项,设计器仍可用
+      if (appData?.skillhubNamespace) {
+        try {
+          const skills = await appsApi.listSkills(data.appId)
+          setDshSkillOptions((skills ?? []).map(s => ({ value: s.slug, label: s.slug })))
+        } catch {
+          setDshSkillOptions([])
+        }
+      } else {
+        setDshSkillOptions([])
       }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载流程失败')

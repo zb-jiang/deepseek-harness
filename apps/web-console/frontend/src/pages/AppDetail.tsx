@@ -22,6 +22,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   type ApplicationDto,
   appsApi,
+  type SkillHubSkillDto,
   type UpdateApplicationRequest,
 } from '../api/apps'
 import {
@@ -188,6 +189,7 @@ export default function AppDetailPage() {
               return <Tag key={id}>{u ? u.displayName || u.loginName : shortId(id)}</Tag>
             }),
           },
+          { key: 'skillhub', label: 'Skill 仓库', children: app?.skillhubNamespace || '-' },
         ]}
       />
 
@@ -203,6 +205,13 @@ export default function AppDetailPage() {
             key: 'memberships',
             label: '成员',
             children: <MembershipsTab appId={appId} />,
+          },
+          {
+            key: 'skillhub',
+            label: 'Skill 仓库',
+            children: app ? (
+              <SkillRepoTab app={app} onAppUpdated={() => { void loadApp() }} />
+            ) : null,
           },
           {
             key: 'workflows',
@@ -721,6 +730,114 @@ function MembershipsTab({ appId }: { appId: string }) {
           </Form.Item>
         </Form>
       </Modal>
+    </div>
+  )
+}
+
+// ===== Skill 仓库 tab =====
+function SkillRepoTab({ app, onAppUpdated }: { app: ApplicationDto; onAppUpdated: () => void }) {
+  const { message } = App.useApp()
+  const [nsInput, setNsInput] = useState('')
+  const [skills, setSkills] = useState<SkillHubSkillDto[]>([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // 外层 loadApp 刷新 app 后,把输入框同步为当前绑定值
+  useEffect(() => {
+    setNsInput(app.skillhubNamespace ?? '')
+  }, [app.skillhubNamespace])
+
+  const loadSkills = useCallback(async () => {
+    if (!app.skillhubNamespace) {
+      setSkills([])
+      return
+    }
+    setLoading(true)
+    try {
+      const list = await appsApi.listSkills(app.id)
+      setSkills(list ?? [])
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载 Skill 清单失败')
+      setSkills([])
+    } finally {
+      setLoading(false)
+    }
+  }, [app.id, app.skillhubNamespace, message])
+
+  useEffect(() => {
+    void loadSkills()
+  }, [loadSkills])
+
+  // name 必传(后端 @NotBlank);description/icon/appAdminUserIds 不传即保持不变;
+  // 空输入传空串 = 清除绑定
+  const submitBinding = async () => {
+    const ns = nsInput.trim()
+    setSaving(true)
+    try {
+      await appsApi.update(app.id, { name: app.name, skillhubNamespace: ns })
+      message.success(ns ? `已绑定 Skill 仓库 ${ns}` : '已清除 Skill 仓库绑定')
+      onAppUpdated()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '保存绑定失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const columns: ColumnsType<SkillHubSkillDto> = [
+    { title: 'Skill 名', dataIndex: 'slug', key: 'slug' },
+    { title: '当前版本', dataIndex: 'version', key: 'version' },
+    {
+      title: '更新时间',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      render: (v: string) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-'),
+    },
+    {
+      title: '指纹',
+      dataIndex: 'fingerprint',
+      key: 'fingerprint',
+      render: (v: string) => (
+        <Typography.Text style={{ fontFamily: 'monospace' }} title={v}>
+          {v.slice(0, 8)}
+        </Typography.Text>
+      ),
+    },
+  ]
+
+  return (
+    <div>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Typography.Text type="secondary">当前绑定:</Typography.Text>
+        {app.skillhubNamespace
+          ? <Tag color="blue">{app.skillhubNamespace}</Tag>
+          : <Typography.Text type="warning">未绑定</Typography.Text>}
+        <Input
+          style={{ width: 260 }}
+          placeholder="如 finance / dsh-demo"
+          maxLength={64}
+          value={nsInput}
+          onChange={e => setNsInput(e.target.value)}
+        />
+        <Button type="primary" loading={saving} onClick={submitBinding}>保存绑定</Button>
+        {app.skillhubNamespace && <Button onClick={() => { void loadSkills() }}>刷新</Button>}
+      </Space>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+        绑定后,本应用流程的 user task 只能引用该 SkillHub 命名空间下已发布的 skill;清空输入保存即解除绑定。
+      </Typography.Paragraph>
+      {app.skillhubNamespace ? (
+        <Table<SkillHubSkillDto>
+          rowKey="slug"
+          columns={columns}
+          dataSource={skills}
+          loading={loading}
+          pagination={{ pageSize: 20 }}
+        />
+      ) : (
+        <Typography.Paragraph type="secondary">
+          应用尚未绑定 SkillHub namespace;请先在上方输入命名空间并保存绑定。
+        </Typography.Paragraph>
+      )}
     </div>
   )
 }

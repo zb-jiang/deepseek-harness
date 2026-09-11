@@ -12,7 +12,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
- * RestClient 配置:调用 Flowable 引擎 REST。
+ * RestClient 配置:调用 Flowable 引擎 REST 与企业 Skill 仓库(SkillHub)。
  *
  * <p>认证模型为"认证直连 Supabase"(参见 SPEC §7.2 与 Supabase 手册 §0):
  * <ul>
@@ -27,14 +27,19 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  *
  * <p>线程边界:本 bean 是单例,interceptor 通过 {@link RequestContextHolder} 拿当前线程
  * 绑定的请求;后台线程(如异步任务)无请求上下文时,interceptor 不补头,由调用方自行处理。
+ *
+ * <p>SkillHub 客户端不同:浏览器不直连 SkillHub,后端持只读静态 Bearer token 代理访问
+ * (token 在 {@link com.dsh.console.skillhub.SkillHubRestClient} 按请求设置,不走透传 interceptor)。
  */
 @Configuration
 public class RestClientConfig {
 
     private final FlowableRestProperties properties;
+    private final SkillHubProperties skillHubProperties;
 
-    public RestClientConfig(FlowableRestProperties properties) {
+    public RestClientConfig(FlowableRestProperties properties, SkillHubProperties skillHubProperties) {
         this.properties = properties;
+        this.skillHubProperties = skillHubProperties;
     }
 
     /**
@@ -49,6 +54,25 @@ public class RestClientConfig {
             .baseUrl(properties.baseUrl())
             .requestFactory(factory)
             .requestInterceptor(forwardAuthHeader())
+            .messageConverters(converters -> {
+                converters.removeIf(c -> c instanceof StringHttpMessageConverter);
+                converters.add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
+            })
+            .build();
+    }
+
+    /**
+     * SkillHub REST 客户端:base URL + 10s/30s 超时 + UTF-8,不带透传 interceptor
+     * (静态 Bearer token 由 {@code SkillHubRestClient} 按请求设置)。
+     */
+    @Bean
+    public RestClient skillHubRestClient() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10_000);   // 10 秒
+        factory.setReadTimeout(30_000);      // 30 秒
+        return RestClient.builder()
+            .baseUrl(skillHubProperties.baseUrl())
+            .requestFactory(factory)
             .messageConverters(converters -> {
                 converters.removeIf(c -> c instanceof StringHttpMessageConverter);
                 converters.add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));

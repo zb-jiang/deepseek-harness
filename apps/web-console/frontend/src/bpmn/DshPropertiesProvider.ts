@@ -8,7 +8,8 @@
  *       启动传入标记、object 字段清单 / array 元素类型)。</li>
  *   <li>{@code bpmn:UserTask}(人工节点) → "DSH 人工节点配置"组:
  *       责任规则(候选角色下拉)、User Prompt 统一弹窗(含变量占位符插入 /
- *       JSON 输出骨架插入 / 默认输出映射 / 实时预览)、skillRefs、动作策略
+ *       JSON 输出骨架插入 / 默认输出映射 / 实时预览)、skillRefs 多选
+ *       (checkbox 列表,选项来自所属应用绑定的 SkillHub 命名空间)、动作策略
  *       (超时升级 + SoD)。单人/会签/串签语义由 BPMN 原生多实例表达
  *       (扳手菜单头部图标设置,不在本面板配置处理策略)。</li>
  *   <li>{@code bpmn:ServiceTask}(自动节点) → "Flowable 实现方式"组:
@@ -77,6 +78,7 @@ import {
   type TextAreaEntryProps,
   type TextFieldEntryProps,
 } from '@bpmn-io/properties-panel'
+import { h, type ComponentChild } from 'preact'
 import type { AppRoleDto } from '../api/roles'
 import { userPromptModalEntry } from './UserPromptModal'
 
@@ -117,6 +119,24 @@ let currentRoles: AppRoleDto[] = []
 
 export function setDshRoleOptions(roles: AppRoleDto[]): void {
   currentRoles = roles
+}
+
+/**
+ * 模块级 skill 选项容器。
+ *
+ * <p>页面加载所属应用后,按其绑定的 SkillHub namespace 拉取已发布 skill
+ * 清单并调 {@link setDshSkillOptions} 注入,skillRefs 多选 entry 渲染时读取;
+ * 应用未绑定或清单加载失败时为空数组(设计器仍可用)。
+ */
+let currentSkills: Array<{ value: string; label: string }> = []
+
+export function setDshSkillOptions(skills: Array<{ value: string; label: string }>): void {
+  currentSkills = skills
+}
+
+/** 读取当前注入的 skill 选项(UserPromptModal 快速插入复用同一份清单)。 */
+export function getDshSkillOptions(): Array<{ value: string; label: string }> {
+  return currentSkills
 }
 
 /** SoD 规则类型,引擎 DshExtensionProperties.SodRule 的三个合法值。 */
@@ -528,6 +548,73 @@ function listEntry(props: ListEntryProps): Entry {
   return wrapEntry(props.id, () => ListEntry(props))
 }
 
+/**
+ * skillRefs 多选 entry:checkbox 列表。
+ *
+ * <p>properties panel 内部运行 preact(非 React),因此照 userPromptModalEntry
+ * 的方式用 {@code h} + 原生事件渲染。选项来自页面注入的应用绑定 SkillHub
+ * skill 清单({@link setDshSkillOptions});选中集合 = BPMN 中的
+ * {@code dsh:SkillRef} 列表,勾选/取消经 setSkillRefs 走命令栈写回(可撤销)。
+ *
+ * <p>BPMN 中已有但不在选项列表的 skill 名(textarea 时代遗留 / 换绑后悬空)
+ * 渲染为已勾选的额外行并标记「(不在当前命名空间)」,允许取消勾选;
+ * 选项为空(应用未绑 namespace 或清单加载失败)时显示提示文本,
+ * 遗留值仍显示,便于清理。
+ */
+function skillRefsEntry(
+  getSkillRefs: () => string[],
+  setSkillRefs: (names: string[]) => void,
+): Entry {
+  return {
+    id: 'dsh-skillRefs',
+    component: () => {
+      const selected = getSkillRefs()
+      const rows: Array<{ value: string; label: string; dangling: boolean }> =
+        currentSkills.map(o => ({ value: o.value, label: o.label, dangling: false }))
+      for (const name of selected) {
+        if (!rows.some(r => r.value === name)) {
+          rows.push({ value: name, label: `${name} (不在当前命名空间)`, dangling: true })
+        }
+      }
+      const toggle = (name: string, checked: boolean) => {
+        const current = getSkillRefs()
+        setSkillRefs(
+          checked
+            ? (current.includes(name) ? current : [...current, name])
+            : current.filter(s => s !== name),
+        )
+      }
+      const children: ComponentChild[] = [
+        h('label', { className: 'bio-properties-panel-label' }, 'Skill 引用 (skillRefs)'),
+        h('div', { className: 'bio-properties-panel-description' },
+          '多选;选项来自所属应用绑定的 SkillHub 命名空间'),
+      ]
+      if (currentSkills.length === 0) {
+        children.push(h('div', { className: 'bio-properties-panel-description' },
+          '所属应用未配置 SkillHub namespace,请先在应用管理的 Skill 仓库配置'))
+      }
+      for (const row of rows) {
+        children.push(
+          h('label', {
+            className: 'dsh-skillref-option',
+            style: { display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' },
+          },
+          h('input', {
+            type: 'checkbox',
+            checked: selected.includes(row.value),
+            onClick: (e: Event) => toggle(row.value, (e.target as HTMLInputElement).checked),
+          }),
+          h('span', { style: row.dangling ? { color: '#d46b08' } : undefined }, row.label),
+          ),
+        )
+      }
+      return h('div', null, children)
+    },
+    isEdited: (node: unknown) =>
+      (node as HTMLElement).querySelectorAll('input[type="checkbox"]:checked').length > 0,
+  }
+}
+
 /** 角色下拉选项(含"未指定"空项);数据来自页面注入的应用角色列表。 */
 function roleOptions(): Array<{ value: string; label: string }> {
   return [
@@ -913,36 +1000,22 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
   // --- User Prompt:统一弹窗内编辑(含变量插入 / JSON 骨架 / 输出映射 / 预览) ---
   entries.push(userPromptModalEntry(element, injector))
 
-  // --- skillRefs:textarea 每行一个 ---
-  const getSkillRefs = (): string => {
-    const refs = (getExtensionElements(element)?.get('values') as BpmnModdleElement[] ?? [])
+  // --- skillRefs:多选 checkbox 列表;选项来自所属应用绑定的 SkillHub 命名空间 ---
+  const getSkillRefs = (): string[] =>
+    ((getExtensionElements(element)?.get('values') as BpmnModdleElement[] | undefined) ?? [])
       .filter(v => v.$type === 'dsh:SkillRef')
-      .map(v => (v.get('text') as string) ?? '')
-      .filter(s => s.trim())
-    return refs.join('\n')
-  }
-  const setSkillRefs = (value: string) => {
+      .map(v => ((v.get('text') as string) ?? '').trim())
+      .filter(Boolean)
+  const setSkillRefs = (names: string[]) => {
     const modeling = injector.get<ModelingService>('modeling')
     const moddle = injector.get<ModdleService>('moddle')
     const ext = ensureExtensionElements(element, injector)
     const values = (ext.get('values') as BpmnModdleElement[]) ?? []
     const kept = values.filter(v => v.$type !== 'dsh:SkillRef')
-    const lines = value.split('\n').map(s => s.trim()).filter(Boolean)
-    const newRefs = lines.map(name => moddle.create('dsh:SkillRef', { text: name }))
+    const newRefs = names.map(name => moddle.create('dsh:SkillRef', { text: name }))
     modeling.updateModdleProperties(element, ext, { values: [...kept, ...newRefs] })
   }
-  entries.push(
-    textAreaEntry({
-      id: 'dsh-skillRefs',
-      element,
-      label: 'Skill 引用 (skillRefs)',
-      description: '每行一个 skill 名称;供员工 PC 定时任务预装',
-      rows: 3,
-      monospace: true,
-      getValue: getSkillRefs,
-      setValue: setSkillRefs,
-    }, injector),
-  )
+  entries.push(skillRefsEntry(getSkillRefs, setSkillRefs))
 
   // --- 超时升级策略 ---
   entries.push(

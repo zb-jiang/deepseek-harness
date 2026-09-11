@@ -42,6 +42,7 @@ import {
   buildContextPaths,
   ensureExtensionElements,
   findDshElement,
+  getDshSkillOptions,
   getDshText,
   readContextDeclarations,
   removeDshElement,
@@ -333,6 +334,12 @@ function UserPromptModalContent({
     insertAtCursor(`{{${path}}}`)
   }
 
+  /** 插入 skill 名称(裸名;员工端按 latest 解析)。 */
+  const insertSkill = (name: string) => {
+    if (!name) return
+    insertAtCursor(name)
+  }
+
   const insertSkeleton = () => {
     const body = buildSkeletonFromMappings(mappings, injector)
     if (Object.keys(body).length === 0) return
@@ -457,6 +464,15 @@ function UserPromptModalContent({
                 treeDefaultExpandAll={false}
                 allowClear
                 onChange={value => insertVariable(value as string)}
+                style={{ width: '100%' }}
+              />
+              <Select
+                placeholder="插入 skill 名称"
+                options={getDshSkillOptions().map(o => ({ value: o.value, label: o.label }))}
+                allowClear
+                showSearch
+                onChange={value => insertSkill(value as string)}
+                notFoundContent="所属应用未配置 SkillHub namespace 或清单为空"
                 style={{ width: '100%' }}
               />
               <Button

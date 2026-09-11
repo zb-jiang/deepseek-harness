@@ -21,7 +21,7 @@ import org.springframework.stereotype.Repository;
 public class ApplicationJdbcRepository {
 
     private static final String SELECT_BASE = """
-        SELECT id, name, description, icon, status, app_admin_user_ids,
+        SELECT id, name, description, icon, skillhub_namespace, status, app_admin_user_ids,
                created_at, created_by, archived_at, archived_by
         FROM public.applications
         """;
@@ -87,10 +87,11 @@ public class ApplicationJdbcRepository {
     /**
      * 部分更新应用字段。
      *
-     * <p>null 表示该字段不更新;空数组仅对 {@code appAdminUserIds} 表示清空管理员。</p>
+     * <p>null 表示该字段不更新;空数组仅对 {@code appAdminUserIds} 表示清空管理员;
+     * {@code skillhubNamespace} 空串表示清除 SkillHub 绑定(CAST(NULL AS text))。</p>
      */
     public int update(UUID id, String name, String description, String icon,
-                      UUID[] appAdminUserIds) {
+                      UUID[] appAdminUserIds, String skillhubNamespace) {
         var sql = new StringBuilder("UPDATE public.applications SET ");
         var params = new java.util.HashMap<String, Object>();
         params.put("id", id);
@@ -111,6 +112,14 @@ public class ApplicationJdbcRepository {
         if (appAdminUserIds != null) {
             sets.add("app_admin_user_ids = :appAdminUserIds");
             params.put("appAdminUserIds", appAdminUserIds);
+        }
+        if (skillhubNamespace != null) {
+            if (skillhubNamespace.isBlank()) {
+                sets.add("skillhub_namespace = CAST(NULL AS text)");
+            } else {
+                sets.add("skillhub_namespace = :skillhubNamespace");
+                params.put("skillhubNamespace", skillhubNamespace);
+            }
         }
 
         if (sets.isEmpty()) {
@@ -151,6 +160,7 @@ public class ApplicationJdbcRepository {
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getString("icon"),
+                rs.getString("skillhub_namespace"),
                 rs.getString("status"),
                 toUuidList(rs.getArray("app_admin_user_ids")),
                 rs.getObject("created_at", java.time.OffsetDateTime.class),

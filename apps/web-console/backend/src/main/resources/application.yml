@@ -43,6 +43,11 @@ dsh:
   flowable:
     base-url: ${FLOWABLE_BASE_URL}
 
+  # SkillHub REST 客户端配置(企业 Skill 仓库;浏览器不直连,后端持 token 代理)
+  skillhub:
+    base-url: ${SKILLHUB_BASE_URL:http://127.0.0.1:8095}
+    api-token: ${SKILLHUB_API_TOKEN:}
+
 logging:
   level:
     com.dsh.console: INFO

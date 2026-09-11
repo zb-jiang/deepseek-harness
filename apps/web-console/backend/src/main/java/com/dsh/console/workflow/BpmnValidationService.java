@@ -1,11 +1,16 @@
 package com.dsh.console.workflow;
 
+import com.dsh.console.app.ApplicationJdbcRepository;
+import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.role.AppRoleJdbcRepository;
 import com.dsh.console.role.dto.AppRoleDto;
+import com.dsh.console.skillhub.SkillHubRestClient;
+import com.dsh.console.skillhub.dto.SkillHubSkillDto;
 import com.dsh.console.workflow.dto.BpmnValidationResult;
 import com.dsh.console.workflow.BpmnContextParser.ContextVariable;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +38,10 @@ import org.w3c.dom.NodeList;
  *   <li>表达式面(flowable:expression / delegateExpression 属性、conditionExpression /
  *       completionCondition 正文)不得含全角弯引号(''):中文输入法高频误入,JUEL
  *       编译期才报错且被引擎包成无定位的 "Error parsing XML",必须在发布前拦下。</li>
+ *   <li>userTask 的 {@code dsh:skillRef}(元素正文,每 skill 一个)引用的 skill 必须在
+ *       所属应用绑定的 SkillHub namespace 已发布清单内;流程不含任何 skillRef 时跳过
+ *       (未绑 namespace 的应用不受影响)。含 skillRef 但应用未绑 namespace、或 SkillHub
+ *       不可达/未配置时直接 fail。</li>
  * </ul>
  *
  * <p>Process Context 发布校验五查(design 2026-09-01 §8):
@@ -73,9 +82,15 @@ public class BpmnValidationService {
         "dsh_applicant_user_id", "dsh_app_id", "dsh_workflow_definition_id");
 
     private final AppRoleJdbcRepository roleRepository;
+    private final ApplicationJdbcRepository appRepository;
+    private final SkillHubRestClient skillHubRestClient;
 
-    public BpmnValidationService(AppRoleJdbcRepository roleRepository) {
+    public BpmnValidationService(AppRoleJdbcRepository roleRepository,
+                                 ApplicationJdbcRepository appRepository,
+                                 SkillHubRestClient skillHubRestClient) {
         this.roleRepository = roleRepository;
+        this.appRepository = appRepository;
+        this.skillHubRestClient = skillHubRestClient;
     }
 
     /**
@@ -124,6 +139,9 @@ public class BpmnValidationService {
 
         // 4) Process Context 四查
         validateContextReferences(doc, errors);
+
+        // 5) skillRef 引用存在性(SkillHub 已发布清单;流程不含 skillRef 时跳过)
+        validateSkillReferences(doc, appId, errors);
 
         if (errors.isEmpty()) {
             return BpmnValidationResult.ok();
@@ -268,6 +286,107 @@ public class BpmnValidationService {
 
     private static boolean containsCurlyQuote(String s) {
         return s != null && (s.indexOf('\u2018') >= 0 || s.indexOf('\u2019') >= 0);
+    }
+
+    /**
+     * 收集 BPMN XML 全部 userTask 的非空 {@code dsh:skillRef} 值(去重、保持出现顺序)。
+     *
+     * <p>供应用换绑/清除 namespace 的守卫复用;XML 无法解析时返回空集,
+     * 损坏定义由发布校验负责报错,不在绑定时阻断。
+     *
+     * @param bpmnXml BPMN XML 字符串;null/空白视为无引用
+     * @returns 非空 skill 名集合
+     */
+    public static Set<String> collectSkillRefs(String bpmnXml) {
+        Set<String> skills = new LinkedHashSet<>();
+        if (bpmnXml == null || bpmnXml.isBlank()) {
+            return skills;
+        }
+        Document doc;
+        try {
+            doc = BpmnContextParser.parseXml(bpmnXml);
+        } catch (Exception e) {
+            return skills;
+        }
+        NodeList userTasks = doc.getElementsByTagNameNS(BPMN_NS, "userTask");
+        for (int i = 0; i < userTasks.getLength(); i++) {
+            Element task = (Element) userTasks.item(i);
+            for (Element ref : dshChildren(task, "skillRef")) {
+                String name = ref.getTextContent();
+                if (name != null && !name.isBlank()) {
+                    skills.add(name.trim());
+                }
+            }
+        }
+        return skills;
+    }
+
+    /**
+     * skillRef 引用存在性:userTask 的 {@code dsh:skillRef} 元素正文(每 skill 一个,
+     * 与引擎 DshBpmnExtensionParser / 前端 dsh-moddle 对齐)须在所属应用绑定的
+     * SkillHub namespace 已发布清单(slug 集合)内。
+     *
+     * <p>流程不含任何 skillRef 时跳过全部检查(未绑 namespace 的应用不受影响)。
+     * 含 skillRef 时:应用未绑 namespace、SkillHub 拉清单失败(token 未配置 /
+     * 不可达)均 fail;缺失 skill 聚合为一条错误消息。
+     */
+    private void validateSkillReferences(Document doc, UUID appId, List<String> errors) {
+        // 收集各 userTask 的非空 skillRef(节点位置 → skill 名)
+        Map<String, List<String>> nodeSkills = new LinkedHashMap<>();
+        NodeList userTasks = doc.getElementsByTagNameNS(BPMN_NS, "userTask");
+        for (int i = 0; i < userTasks.getLength(); i++) {
+            Element task = (Element) userTasks.item(i);
+            List<String> skills = new ArrayList<>();
+            for (Element ref : dshChildren(task, "skillRef")) {
+                String name = ref.getTextContent();
+                if (name != null && !name.isBlank()) {
+                    skills.add(name.trim());
+                }
+            }
+            if (!skills.isEmpty()) {
+                String location = "userTask[id=" + task.getAttribute("id") + ", name="
+                    + task.getAttribute("name") + "]";
+                nodeSkills.put(location, skills);
+            }
+        }
+        if (nodeSkills.isEmpty()) {
+            return;
+        }
+
+        ApplicationDto app = appRepository.findById(appId).orElse(null);
+        String namespace = app == null ? null : app.skillhubNamespace();
+        if (namespace == null || namespace.isBlank()) {
+            errors.add("user task 配置了 skill 引用但所属应用未绑定 SkillHub namespace(先在应用管理配置)");
+            return;
+        }
+
+        List<SkillHubSkillDto> available;
+        try {
+            available = skillHubRestClient.listNamespaceSkills(namespace);
+        } catch (Exception e) {
+            errors.add("SkillHub 不可达或未配置,无法校验 skill 引用: " + e.getMessage());
+            return;
+        }
+        Set<String> slugs = available.stream()
+            .map(SkillHubSkillDto::slug)
+            .collect(Collectors.toSet());
+
+        // 聚合:缺失 skill 名 → 引用它的节点位置
+        Map<String, List<String>> missingBySkill = new LinkedHashMap<>();
+        nodeSkills.forEach((location, skills) -> {
+            for (String skill : skills) {
+                if (!slugs.contains(skill)) {
+                    missingBySkill.computeIfAbsent(skill, k -> new ArrayList<>()).add(location);
+                }
+            }
+        });
+        if (!missingBySkill.isEmpty()) {
+            String detail = missingBySkill.entrySet().stream()
+                .map(e -> e.getKey() + "(引用: " + String.join("、", e.getValue()) + ")")
+                .collect(Collectors.joining("; "));
+            errors.add(String.format(
+                "skill 引用不在应用绑定的 SkillHub namespace(%s)已发布清单中: %s", namespace, detail));
+        }
     }
 
     // ===== Process Context 五查(design 2026-09-01 §8) =====

@@ -5,26 +5,36 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.dsh.console.app.ApplicationJdbcRepository;
+import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.role.AppRoleJdbcRepository;
+import com.dsh.console.skillhub.SkillHubRestClient;
+import com.dsh.console.skillhub.dto.SkillHubSkillDto;
 import com.dsh.console.workflow.dto.BpmnValidationResult;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
  * Process Context 发布校验五查中 system 声明相关的规则测试:
- * initiator 结构精确校验、输出映射 target 禁改、来源闭环把 system 计入来源。
+ * initiator 结构精确校验、输出映射 target 禁改、来源闭环把 system 计入来源;
+ * 以及 skillRef 引用存在性校验(SkillHub namespace 绑定)。
  */
 class BpmnValidationServiceTest {
 
     private BpmnValidationService service;
+    private ApplicationJdbcRepository appRepository;
+    private SkillHubRestClient skillHubRestClient;
 
     @BeforeEach
     void setUp() {
         AppRoleJdbcRepository roleRepository = mock(AppRoleJdbcRepository.class);
         when(roleRepository.listByApp(any(UUID.class))).thenReturn(List.of());
-        service = new BpmnValidationService(roleRepository);
+        appRepository = mock(ApplicationJdbcRepository.class);
+        skillHubRestClient = mock(SkillHubRestClient.class);
+        service = new BpmnValidationService(roleRepository, appRepository, skillHubRestClient);
     }
 
     @Test
@@ -104,6 +114,57 @@ class BpmnValidationServiceTest {
             <dsh:userPrompt text="你当前的申请人为{{initiator.name}}"/>
             """, null), UUID.randomUUID());
         assertThat(result.errors()).anyMatch(e -> e.contains("引用未声明变量: initiator"));
+    }
+
+    // ===== skillRef 引用存在性(SkillHub namespace 绑定) =====
+
+    @Test
+    void skillRefWithoutBoundNamespaceFails() {
+        when(appRepository.findById(any(UUID.class))).thenReturn(Optional.of(app(null)));
+        BpmnValidationResult result = service.validate(bpmn("", """
+            <dsh:skillRef>approval-helper</dsh:skillRef>
+            """, null), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("未绑定 SkillHub namespace"));
+    }
+
+    @Test
+    void skillRefNotInPublishedListFails() {
+        when(appRepository.findById(any(UUID.class))).thenReturn(Optional.of(app("enterprise")));
+        when(skillHubRestClient.listNamespaceSkills("enterprise")).thenReturn(List.of(
+            new SkillHubSkillDto("other-skill", "1.0.0", "fp", "2026-09-01T00:00:00Z")));
+        BpmnValidationResult result = service.validate(bpmn("", """
+            <dsh:skillRef>approval-helper</dsh:skillRef>
+            """, null), UUID.randomUUID());
+        assertThat(result.errors())
+            .anyMatch(e -> e.contains("已发布清单"))
+            .anyMatch(e -> e.contains("approval-helper"));
+    }
+
+    @Test
+    void noSkillRefSkipsSkillHubValidation() {
+        // 无 skillRef 时未绑 namespace 也不报错(不触发 SkillHub 校验)
+        when(appRepository.findById(any(UUID.class))).thenReturn(Optional.of(app(null)));
+        BpmnValidationResult result = service.validate(bpmn("", """
+            <dsh:userPrompt text="确认"/>
+            """, null), UUID.randomUUID());
+        assertThat(result.errors()).isEmpty();
+    }
+
+    @Test
+    void skillHubUnavailableFails() {
+        when(appRepository.findById(any(UUID.class))).thenReturn(Optional.of(app("enterprise")));
+        when(skillHubRestClient.listNamespaceSkills("enterprise"))
+            .thenThrow(new IllegalStateException("dsh.skillhub.api-token 未配置"));
+        BpmnValidationResult result = service.validate(bpmn("", """
+            <dsh:skillRef>approval-helper</dsh:skillRef>
+            """, null), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("SkillHub 不可达或未配置"));
+    }
+
+    /** 构造仅含 skillhubNamespace 的应用 DTO(其余字段与 skillRef 校验无关)。 */
+    private static ApplicationDto app(String skillhubNamespace) {
+        return new ApplicationDto(null, "app", null, null, skillhubNamespace,
+            "active", List.of(), null, null, null, null);
     }
 
     /**
