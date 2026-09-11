@@ -52,4 +52,34 @@ public class DshMembershipRepository {
             roleId
         );
     }
+
+    /**
+     * 查询指定流程身份直接绑定的全部有效(active)应用角色 id 集合。
+     *
+     * <p>方向与 {@link #findActiveUserIdsByRoleId} 相反:skill 预装扫描
+     * (/dsh/skills/required)按用户反查角色,判断该用户是否命中已部署流程定义中
+     * userTask 的候选角色或超时升级目标角色。
+     *
+     * <p>入参为 auth_subject(JWT sub 同源)而非治理主键,理由同
+     * {@link #findActiveUserIdsByRoleId};跨应用的所有 active membership 的
+     * role_ids 数组展开去重。
+     *
+     * @param authSubject Supabase Auth user.id,即员工端 JWT {@code sub}
+     * @return 该用户直接绑定的 active 角色 id 集合;不含下级继承
+     */
+    public java.util.Set<String> findActiveRoleIdsByUserSubject(String authSubject) {
+        if (authSubject == null || authSubject.isBlank()) {
+            return java.util.Set.of();
+        }
+        // UNNEST 在库侧展开 uuid[] 并 ::text 成单列字符串:JDBC 驱动对 uuid[]
+        // 映射为 java.util.UUID[],按 String[] 强转会抛 ClassCastException
+        return new java.util.LinkedHashSet<>(jdbcTemplate.queryForList(
+            "SELECT DISTINCT r::text FROM public.app_memberships m "
+                + "JOIN public.platform_users pu ON pu.id = m.user_id "
+                + "CROSS JOIN UNNEST(m.role_ids) AS r "
+                + "WHERE m.status = 'active' AND pu.status = 'active' AND pu.auth_subject = ?",
+            String.class,
+            authSubject
+        ));
+    }
 }

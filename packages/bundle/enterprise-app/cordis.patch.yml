@@ -7,6 +7,15 @@
 # local webserver.
 
 - insert:
+    # stdout 日志 exporter：headless webserver 进程的控制台可见 ctx.logger
+    # （cordis 内置只写内存缓冲）。levels 必须显式声明：省略时 cordis 只收
+    # error+info 并静默丢 warn。
+    - id: logger-console
+      name: '@deepseek-ai/cordis-plugin-logger-console'
+      config:
+        levels:
+          default: !!js Number(process.env.DSH_LOG_LEVEL ?? 3)
+
     # 平台用户 Service Definition（提供 ctx.platformUsers，只读）。
     - id: platform-user
       name: '@deepseek-ai/dsh-platform-user'
@@ -36,6 +45,16 @@
       name: '@deepseek-ai/dsh-flowable-task-proxy'
       config:
         engineBaseUrl: !!js process.env.FLOWABLE_ENGINE_URL ?? 'http://127.0.0.1:8090'
+
+    # 企业 skill 分发：daemon 周期调 /dsh/skills/required 预装
+    # SkillHub 已发布 skill 到 $DSH_HOME/skill-sync/skills 并注册进 ctx.skills。
+    - id: skill-sync
+      name: '@deepseek-ai/dsh-skill-sync'
+      config:
+        flowableBaseUrl: !!js process.env.FLOWABLE_ENGINE_URL ?? 'http://127.0.0.1:8090'
+        skillhubBaseUrl: !!js process.env.SKILLHUB_URL ?? 'http://127.0.0.1:8095'
+        skillhubToken: !!js process.env.SKILLHUB_API_TOKEN ?? ''
+        intervalMs: !!js Number(process.env.SKILL_SYNC_INTERVAL_MS ?? 600000)
 
     - id: ui-enterprise
       name: '@deepseek-ai/dsh-client-ui-enterprise'

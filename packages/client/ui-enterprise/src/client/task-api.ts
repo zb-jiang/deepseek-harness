@@ -189,6 +189,26 @@ export async function completeTask(
   }
 }
 
+/** skill 就绪检查响应:missing 为即时同步后仍不可用的 skill 裸名。 */
+export type EnsureSkillsResponse = {
+  missing: string[]
+}
+
+/**
+ * 确保待办所需 skill 已安装(skill-repo-design §7 工作项 3):经本地
+ * webserver 调 skill-sync 的即时安装端点,缺失时其内部先跑一轮同步。
+ * @param names - 待办 dshMeta.skillRefs 去重后的 skill 裸名。
+ * @returns 同步后仍缺失的名字(调用方走降级提示);请求本身失败时抛错。
+ */
+export async function ensureSkills(names: readonly string[]): Promise<string[]> {
+  if (names.length === 0) return []
+  const res = await fetchJson<EnsureSkillsResponse>('/api/enterprise/skills/ensure', {
+    method: 'POST',
+    body: JSON.stringify({ names: [...names] }),
+  })
+  return res.missing
+}
+
 /** 查实例的历史活动(执行记录 + 迷你流程图高亮数据源)。 */
 export async function getHistoricActivities(processInstanceId: string): Promise<HistoricActivity[]> {
   return fetchJson<HistoricActivity[]>(

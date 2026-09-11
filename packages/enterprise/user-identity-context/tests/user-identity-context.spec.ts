@@ -206,7 +206,7 @@ describe('platform-user event wiring', () => {
   it('caches the identity announced by platform-user/verified', async () => {
     const { ctx } = await mount()
     const user = platformUser()
-    ctx.emit('platform-user/verified', user)
+    ctx.emit('platform-user/verified', user, 'jwt-event')
     const session = Session.create(SessionId('event-verified'))
     openMessageTurn(session, 1)
 

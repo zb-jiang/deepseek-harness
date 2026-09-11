@@ -6,7 +6,9 @@
  * 每个待办首次点击时经 SessionsCreatePort 新建专属 DSH 会话并绑定,再次点击回到
  * 原会话。userPrompt 预填走 conversation.input 的草稿写路径,仅在草稿为空时填入,
  * 不覆盖员工已编辑的内容;预填失败原因记入 prefillNotice(侧栏提示,便于诊断);
- * 提交完成后解绑、记录回执并刷新队列。
+ * 提交完成后解绑、记录回执并刷新队列。打开待办前先经 skill-sync 的即时安装
+ * 端点确保 dshMeta.skillRefs 就绪(仍缺失走 skillNotice 降级提示,不阻断会话;
+ * skill-repo-design §7)。
  *
  * <p>任务会话仍处草稿期(未发送过消息、输入框已清空)时,员工在对话区顶部切换
  * 目录后重新点击待办,绑定会迁移到新工作区的当前空白会话(原生目录切换已把草稿
@@ -27,7 +29,7 @@ import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ISidebarRight } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { completeTask, getCompletedTasks, getMyTasks } from './task-api.ts'
+import { completeTask, ensureSkills, getCompletedTasks, getMyTasks } from './task-api.ts'
 import type { CompletedTask, Task } from './task-api.ts'
 
 /**
@@ -53,6 +55,10 @@ export type WorkbenchTasksState = {
   prefillNotice: string | null
   /** 档案栏正在只读查看的已完成任务(无本地会话时的回看入口)。 */
   selectedCompleted: CompletedTask | null
+  /** 正在确保待办 skill 就绪(打开待办前的即时安装窗口;侧栏提示+防连点)。 */
+  skillPreparing: boolean
+  /** 最近一次 skill 就绪失败的降级提示;null = 无失败或未触发(侧栏提示)。 */
+  skillNotice: string | null
 }
 
 /** 已提交完成任务的档案记录(解绑后档案栏的"已完成"回执)。 */
@@ -142,6 +148,7 @@ export class EnterpriseWorkbench {
     this.tasks = createSnapshotStore<WorkbenchTasksState>({
       items: [], completed: [], loading: false, error: null,
       prefillNotice: null, selectedCompleted: null,
+      skillPreparing: false, skillNotice: null,
     })
     this.bindings = createSnapshotStore<WorkbenchBindingsState>({
       taskToSession: {}, sessionToTask: {}, completedBySession: {}, completedByTask: {},
@@ -172,9 +179,10 @@ export class EnterpriseWorkbench {
   }
 
   /**
-   * 打开一个待办:回到已绑定会话,或为任务建立专属会话并预填任务指令。
-   * 建会话走 createTaskSession(每任务一个干净会话;connectWorkspace 会
-   * 复用工作区的空白会话,其残留草稿会拦截预填且多任务会错绑到同一会话)。
+   * 打开一个待办:先确保 skillRefs 就绪(即时安装,降级不阻断;见
+   * ensureSkillsReady),然后回到已绑定会话,或为任务建立专属会话并预填
+   * 任务指令。建会话走 createTaskSession(每任务一个干净会话;connectWorkspace
+   * 会复用工作区的空白会话,其残留草稿会拦截预填且多任务会错绑到同一会话)。
    * create 的解析保证会话已入列表且 binding 同步可解析,因此预填可在
    * open 之前写入新会话的输入机(原生 New Session 的 draft hand-off 模式)。
    * 预填失败原因记入 prefillNotice 供侧栏提示。无可用工作区时清空当前
@@ -187,6 +195,8 @@ export class EnterpriseWorkbench {
    */
   async openTask(task: Task): Promise<void> {
     this.tasks.update((draft) => { draft.selectedCompleted = null })
+    // 工作项 3:先确保 skillRefs 就绪再进入会话(已就绪时是纯本地目录检查,无出站)
+    await this.ensureSkillsReady(task)
     const bound = this.bindings.getSnapshot().taskToSession[task.id]
     const sessionLive = bound !== undefined
       && this.deps.sessions.list.getSnapshot().byId[bound] !== undefined
@@ -294,6 +304,43 @@ export class EnterpriseWorkbench {
   clearSelectedCompleted(): void {
     if (this.tasks.getSnapshot().selectedCompleted === null) return
     this.tasks.update((draft) => { draft.selectedCompleted = null })
+  }
+
+  /**
+   * 确保待办的 skillRefs 就绪(skill-repo-design §7):已就绪时纯本地目录
+   * 检查,缺失时触发即时同步安装。检查/安装期间置 skillPreparing(侧栏
+   * 提示+防连点);仍缺失或请求失败只记 skillNotice 走降级提示,不阻断
+   * 会话创建(AI 会话照常进行,仅 skill 工具调不到该技能)。
+   * @param task - 即将打开的待办。
+   */
+  private async ensureSkillsReady(task: Task): Promise<void> {
+    const names = task.dshMeta?.skillRefs ?? []
+    const unique = [...new Set(names.filter(name => name !== ''))]
+    if (unique.length === 0) {
+      // 无 skillRefs 的任务不受上一次降级提示影响(清残留)
+      if (this.tasks.getSnapshot().skillNotice !== null) {
+        this.tasks.update((draft) => { draft.skillNotice = null })
+      }
+      return
+    }
+    this.tasks.update((draft) => { draft.skillPreparing = true })
+    try {
+      const missing = await ensureSkills(unique)
+      if (missing.length > 0) {
+        this.tasks.update((draft) => {
+          draft.skillNotice = `技能 ${missing.join('、')} 未能安装;会话将继续,但 AI 无法调用该技能`
+        })
+      } else {
+        this.tasks.update((draft) => { draft.skillNotice = null })
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      this.tasks.update((draft) => {
+        draft.skillNotice = `技能就绪检查失败(${message});会话将继续,但 AI 可能无法调用任务技能`
+      })
+    } finally {
+      this.tasks.update((draft) => { draft.skillPreparing = false })
+    }
   }
 
   /**

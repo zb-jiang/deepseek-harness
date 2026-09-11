@@ -95,6 +95,12 @@ export function TaskQueueSidebar({ wide, workbench, useSessions }: TaskQueueSide
           {tasks.prefillNotice !== null && tasks.items.length > 0 && (
             <div className={css.notice} title={tasks.prefillNotice}>{tasks.prefillNotice}</div>
           )}
+          {tasks.skillPreparing && (
+            <div className={css.notice}>正在准备任务技能…</div>
+          )}
+          {tasks.skillNotice !== null && (
+            <div className={css.notice} title={tasks.skillNotice}>{tasks.skillNotice}</div>
+          )}
           {tasks.items.map((task) => {
             const bound = bindings.taskToSession[task.id]
             const active = bound !== undefined && bound === currentSession
@@ -104,6 +110,7 @@ export function TaskQueueSidebar({ wide, workbench, useSessions }: TaskQueueSide
                 type="button"
                 className={clsx(css.taskItem, active && css.taskItemActive)}
                 onClick={() => { void workbench.openTask(task) }}
+                disabled={tasks.skillPreparing}
               >
                 <div className={css.taskName}>{task.name ?? task.id}</div>
                 <div className={css.taskProcess}>{task.processDefinitionName ?? task.processDefinitionId}</div>

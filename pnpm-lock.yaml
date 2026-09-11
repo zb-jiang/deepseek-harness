@@ -1601,6 +1601,9 @@ importers:
 
   packages/bundle/enterprise-app:
     dependencies:
+      '@deepseek-ai/cordis-plugin-logger-console':
+        specifier: workspace:^
+        version: link:../../../vendor/logger-console
       '@deepseek-ai/dsh-client-ui-enterprise':
         specifier: workspace:^
         version: link:../../client/ui-enterprise
@@ -1616,6 +1619,9 @@ importers:
       '@deepseek-ai/dsh-platform-user-supabase':
         specifier: workspace:^
         version: link:../../enterprise/platform-user-supabase
+      '@deepseek-ai/dsh-skill-sync':
+        specifier: workspace:^
+        version: link:../../enterprise/skill-sync
       '@deepseek-ai/dsh-user-identity-context':
         specifier: workspace:^
         version: link:../../enterprise/user-identity-context
@@ -5543,6 +5549,40 @@ importers:
       '@deepseek-ai/dsh-platform-user':
         specifier: workspace:^
         version: link:../platform-user
+
+  packages/enterprise/skill-sync:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-platform-user':
+        specifier: workspace:^
+        version: link:../platform-user
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+      '@deepseek-ai/dsh-skill-filesystem':
+        specifier: workspace:^
+        version: link:../../skill/skill-filesystem
+      '@deepseek-ai/dsh-user-identity-context':
+        specifier: workspace:^
+        version: link:../user-identity-context
 
   packages/enterprise/user-identity-context:
     devDependencies:

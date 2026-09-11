@@ -40,10 +40,14 @@ declare module '@deepseek-ai/cordis' {
  * memory only: a restarted webserver learns the identity at the client's next
  * `/me` call, and a token expiring mid-session leaves the last verified
  * identity in place until the next touchpoint (the block is display-only, so
- * a same-human staleness window is benign).
+ * a same-human staleness window is benign). The raw access token is kept next
+ * to the identity so enterprise background consumers (skill-sync) can call
+ * server-side APIs as the signed-in employee; it never enters the model
+ * context.
  */
 export class CurrentUserService extends Service {
   private user: PlatformUser | undefined
+  private accessToken: string | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'currentUser')
@@ -52,19 +56,32 @@ export class CurrentUserService extends Service {
   /**
    * Record one verified platform user as the current identity.
    * @param user - platform user resolved from a JWT-verified access token.
+   * @param accessToken - the verified bearer token; omitted keeps any previous
+   * token (callers that re-verify only the user).
    */
-  observe(user: PlatformUser): void {
+  observe(user: PlatformUser, accessToken?: string): void {
     this.user = user
+    if (accessToken !== undefined) this.accessToken = accessToken
   }
 
   /** Forget the current identity (employee signed out). */
   clear(): void {
     this.user = undefined
+    this.accessToken = undefined
   }
 
   /** @returns the latest verified identity, or undefined when nobody is logged in. */
   get(): PlatformUser | undefined {
     return this.user
+  }
+
+  /**
+   * @returns the latest verified bearer token, or undefined when nobody has
+   * signed in; may be stale after token expiry — callers treat a 401 as
+   * "signed out" and retry after the next verified `/me`.
+   */
+  getToken(): string | undefined {
+    return this.accessToken
   }
 }
 
@@ -78,7 +95,9 @@ export class CurrentUserService extends Service {
  */
 export function apply(ctx: Context): void {
   new CurrentUserService(ctx)
-  ctx.on('platform-user/verified', (user) => { ctx.currentUser.observe(user) }, { global: true })
+  ctx.on('platform-user/verified', (user, accessToken) => {
+    ctx.currentUser.observe(user, accessToken)
+  }, { global: true })
   ctx.on('platform-user/signout', () => { ctx.currentUser.clear() }, { global: true })
   ctx.on('agent/pre-step', async (
     { step, signal },

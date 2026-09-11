@@ -2,6 +2,8 @@ AGENTS.md
 
 # 调用工具编辑文件的时候不要多个编辑放在同一批并行编辑，出现过很多次后一个编辑基于旧快照写入，把前一个编辑的结果覆盖的情况
 
+# 改完DSH相关代码之后，因为沙箱权限问题，不要自己运行pnpm run typecheck和pnpm run build验证，告诉我，我手工运行完告诉你结果
+
 # DSH 企业级应用平台 — 架构与产品思路（每次会话的必备上下文）
 
 本文件沉淀企业定制层的架构与产品决策，避免用户每次会话重复解释。DSH 通用仓库规则见 AGENTS.md；企业定制边界：不改 DSH 核心机制与默认 profile 行为，企业代码落在 `packages/enterprise/`、`packages/client/ui-enterprise/`、`packages/bundle/enterprise-app/`、`apps/flowable-engine`、`apps/web-console`。

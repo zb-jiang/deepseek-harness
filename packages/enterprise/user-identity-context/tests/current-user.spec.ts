@@ -33,4 +33,23 @@ describe('current-user store', () => {
     ctx.currentUser.clear()
     expect(ctx.currentUser.get()).toBeUndefined()
   })
+
+  it('keeps the verified bearer token next to the identity until cleared', async () => {
+    const ctx = await mount()
+    expect(ctx.currentUser.getToken()).toBeUndefined()
+
+    const user = platformUser()
+    ctx.currentUser.observe(user, 'jwt-a')
+    expect(ctx.currentUser.getToken()).toBe('jwt-a')
+
+    // 只重验身份不传 token 时保留旧 token
+    ctx.currentUser.observe(user)
+    expect(ctx.currentUser.getToken()).toBe('jwt-a')
+
+    ctx.currentUser.observe(platformUser({ authSubject: 'sub-2' }), 'jwt-b')
+    expect(ctx.currentUser.getToken()).toBe('jwt-b')
+
+    ctx.currentUser.clear()
+    expect(ctx.currentUser.getToken()).toBeUndefined()
+  })
 })

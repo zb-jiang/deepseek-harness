@@ -29,9 +29,12 @@ declare module '@deepseek-ai/cordis' {
      * (emitted by `platform-user-api` after `getUserByToken` resolves).
      * Listeners typically maintain a latest-verified-identity cache.
      * @param user - the verified platform user record.
+     * @param accessToken - the verified bearer token, re-carried so enterprise
+     *   consumers (e.g. skill-sync) can call server-side APIs as the signed-in
+     *   employee.
      * @mode emit
      */
-    'platform-user/verified'(user: PlatformUser): void
+    'platform-user/verified'(user: PlatformUser, accessToken: string): void
     /**
      * The employee signed out on this DSH instance (emitted by
      * `platform-user-api` on the signout touchpoint). Listeners holding a

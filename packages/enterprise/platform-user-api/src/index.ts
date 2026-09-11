@@ -137,7 +137,8 @@ async function dispatchAuth(
     }
     const accessToken = authHeader.slice('Bearer '.length)
     const user = await ctx.platformUsers.getUserByToken(accessToken)
-    ctx.emit('platform-user/verified', user)
+    // 事件携带原始 token:skill-sync 等企业消费者以当前登录员工身份调用服务端 API
+    ctx.emit('platform-user/verified', user, accessToken)
     sendJson(res, 200, serializeUser(user))
     return
   }

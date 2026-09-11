@@ -48,3 +48,12 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 native/system/test/bin/
+# tsc -b host-face 在 source-plane 包的 src/ 旁就地产出编译结果,不入库
+vendor/*/src/*.js
+vendor/*/src/*.js.map
+vendor/*/src/*.d.ts
+vendor/*/src/*.d.ts.map
+packages/host/webserver/src/*.js
+packages/host/webserver/src/*.js.map
+packages/host/webserver/src/*.d.ts
+packages/host/webserver/src/*.d.ts.map
