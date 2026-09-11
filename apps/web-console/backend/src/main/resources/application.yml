@@ -13,6 +13,12 @@ spring:
   application:
     name: dsh-web-console
 
+  # 知识库文档上传上限(与 dsh.knowledge.max-upload-size-mb 共用 KB_MAX_UPLOAD_MB)
+  servlet:
+    multipart:
+      max-file-size: ${KB_MAX_UPLOAD_MB:50}MB
+      max-request-size: ${KB_MAX_UPLOAD_MB:50}MB
+
   # Supabase Postgres 直连;与 Flowable 引擎共享同一 PG 实例的不同 schema
   # Flowable 引擎建表阶段用直连(参见 setup guide §2.2),Web Console 仅 CRUD 治理元数据表也用直连
   datasource:
@@ -47,6 +53,14 @@ dsh:
   skillhub:
     base-url: ${SKILLHUB_BASE_URL:http://127.0.0.1:8095}
     api-token: ${SKILLHUB_API_TOKEN:}
+
+  # 知识库模块(setup guide §12):Storage REST 走透传用户 JWT + anon key apikey 头,无 service_role
+  knowledge:
+    supabase-url: ${SUPABASE_URL}
+    anon-key: ${SUPABASE_ANON_KEY}
+    # Tesseract 语言训练数据目录(setup guide §12.3;不配则图片 OCR 标记解析失败)
+    tessdata-path: ${TESSDATA_PATH:}
+    max-upload-size-mb: ${KB_MAX_UPLOAD_MB:50}
 
 logging:
   level:

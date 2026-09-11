@@ -37,6 +37,7 @@ import {
   type UpdateAppRoleRequest,
 } from '../api/roles'
 import { usersApi, type UserDto } from '../api/users'
+import KnowledgeTab from './KnowledgeTab'
 
 const ROLE_STATUS_COLOR: Record<string, string> = {
   active: 'green',
@@ -221,6 +222,11 @@ export default function AppDetailPage() {
                 打开流程定义列表
               </Button>
             ),
+          },
+          {
+            key: 'knowledge',
+            label: '知识库',
+            children: <KnowledgeTab appId={appId} />,
           },
         ]}
       />
@@ -786,22 +792,19 @@ function SkillRepoTab({ app, onAppUpdated }: { app: ApplicationDto; onAppUpdated
 
   const columns: ColumnsType<SkillHubSkillDto> = [
     { title: 'Skill 名', dataIndex: 'slug', key: 'slug' },
+    {
+      title: '技能描述',
+      dataIndex: 'summary',
+      key: 'summary',
+      ellipsis: { showTitle: false },
+      render: (v: string | null) => (v ? <Typography.Text ellipsis={{ tooltip: v }}>{v}</Typography.Text> : '-'),
+    },
     { title: '当前版本', dataIndex: 'version', key: 'version' },
     {
       title: '更新时间',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       render: (v: string) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-'),
-    },
-    {
-      title: '指纹',
-      dataIndex: 'fingerprint',
-      key: 'fingerprint',
-      render: (v: string) => (
-        <Typography.Text style={{ fontFamily: 'monospace' }} title={v}>
-          {v.slice(0, 8)}
-        </Typography.Text>
-      ),
     },
   ]
 

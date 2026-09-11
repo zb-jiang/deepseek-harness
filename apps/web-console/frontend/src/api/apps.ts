@@ -34,7 +34,8 @@ export interface UpdateApplicationRequest {
 export interface SkillHubSkillDto {
   slug: string
   version: string
-  fingerprint: string
+  /** skill 描述(SKILL.md frontmatter description)。 */
+  summary: string | null
   updatedAt: string
 }
 

@@ -131,7 +131,7 @@ class BpmnValidationServiceTest {
     void skillRefNotInPublishedListFails() {
         when(appRepository.findById(any(UUID.class))).thenReturn(Optional.of(app("enterprise")));
         when(skillHubRestClient.listNamespaceSkills("enterprise")).thenReturn(List.of(
-            new SkillHubSkillDto("other-skill", "1.0.0", "fp", "2026-09-01T00:00:00Z")));
+            new SkillHubSkillDto("other-skill", "1.0.0", "其他技能", "2026-09-01T00:00:00Z")));
         BpmnValidationResult result = service.validate(bpmn("", """
             <dsh:skillRef>approval-helper</dsh:skillRef>
             """, null), UUID.randomUUID());

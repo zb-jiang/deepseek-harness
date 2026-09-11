@@ -24,6 +24,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 public class ConsoleApplication {
 
     public static void main(String[] args) {
+        NativeLibs.preload();
         SpringApplication.run(ConsoleApplication.class, args);
     }
 }

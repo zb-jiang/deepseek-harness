@@ -7,9 +7,9 @@ package com.dsh.console.skillhub.dto;
  * 元素的裁剪视图,只保留 Web Console 前端选择/展示所需字段。
  *
  * @param slug       skill 唯一标识(namespace 内)
- * @param version     latest 版本号
- * @param fingerprint 内容指纹
+ * @param version    latest 版本号
+ * @param summary    skill 描述(SKILL.md frontmatter description)
  * @param updatedAt  最新发布时间
  */
-public record SkillHubSkillDto(String slug, String version, String fingerprint, String updatedAt) {
+public record SkillHubSkillDto(String slug, String version, String summary, String updatedAt) {
 }

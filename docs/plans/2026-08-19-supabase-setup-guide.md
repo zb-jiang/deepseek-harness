@@ -514,3 +514,212 @@ DEEPSEEK_API_KEY=<员工自己的 LLM key,本地管理>
 8. DSH enterprise profile 启动后,`/api/enterprise/auth/me` 能验证 JWT 并返回用户治理状态
 9. Web Console 后端能用 JWKS 本地验证 Supabase JWT
 10. 服务器端 DSH(web profile)启动后,`127.0.0.1:3080` 可访问
+
+## 12. 知识库(2026-09-11 增补,web-console 知识库模块配套)
+
+知识库设计见 [2026-09-11-knowledge-base-design.md](2026-09-11-knowledge-base-design.md)。
+
+**文件存在哪里(存储模型,先读这段再看 SQL)**:
+
+- **文件本体(原始字节)存 Supabase Storage,不存数据库字段**。Storage 是 Supabase 内置的对象存储(类似阿里云 OSS / AWS S3),按"桶(bucket)"组织,桶可以理解为存储里的一个顶级目录。每个应用一个专属桶,桶名 `kb-{appId}`。
+- 数据库三张表(knowledge_bases / kb_folders / kb_documents)只存**元数据和可检索文本**:`storage_path` 列记录文件在桶里的路径(如 `<文档id>/报价单.pdf`),`text_content` 列只存从文件里抽取出的纯文本(供关键字检索和 AI 阅读),都不是文件本身。
+- **桶不需要手工创建**,所以下面的 SQL 里没有建桶语句:应用第一次打开知识库时,web-console 后端自动向 Supabase 的 `storage.buckets` 系统表插入一条桶登记(与治理表同一条 JDBC 直连连接),桶随首个知识库自动出现。
+
+建表 SQL 与 RLS 手工执行,模式同前文。
+
+### 12.1 建表 SQL(public schema,SQL Editor 执行)
+
+三张表只存"元数据 + 抽取文本";文件原始字节全部在 Storage 桶里(见本节开头存储模型说明)。
+
+```sql
+-- ============================================================
+-- 表1 knowledge_bases:知识库登记表。一个应用有且只有一个知识库。
+-- ============================================================
+create table if not exists public.knowledge_bases (
+  id             uuid primary key default gen_random_uuid(),  -- 知识库 id
+  application_id uuid not null unique references public.applications(id) on delete cascade,
+                 -- 所属应用;unique 保证一应用一库;应用删除时级联删掉知识库
+  name           text not null,        -- 显示名(web-console 后端自动取「{应用名} 知识库」)
+  storage_bucket text not null,        -- 该应用专属桶名('kb-{appId}');文件本体就存在这个桶里
+  created_at     timestamptz not null default now()
+);
+
+-- ============================================================
+-- 表2 kb_folders:文件夹。树形结构靠 parent_id 自引用,支持多级目录。
+-- ============================================================
+create table if not exists public.kb_folders (
+  id         uuid primary key default gen_random_uuid(),  -- 文件夹 id
+  kb_id      uuid not null references public.knowledge_bases(id) on delete cascade,
+             -- 所属知识库
+  parent_id  uuid references public.kb_folders(id) on delete cascade,
+             -- 父文件夹 id;为 NULL 表示顶层(根)文件夹;删父文件夹会级联删子文件夹
+  name       text not null,        -- 文件夹名(同级不能重名,见下方唯一索引)
+  path       text not null,        -- 物化路径:根下的文件夹是 '/财务',它的子级是 '/财务/报销';
+             -- 把整条祖先链冗余存一份,"列某文件夹下全部文档(含子文件夹)"就不用递归查询了
+  created_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 表3 kb_documents:文档登记表。文件本体在 Storage 桶里,这张表只是"说明书"。
+-- ============================================================
+create table if not exists public.kb_documents (
+  id           uuid primary key,     -- 文档 id(web-console 后端生成,同时用作桶内路径前缀)
+  kb_id        uuid not null references public.knowledge_bases(id) on delete cascade,
+               -- 所属知识库
+  folder_id    uuid references public.kb_folders(id) on delete cascade,
+               -- 所在文件夹;为 NULL 表示在根目录
+  name         text not null,        -- 文档名(如 '报价单.pdf',同级不能重名)
+  content_type text not null,        -- MIME 类型(如 application/pdf)
+  size_bytes   bigint not null,      -- 文件大小(字节)
+  storage_path text not null,        -- 文件在桶内的对象路径:'<文档id>/<文档名>';
+               -- 上传/下载/删除时,后端按 storage_bucket + storage_path 到 Storage 定位文件本体
+  text_content text,                 -- 从文件抽取出的纯文本(pdf/office 用 Tika 抽,图片用 OCR),
+               -- 只用于关键字检索和 AI 阅读,不是文件本体;未解析完成时为 NULL
+  parse_status text not null default 'pending' check (parse_status in ('pending','ready','failed')),
+               -- 解析状态:pending 待解析 / ready 已就绪(可检索) / failed 解析失败
+  parse_error  text,                 -- 解析失败原因(仅 failed 时有值)
+  uploaded_by  text not null,        -- 上传者(Supabase Auth 的 user.id,即 JWT 的 sub)
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()   -- 解析完成回写文本时会刷新
+);
+
+-- 索引:按知识库列文件夹树 / 按路径前缀找子树
+create index if not exists idx_kb_folders_kb on public.kb_folders (kb_id, path);
+-- 索引:按知识库 + 文件夹列文档
+create index if not exists idx_kb_documents_kb_folder on public.kb_documents (kb_id, folder_id);
+
+-- 同名唯一:parent_id/folder_id 可空,Postgres 唯一约束视 NULL 互异,用 coalesce 表达式索引
+-- (NULL 与 NULL 本来不算重复,coalesce 把 NULL 统一换成全零 uuid 后,"根目录下同名"也能被唯一索引拦住)
+create unique index if not exists uk_kb_folders_sibling
+  on public.kb_folders (kb_id, coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), name);
+create unique index if not exists uk_kb_documents_sibling
+  on public.kb_documents (kb_id, coalesce(folder_id, '00000000-0000-0000-0000-000000000000'::uuid), name);
+
+-- 可选:关键字搜索提速(量级上百可不建)
+-- ILIKE '%关键词%' 默认走不了普通索引;pg_trgm 把字符串拆成三元组建 GIN 索引后可以。
+-- create extension if not exists pg_trgm;
+-- create index if not exists idx_kb_documents_trgm on public.kb_documents
+--   using gin ((name) gin_trgm_ops, (text_content) gin_trgm_ops);
+```
+
+### 12.2 RLS
+
+RLS(Row Level Security,行级安全)= Postgres 按"当前连接的用户是谁"决定他能看到/写入哪些行。Supabase 的 SQL 接口(PostgREST、Storage)都以请求者的用户 JWT 打开连接,`auth.uid()` 即 JWT 里的用户 id——所以即使有人绕过 web-console 直接连 Supabase,也只能看到自己有权限的应用的数据。
+
+**权限口径(与 web-console 后端一致)**:`应用管理员(app_admin_user_ids)` ∪ `应用 active 成员`——管理员可配置知识库(web-console 管理页签,含开通),成员可做内容访问与上传(员工端)。web-console 的文件上传/下载透传用户 JWT,同样过这些策略,所以管理员即使不在成员表里也能读写文件本体。
+
+**为什么用判定函数**:管理员/成员身份存在 `applications`、`app_memberships` 里,而 §7.1 给这些治理表开了 RLS 但**没有给 authenticated 配任何策略**(治理读写有意只走 JDBC 超级用户)——RLS 策略里直接嵌套查它们会一行都拿不到,判定永远失败。所以先把判定收进 `kb_can_access` 函数:函数声明 `SECURITY DEFINER`,内部以属主身份查询、绕过治理表自己的 RLS,知识库四条策略只调函数,不给治理表开读洞。
+
+`kb_*` 表经 PostgREST 对外暴露,启用"管理员 ∪ 成员"可读;写入只走 web-console 后端 JDBC 连接(连接角色为表 owner,不受 RLS 限制,模式同 §7)。**本段先 drop 再建,可重复执行**:
+
+```sql
+-- 三张表开启 RLS;Supabase 里不开 RLS 的表默认对 authenticated 全放行,必须逐表显式开启
+alter table public.knowledge_bases enable row level security;
+alter table public.kb_folders enable row level security;
+alter table public.kb_documents enable row level security;
+
+-- 清理旧版策略;幂等:没建过也不报错
+drop policy if exists kb_read_member on public.knowledge_bases;
+drop policy if exists kb_folders_read_member on public.kb_folders;
+drop policy if exists kb_documents_read_member on public.kb_documents;
+drop policy if exists kb_objects_member_rw on storage.objects;
+
+-- 权限判定函数:当前 JWT 用户是否「该应用的 active 成员 ∪ 应用管理员」。
+-- SECURITY DEFINER:内部查询以函数属主(postgres)身份执行,绕过治理表自身的 RLS;
+-- stable:同一条语句内结果不变,不妨碍优化器;anon 不可调用。
+create or replace function public.kb_can_access(p_application_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    -- 分支A:active 成员(成员关系 active × 平台账号 active)
+    select 1 from app_memberships m
+    join platform_users pu on pu.id = m.user_id
+    where m.app_id = p_application_id and m.status = 'active'
+      and pu.status = 'active' and pu.auth_subject = auth.uid()::text
+  ) or exists (
+    -- 分支B:应用管理员(app_admin_user_ids 含我的 platform_users.id)
+    select 1 from applications a
+    join platform_users pu on pu.auth_subject = auth.uid()::text
+    where a.id = p_application_id and pu.status = 'active'
+      and pu.id = ANY(a.app_admin_user_ids)
+  );
+$$;
+
+revoke all on function public.kb_can_access(uuid) from public, anon;
+grant execute on function public.kb_can_access(uuid) to authenticated;
+
+-- 策略1:知识库表。
+create policy kb_read_member on public.knowledge_bases for select to authenticated
+using (kb_can_access(application_id));
+
+-- 策略2:文件夹表(经 kb_id 找到知识库,再按其应用判定;嵌套查知识库表自身受策略1约束,同口径)。
+create policy kb_folders_read_member on public.kb_folders for select to authenticated
+using (
+  exists (
+    select 1 from knowledge_bases kb
+    where kb.id = kb_folders.kb_id and kb_can_access(kb.application_id)
+  )
+);
+
+-- 策略3:文档表(口径同上)。
+create policy kb_documents_read_member on public.kb_documents for select to authenticated
+using (
+  exists (
+    select 1 from knowledge_bases kb
+    where kb.id = kb_documents.kb_id and kb_can_access(kb.application_id)
+  )
+);
+```
+
+Storage 桶按应用动态创建,用一条按桶名前缀匹配的通用策略覆盖所有 `kb-*` 桶。**文件本体就在这一层受控**:`storage.objects` 是 Supabase 的对象存储系统表,每行是一个文件对象,`bucket_id` 列即桶名;`for all` + `with check` 表示读和写(上传)都要过同一条判断;桶名前缀 `kb-%` 限定本策略只作用于知识库桶,不影响其他业务的桶:
+
+```sql
+-- 先清理旧版;幂等:没建过也不报错
+drop policy if exists kb_objects_member_rw on storage.objects;
+
+create policy kb_objects_member_rw on storage.objects for all to authenticated
+using (
+  bucket_id like 'kb-%' and exists (
+    select 1 from knowledge_bases kb
+    where kb.storage_bucket = storage.objects.bucket_id
+      and kb_can_access(kb.application_id)
+  )
+)
+with check (
+  bucket_id like 'kb-%' and exists (
+    select 1 from knowledge_bases kb
+    where kb.storage_bucket = storage.objects.bucket_id
+      and kb_can_access(kb.application_id)
+  )
+);
+```
+
+桶本身不需要预先创建:应用首次开通知识库时,web-console 后端经 JDBC 连接 `INSERT INTO storage.buckets`(同一条直连路径)自动登记桶,无需手工建桶。
+
+### 12.3 OCR(Tesseract traineddata)
+
+tess4j 内置 Windows 原生库,无需安装 Tesseract 本体,只需语言训练数据:
+
+1. 下载 [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) 的 `chi_sim.traineddata` 与 `eng.traineddata`(追求精度可换 [tessdata_best](https://github.com/tesseract-ocr/tessdata_best),best 与 fast 的中文/英文模型在本机均实测可用);注意用仓库内文件的 raw 下载链接,直接右键另存网页存下来的是 HTML 不是数据文件
+https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_sim.traineddata
+https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata
+
+2. 放入服务器目录(如 `D:\tessdata`)
+3. 设置环境变量 `TESSDATA_PATH=D:\tessdata`(见 12.4)
+
+**JDK 版本要求:web-console 必须用 JDK 21+ 运行**(如 `D:\Java21\bin\java.exe -jar dsh-web-console.jar`)。本机实测 JDK 17.0.12 下 tess4j 5.20 的 OCR 在引擎初始化(`TessBaseAPIInit1`)必现 native 段错误(`Invalid memory access`),JDK 21.0.12 完全正常;多开终端时注意 `java` 可能解析到不同 JDK(本机 D:\Java 为 17,D:\Java21 为 21),以启动后日志或进程路径为准。
+
+OCR 中文时控制台打印 `Error opening data file ... chi_sim_vert.traineddata / Failed loading language 'chi_sim_vert'` 是 Tesseract 尝试加载竖排中文伴随模型的无害警告(引擎行为,非配置错误),可忽略;要消除可另行下载 `chi_sim_vert.traineddata` 放入同目录。
+
+### 12.4 Web Console 环境变量增补(§10.3 基础上追加)
+
+```sh
+# Supabase Storage 访问(透传用户 JWT 时随附的 apikey 头,取 §2.1 anon key)
+SUPABASE_ANON_KEY=<§2.1 anon key>
+# OCR 训练数据目录(§12.3;不配则 OCR 失败并标记 parse_status=failed)
+TESSDATA_PATH=D:\tessdata
+```

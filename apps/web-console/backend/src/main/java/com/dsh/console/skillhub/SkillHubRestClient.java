@@ -68,7 +68,7 @@ public class SkillHubRestClient {
                 result.add(new SkillHubSkillDto(
                     item.path("slug").asText(null),
                     item.path("version").asText(null),
-                    item.path("fingerprint").asText(null),
+                    item.path("summary").asText(null),
                     item.path("updatedAt").asText(null)));
             }
             cursor = data.path("nextCursor").asText(null);

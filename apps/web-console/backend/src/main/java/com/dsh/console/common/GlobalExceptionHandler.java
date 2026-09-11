@@ -1,5 +1,6 @@
 package com.dsh.console.common;
 
+import com.dsh.console.knowledge.KbStorageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * 全局异常处理。
@@ -69,6 +71,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
             .body(ApiResponse.fail(ApiError.of("FLOWABLE_REST_ERROR",
                 "调用流程引擎失败:" + e.getMessage())));
+    }
+
+    /** Supabase Storage 调用失败(知识库上传/下载/删除):返回 502。 */
+    @ExceptionHandler(KbStorageException.class)
+    public ResponseEntity<ApiResponse<Void>> handleKbStorage(KbStorageException e) {
+        log.error("Supabase Storage call failed", e);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+            .body(ApiResponse.fail(ApiError.of("STORAGE_ERROR",
+                "访问文档存储失败:" + e.getMessage())));
+    }
+
+    /** 上传文件超过 multipart 上限:返回 400。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMaxUpload(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ApiResponse.fail(ApiError.of("FILE_TOO_LARGE", "上传文件超过大小上限")));
     }
 
     /** 客户端已断开(页面刷新/跳转/请求取消):连接已断,响应体写不回去,只记一行无堆栈。 */

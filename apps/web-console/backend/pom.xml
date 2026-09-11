@@ -72,6 +72,34 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- 知识库解析管线:Tika 抽取 pdf/office 文本(3.x 稳定线,4.0 刚发布不追新) -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>3.3.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>3.3.2</version>
+        </dependency>
+
+        <!-- 知识库解析管线:tess4j OCR(内置 Windows/Linux/macOS 原生库,训练数据见 setup guide §12.3) -->
+        <dependency>
+            <groupId>net.sourceforge.tess4j</groupId>
+            <artifactId>tess4j</artifactId>
+            <version>5.20.0</version>
+        </dependency>
+
+        <!-- 知识库解析管线:Tika 依赖 commons-compress 需要 commons-lang3 >= 3.14 的
+             SystemProperties API,而 Spring Boot 依赖管理锁在旧版,运行时 NoSuchMethodError,
+             显式覆盖为当前 3.x 稳定版 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.18.0</version>
+        </dependency>
+
         <!-- Lombok:简化 POJO -->
         <dependency>
             <groupId>org.projectlombok</groupId>
