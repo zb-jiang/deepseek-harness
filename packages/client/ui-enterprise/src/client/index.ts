@@ -9,22 +9,44 @@
  * openTask/openCompletedTask 经 ctx.sidebarRight.openTab 打开;中间会话区
  * 保持原生 ConversationRoot。EnterpriseWorkbench 在 apply 构造一次,经各
  * 占据者的 inject 面分发。认证遮罩(shell.overlay)未登录时盖住整帧。
+ *
+ * <p>知识库三面(design 2026-09-11 §6):KnowledgeWorkbench 同样在 apply
+ * 构造一次;选择器入口占据 `conversation.input.left`(仅待办会话且应用
+ * 已开通时渲染),已选文档 chip 行占据 `conversation.input.dock`,输入框
+ * '@' 知识库文档触发源注册进 ctx.inputTriggers(待办会话候选 → 内联
+ * chip),工作空间文件行的「上传到知识库」占据 ui-sidebar-files 声明的
+ * `sidebar.files.entry.action`(readAll 经 ctx.remote.workspaceFiles 绑定);
+ * 历史消息里的 `知识库文档 docid: <id>` wire 文本经 ui-primitives 的
+ * registerUserTextDecorator 注册装饰器恢复为文档徽标。座位由其他包的注册
+ * 声明,经 ctx.slots.inject 延迟到声明后注册。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { registerUserTextDecorator } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-files/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { EnterpriseOverlay } from './EnterpriseUi.tsx'
 import { ARCHIVE_TAB_ID, ARCHIVE_TAB_KIND, EnterpriseWorkbench } from './enterprise-workbench.ts'
+import { KnowledgeWorkbench } from './knowledge-workbench.ts'
+import { buildKbDocsSource } from './kb-trigger-source.ts'
+import { buildKbDocDecorator } from './kb-doc-decorator.tsx'
 import { TaskArchivePanel } from './TaskArchivePanel.tsx'
 import { TaskQueueSidebar } from './TaskQueueSidebar.tsx'
+import { KbChipsDock } from './KbChipsDock.tsx'
+import { KbPickerButton } from './KbPickerButton.tsx'
+import { KbUploadAction } from './KbUploadAction.tsx'
+import type { KbUploadInjected } from './KbUploadAction.tsx'
 
 export const inject = [
-  'slots', 'sessions', 'workspaces', 'layout', 'conversation', 'sidebarRight', 'sidebarRightTabs',
+  'slots', 'sessions', 'workspaces', 'layout', 'conversation', 'inputTriggers', 'sidebarRight',
+  'sidebarRightTabs', 'remote', 'remote.workspaceFiles',
 ]
 
 export function apply(ctx: ClientContext): void {
@@ -39,6 +61,18 @@ export function apply(ctx: ClientContext): void {
     conversation: ctx.conversation,
     sidebarRight: ctx.sidebarRight,
   })
+
+  const knowledge = new KnowledgeWorkbench({
+    sessions: ctx.sessions,
+    conversation: ctx.conversation,
+  })
+
+  // 输入框 '@' 知识库文档触发源:待办会话候选 → 内联 chip(退订器由 effect 持有)。
+  const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
+  ctx.effect(() => inputTriggers.registerSource(buildKbDocsSource({ workbench, knowledge })), 'ui-enterprise: @kbDocs source')
+
+  // 历史消息的知识库文档徽标:wire 文本 `知识库文档 docid: <id>` → 文档 chip。
+  ctx.effect(() => registerUserTextDecorator(buildKbDocDecorator()), 'ui-enterprise: kb doc history decorator')
 
   // 认证遮罩:未登录/待审批/被禁用时盖住整帧。
   ctx.slots.register(
@@ -67,4 +101,28 @@ export function apply(ctx: ClientContext): void {
     key: ARCHIVE_TAB_ID,
     inject: () => ({ workbench }),
   }, TaskArchivePanel))
+
+  // 知识库选择器入口:输入框左侧(仅待办会话且应用已开通时渲染)。
+  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
+    id: 'kb-picker',
+    inject: () => ({ workbench, knowledge }),
+  }, KbPickerButton))
+
+  // 知识库文档 chip 行:输入框上方 dock(已选文档展示与移除)。
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'kb-chips',
+    order: 5,
+    inject: () => ({ knowledge }),
+  }, KbChipsDock))
+
+  // 工作空间文件行「上传到知识库」:readAll 读全文 → 代理 multipart 上传。
+  const readWorkspaceFile: KbUploadInjected['readWorkspaceFile'] =
+    (sessionId, path, signal) => ctx.remote.workspaceFiles.readAll(sessionId, path, signal)
+  ctx.slots.inject('sidebar.files.entry.action', () => ctx.slots.register({
+    name: 'sidebar.files.entry.action',
+    id: 'kb-upload',
+    inject: () => ({ readWorkspaceFile }),
+  }, KbUploadAction))
 }

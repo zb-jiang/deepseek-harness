@@ -2,7 +2,9 @@
  * Display projection of reference forms in sent user text (bubble and queue
  * rows). The logged model text remains the single truth; this is presentation
  * only, and every part renders inline so a single-line message never breaks
- * across lines. Four decoration sources, by precedence: the wire session form
+ * across lines. Decoration sources, by precedence: registered decorators
+ * ({@link registerUserTextDecorator}) claim exact spans first and shadow the
+ * shape scans on shared ranges; the wire session form
  * `@[label](dsh-session:...)` folds to its label; exact session labels
  * supplied by an adjacent recall decorate their bare `@label` mention; plain
  * `@name` word-boundary tokens decorate by shape alone; and a plain `/name`
@@ -14,11 +16,62 @@
  * text end, so slash paths (`/nfs-hg/xxx`, `/plan.md`) and punctuation-glued
  * tokens (`/plan。`) stay plain even for a loaded name.
  */
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { ReferenceIcon } from './ReferenceIcon.tsx'
 import css from './user-text.module.css'
 import markdownCss from './markdown/MarkdownText.module.css'
+
+/** One exact span a custom decorator claims in one sent text. */
+export interface UserTextDecorationRange {
+  readonly start: number
+  readonly end: number
+  /** Advisory hover title; the matched source text when absent. */
+  readonly title?: string
+}
+
+/**
+ * One registered decorator: an extra inline chip source for sent user text
+ * (bubble and queue rows). Decorator spans claim first and shadow the
+ * built-in shape scans on shared ranges; registration order resolves
+ * overlaps between decorators.
+ */
+export interface UserTextDecorator {
+  /** Unique registry id; duplicate registration throws. */
+  readonly name: string
+  /**
+   * Find claimed spans in one text.
+   * @param text - the logged model text of the message or queue row.
+   * @returns exact, non-overlapping spans in source order.
+   */
+  find(text: string): readonly UserTextDecorationRange[]
+  /**
+   * Render the chip for one claimed span.
+   * @param range - the claimed span.
+   * @param matchedText - `text.slice(range.start, range.end)`.
+   * @returns the inline chip node.
+   */
+  render(range: UserTextDecorationRange, matchedText: string): ReactNode
+}
+
+/** All registered decorators, in registration order. */
+const decorators: UserTextDecorator[] = []
+
+/**
+ * Register one custom text decorator.
+ * @param decorator - the decorator; `name` must be unique — duplicates throw.
+ * @returns the disposer.
+ */
+export function registerUserTextDecorator(decorator: UserTextDecorator): () => void {
+  if (decorators.some(existing => existing.name === decorator.name)) {
+    throw new Error(`user-text decorator "${decorator.name}" is already registered`)
+  }
+  decorators.push(decorator)
+  return () => {
+    const at = decorators.indexOf(decorator)
+    if (at >= 0) decorators.splice(at, 1)
+  }
+}
 
 /** The wire form a session chip serializes to; label is the display text. */
 const SESSION_WIRE_RE = /@\[([^\]\n]+)\]\(dsh-session:[^)\s]+\)/gu
@@ -31,9 +84,12 @@ interface DecorationRange {
   readonly end: number
   /** Matched source text (hover title). */
   readonly label: string
-  readonly kind: 'session' | 'plain'
+  readonly kind: 'session' | 'plain' | 'custom'
   /** Pre-resolved display text (wire folds); derived from label when absent. */
   readonly display?: string
+  /** Owning decorator + its claim when kind is 'custom'. */
+  readonly decorator?: UserTextDecorator
+  readonly claim?: UserTextDecorationRange
 }
 
 /** Optional navigation supplied by consumers that can preview references. */
@@ -63,9 +119,29 @@ export function projectUserText(
   references?: UserTextReferences,
 ): ReactNode {
   const ranges: DecorationRange[] = []
+  // Registered decorators claim first; the built-in shape scans below skip
+  // any range overlapping a claim, so a claim shadows a shape match on the
+  // same span and never loses to an earlier-starting shape token.
+  const claims: { range: UserTextDecorationRange; decorator: UserTextDecorator }[] = []
+  for (const decorator of decorators) {
+    for (const claim of decorator.find(text)) claims.push({ range: claim, decorator })
+  }
+  const overlapsClaim = (start: number, end: number): boolean =>
+    claims.some(claimed => start < claimed.range.end && claimed.range.start < end)
+  for (const { range: claim, decorator } of claims) {
+    ranges.push({
+      start: claim.start,
+      end: claim.end,
+      label: text.slice(claim.start, claim.end),
+      kind: 'custom',
+      decorator,
+      claim,
+    })
+  }
   SESSION_WIRE_RE.lastIndex = 0
   let wire: RegExpExecArray | null
   while ((wire = SESSION_WIRE_RE.exec(text)) !== null) {
+    if (overlapsClaim(wire.index, wire.index + wire[0].length)) continue
     ranges.push({
       start: wire.index,
       end: wire.index + wire[0].length,
@@ -78,7 +154,9 @@ export function projectUserText(
     const label = `@${rawLabel}`
     let start = text.indexOf(label)
     while (start >= 0) {
-      ranges.push({ start, end: start + label.length, label, kind: 'session' })
+      if (!overlapsClaim(start, start + label.length)) {
+        ranges.push({ start, end: start + label.length, label, kind: 'session' })
+      }
       start = text.indexOf(label, start + label.length)
     }
   }
@@ -94,9 +172,10 @@ export function projectUserText(
       : rawLabel.replace(TRAILING_PUNCTUATION_RE, '')
     if (label.length <= 1) continue
     if (label.startsWith('/') && !slashNames.includes(label.slice(1))) continue
+    if (overlapsClaim(tokenStart, tokenStart + label.length)) continue
     ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
   }
-  const rankOf = (range: DecorationRange): number => range.kind === 'session' ? 0 : 1
+  const rankOf = (range: DecorationRange): number => range.kind === 'session' ? 0 : range.kind === 'custom' ? 1 : 2
   ranges.sort((a, b) => a.start - b.start || rankOf(a) - rankOf(b) || b.end - a.end)
   const parts: ReactNode[] = []
   let cursor = 0
@@ -107,6 +186,15 @@ export function projectUserText(
     if (range.start < cursor) continue
     const { start: tokenStart, end, label, kind } = range
     if (tokenStart > cursor) pushPlain(cursor, tokenStart)
+    if (kind === 'custom' && range.decorator !== undefined && range.claim !== undefined) {
+      parts.push(
+        <Fragment key={`custom:${tokenStart}`}>
+          {range.decorator.render(range.claim, label)}
+        </Fragment>,
+      )
+      cursor = end
+      continue
+    }
     const referenceKind = kind === 'session'
       ? 'session'
       : label.startsWith('@')

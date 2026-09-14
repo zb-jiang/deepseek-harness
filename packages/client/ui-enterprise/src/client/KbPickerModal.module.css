@@ -1,0 +1,174 @@
+/* Modal 卡片宽度覆盖(headless 内容宽度由卡片承载,同 TaskSubmitDialog)。 */
+.modal {
+  width: min(640px, 90vw);
+  padding: 0;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 80vh;
+  padding: 24px;
+}
+
+.header {
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding-bottom: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchInput {
+  flex: 1;
+}
+
+.body {
+  flex: 1;
+  min-height: 260px;
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.list,
+.level {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.level {
+  padding-left: 20px;
+}
+
+.item {
+  margin: 0;
+  padding: 0;
+}
+
+.folderRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.folderRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chevron {
+  display: inline-flex;
+  color: var(--dsw-alias-label-tertiary);
+  transform: rotate(0deg);
+  transition: transform 0.12s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.folderName {
+  color: var(--dsw-alias-label-primary);
+}
+
+.docRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.docRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.checkbox {
+  flex: none;
+  margin: 0;
+}
+
+.docName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.statusPending,
+.statusFailed {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.statusPending {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.statusFailed {
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-tertiary);
+}
+
+.hint {
+  padding: 24px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.error {
+  padding: 8px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  background: var(--dsw-alias-state-error-tertiary);
+  border-radius: 6px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  padding-top: 12px;
+}
+
+.count {
+  margin-right: auto;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}

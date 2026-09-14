@@ -37,7 +37,10 @@ export { FileTypeIcon, classifyFileType, fileExtension } from './FileTypeIcon.ts
 export type {
   CodeFileType, FileType, FileTypeIconProps, FileTypeKind, FileTypeProjectContext,
 } from './FileTypeIcon.tsx'
-export { projectUserText, type UserTextReferences } from './user-text.tsx'
+export {
+  projectUserText, registerUserTextDecorator,
+  type UserTextDecorationRange, type UserTextDecorator, type UserTextReferences,
+} from './user-text.tsx'
 export { Tooltip } from './Tooltip.tsx'
 export type { TooltipSide } from './Tooltip.tsx'
 export { Toast } from './Toast.tsx'

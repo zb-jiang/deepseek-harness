@@ -6,7 +6,10 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
-import { projectUserText } from '../src/user-text.tsx'
+import {
+  projectUserText, registerUserTextDecorator,
+  type UserTextDecorationRange, type UserTextDecorator,
+} from '../src/user-text.tsx'
 
 const project = (
   text: string,
@@ -146,5 +149,68 @@ describe('projectUserText', () => {
     expect(host.querySelectorAll('div').length).toBe(0)
     expect(host.querySelectorAll('[data-ref-chip]').length).toBe(0)
     expect(host.textContent).toBe('纯文本，无引用')
+  })
+})
+
+describe('registerUserTextDecorator', () => {
+  const kbDoc = (tag: string): UserTextDecorator => ({
+    name: `kb-doc-${tag}`,
+    find: (text: string) => {
+      const re = /知识库文档 docid: [\w-]+/gu
+      const ranges: UserTextDecorationRange[] = []
+      let m: RegExpExecArray | null
+      while ((m = re.exec(text)) !== null) {
+        ranges.push({ start: m.index, end: m.index + m[0].length, title: m[0] })
+      }
+      return ranges
+    },
+    render: (range, matchedText) => <em data-kb-doc={tag}>{`${matchedText}#${range.start}`}</em>,
+  })
+
+  it('claims its span first: a shape token overlapping the claim stays plain', () => {
+    const dispose = registerUserTextDecorator(kbDoc('a'))
+    try {
+      // The bare-token scan would decorate `@知识库文档`; the claim shadows it.
+      const host = project('@知识库文档 docid: abc-12 参考 @notes.md')
+      expect(host.querySelectorAll('[data-kb-doc="a"]').length).toBe(1)
+      expect(host.textContent).toBe('@知识库文档 docid: abc-12#1 参考 notes.md')
+      expect(host.querySelectorAll('[data-ref-chip="file"]').length).toBe(1)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('coexists with the built-in wire fold and session chips', () => {
+    const dispose = registerUserTextDecorator(kbDoc('b'))
+    try {
+      const host = project('看 @[会话甲](dsh-session:x) 与 知识库文档 docid: id-1', [])
+      const kinds = [...host.querySelectorAll('[data-ref-chip], [data-kb-doc="b"]')]
+        .map(c => c.getAttribute('data-ref-chip') ?? c.getAttribute('data-kb-doc'))
+      expect(kinds).toEqual(['session', 'b'])
+    } finally {
+      dispose()
+    }
+  })
+
+  it('first registration wins an overlap between decorators', () => {
+    const disposeFirst = registerUserTextDecorator(kbDoc('one'))
+    const disposeSecond = registerUserTextDecorator(kbDoc('two'))
+    try {
+      const host = project('知识库文档 docid: xyz')
+      expect(host.querySelectorAll('[data-kb-doc="one"]').length).toBe(1)
+      expect(host.querySelectorAll('[data-kb-doc="two"]').length).toBe(0)
+    } finally {
+      disposeFirst()
+      disposeSecond()
+    }
+  })
+
+  it('rejects duplicate names and the disposer unregisters', () => {
+    const dispose = registerUserTextDecorator(kbDoc('dup'))
+    expect(() => registerUserTextDecorator({ ...kbDoc('dup') })).toThrow('already registered')
+    dispose()
+    const host = project('知识库文档 docid: abc-1')
+    expect(host.querySelectorAll('[data-kb-doc]').length).toBe(0)
+    expect(host.textContent).toBe('知识库文档 docid: abc-1')
   })
 })

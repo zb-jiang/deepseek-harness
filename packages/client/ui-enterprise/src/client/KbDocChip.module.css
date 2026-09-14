@@ -1,0 +1,18 @@
+/* 历史消息里的知识库文档徽标:inline 芯片,随消费者行盒流动(气泡/队列行)。
+   display:inline 而非 inline-flex:保持与 ui-primitives user-text refChip
+   相同的 baseline 策略,flex 容器的基线取自首个 flex 项(icon svg),会把
+   文本抬离周围行。 */
+.chip {
+  display: inline;
+  margin: 0 2px;
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.icon {
+  width: 1em;
+  height: 1em;
+  margin-right: 4px;
+  vertical-align: -0.125em;
+}

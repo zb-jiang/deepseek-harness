@@ -1,5 +1,6 @@
 package com.dsh.console.knowledge;
 
+import com.dsh.console.knowledge.dto.KbAppSummaryDto;
 import com.dsh.console.knowledge.dto.KbFolderDto;
 import com.dsh.console.knowledge.dto.KnowledgeBaseDto;
 import java.sql.ResultSet;
@@ -115,6 +116,52 @@ public class KnowledgeJdbcRepository {
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
+    /**
+     * 列当前用户可见的知识库(应用管理员 ∪ active 成员的应用;不含 archived
+     * 应用),联应用名按应用名排序。员工端「上传到知识库」选应用数据源。
+     */
+    public List<KbAppSummaryDto> listKbsForUser(UUID platformUserId, String authSubject) {
+        return jdbcClient.sql("""
+                SELECT kb.id AS kb_id, kb.application_id, kb.name AS kb_name, a.name AS app_name
+                FROM public.knowledge_bases kb
+                JOIN public.applications a ON a.id = kb.application_id AND a.status <> 'archived'
+                WHERE :userId = ANY(a.app_admin_user_ids)
+                   OR EXISTS (
+                     SELECT 1 FROM public.app_memberships m
+                     JOIN public.platform_users pu ON pu.id = m.user_id
+                     WHERE m.app_id = kb.application_id AND m.status = 'active'
+                       AND pu.status = 'active' AND pu.auth_subject = :authSubject
+                   )
+                ORDER BY a.name
+                """)
+            .param("userId", platformUserId)
+            .param("authSubject", authSubject)
+            .query((rs, rowNum) -> new KbAppSummaryDto(
+                rs.getObject("kb_id", UUID.class),
+                rs.getObject("application_id", UUID.class),
+                rs.getString("app_name"),
+                rs.getString("kb_name")))
+            .list();
+    }
+
+    /**
+     * 列全部知识库(system_admin;不含 archived 应用),按应用名排序。
+     */
+    public List<KbAppSummaryDto> listAllKbs() {
+        return jdbcClient.sql("""
+                SELECT kb.id AS kb_id, kb.application_id, kb.name AS kb_name, a.name AS app_name
+                FROM public.knowledge_bases kb
+                JOIN public.applications a ON a.id = kb.application_id AND a.status <> 'archived'
+                ORDER BY a.name
+                """)
+            .query((rs, rowNum) -> new KbAppSummaryDto(
+                rs.getObject("kb_id", UUID.class),
+                rs.getObject("application_id", UUID.class),
+                rs.getString("app_name"),
+                rs.getString("kb_name")))
+            .list();
+    }
+
     // ---------- kb_folders ----------
 
     public List<KbFolderDto> listFolders(UUID kbId) {
@@ -210,7 +257,8 @@ public class KnowledgeJdbcRepository {
     // ---------- kb_documents ----------
 
     /**
-     * 列文档。folder 为 null 时列根(folder_id IS NULL);recursive 时按物化路径前缀含整棵子树。
+     * 列文档。folder 为 null 时列根(folder_id IS NULL),recursive 时按物化路径前缀含整棵子树
+     * (folder 为 null + recursive = 全库,员工端 kb_search/kb_list 工具依赖)。
      *
      * <p>kw 非空时强制只返回 ready(不变式:未解析完成的文档不得进入检索结果),
      * 对 name 与 text_content 做 ILIKE;parseStatus 参数可再过滤解析状态。
@@ -223,7 +271,9 @@ public class KnowledgeJdbcRepository {
                 FROM public.kb_documents WHERE kb_id = :kbId
                 """);
         if (folder == null) {
-            sql.append(" AND folder_id IS NULL");
+            if (!recursive) {
+                sql.append(" AND folder_id IS NULL");
+            }
         } else if (recursive) {
             sql.append("""
                      AND folder_id IN (
@@ -267,6 +317,20 @@ public class KnowledgeJdbcRepository {
                 FROM public.kb_documents WHERE kb_id = :kbId AND id = :docId
                 """)
             .param("kbId", kbId)
+            .param("docId", docId)
+            .query(KbRowMapper.DOCUMENT_INSTANCE)
+            .optional();
+    }
+
+    /**
+     * 按文档 id 直查(不限 KB;kb_read 工具入参只有 docId,KB 归属从行内 kb_id 推导)。
+     */
+    public Optional<KbDocumentRecord> findDocumentById(UUID docId) {
+        return jdbcClient.sql("""
+                SELECT id, kb_id, folder_id, name, content_type, size_bytes, storage_path,
+                       text_content, parse_status, parse_error, uploaded_by, created_at, updated_at
+                FROM public.kb_documents WHERE id = :docId
+                """)
             .param("docId", docId)
             .query(KbRowMapper.DOCUMENT_INSTANCE)
             .optional();

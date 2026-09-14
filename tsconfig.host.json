@@ -215,6 +215,7 @@
     { "path": "./packages/enterprise/user-identity-context" },
     { "path": "./packages/enterprise/flowable-task-proxy" },
     { "path": "./packages/enterprise/skill-sync" },
+    { "path": "./packages/enterprise/knowledge" },
     { "path": "./packages/session/session-telemetry-otel" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },

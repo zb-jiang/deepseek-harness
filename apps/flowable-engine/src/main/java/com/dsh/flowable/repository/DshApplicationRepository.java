@@ -44,4 +44,27 @@ public class DshApplicationRepository {
             procdefId
         ).stream().findFirst().orElse(null);
     }
+
+    /**
+     * 查询流程定义所属应用 id(TaskDto.applicationId 的数据源)。
+     *
+     * <p>员工端凭 applicationId 定位该应用的知识库(design 2026-09-11 §6);
+     * JOIN 口径与 {@link #findSkillhubNamespaceByProcdefId} 一致,局限也相同
+     * (旧发布实例 JOIN 不上返回 null,由调用方降级隐藏知识库入口)。
+     *
+     * @param procdefId Flowable 流程定义 id(PROC_DEF 表主键)
+     * @return 应用 id(UUID 字符串);流程定义未归属任何应用时返回 null
+     */
+    public String findApplicationIdByProcdefId(String procdefId) {
+        if (procdefId == null || procdefId.isBlank()) {
+            return null;
+        }
+        return jdbcTemplate.query(
+            "SELECT a.id FROM public.workflow_definitions wd "
+                + "JOIN public.applications a ON a.id = wd.app_id "
+                + "WHERE wd.published_procdef_id = ? LIMIT 1",
+            (rs, rowNum) -> rs.getString(1),
+            procdefId
+        ).stream().findFirst().orElse(null);
+    }
 }

@@ -23,6 +23,7 @@ import { en, zh } from './locales.ts'
 import { createFilesStore } from './store.ts'
 
 export type { SidebarFilesKey } from './locales.ts'
+export type { FilesEntryActionOwnerProps } from './entry-slots.ts'
 export type { DirLevel, FilesState, FilesTabState, LevelState } from './store.ts'
 export type { FilesInjected, ListWorkspaceDirectory, WorkspaceFilesListRemote } from './face.ts'
 export type { FilesBodyProps } from './FilesBody.tsx'
@@ -48,7 +49,14 @@ export function apply(ctx: ClientContext): void {
   const store = createFilesStore()
   const inject = filesFace(createList(ctx.remote))
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
-    { name: 'sidebar.right.pane.tab', key: FILES_ID, locale: NS, store, inject },
+    {
+      name: 'sidebar.right.pane.tab',
+      key: FILES_ID,
+      locale: NS,
+      store,
+      inject,
+      children: { 'sidebar.files.entry.action': { kind: 'list', scope: 'session' } },
+    },
     FilesBody,
   )), 'ui-sidebar-files: files tab body')
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register(

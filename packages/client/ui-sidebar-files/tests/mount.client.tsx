@@ -45,6 +45,13 @@ interface MockedTabActions {
   readonly close: Mock<SidebarRightTabActions['close']>
 }
 
+/** One recorded entry-action dispatch: the key it rendered under, and the row it named. */
+export interface RecordedAction {
+  key: string
+  path: string
+  name: string
+}
+
 /** What a spec holds after mounting: the rendered view and every hand on the tree. */
 export interface Mounted {
   readonly view: RenderResult
@@ -53,6 +60,8 @@ export interface Mounted {
   readonly face: FilesInjected
   readonly controller: AbortController
   readonly tabActions: MockedTabActions
+  /** Entry-action slot dispatches, in row order. */
+  readonly actions: RecordedAction[]
 }
 
 /** One store instance, one face, one owner share. */
@@ -67,6 +76,8 @@ function harness(cwd: string | null) {
     close: vi.fn<SidebarRightTabActions['close']>(),
   }
   const sessions = { byId: cwd === null ? {} : { [SESSION]: { cwd } } } as unknown as SessionListState
+  // The entry-action seat records what the tree asked it to render per file row.
+  const actions: RecordedAction[] = []
   const shared = {
     // A page tab's address is the shell's to mint; the body never reads it.
     useTabInfo: () => ({
@@ -84,9 +95,13 @@ function harness(cwd: string | null) {
     useStore: hookOf(instance),
     actions: instance.actions,
     ...face,
+    renderSlot: (key: string, owner: { path: string; name: string }) => {
+      actions.push({ key, path: owner.path, name: owner.name })
+      return null
+    },
     t: makeTranslate(zh),
   }
-  return { instance, script, face, controller, tabActions, shared }
+  return { instance, script, face, controller, tabActions, actions, shared }
 }
 
 /**

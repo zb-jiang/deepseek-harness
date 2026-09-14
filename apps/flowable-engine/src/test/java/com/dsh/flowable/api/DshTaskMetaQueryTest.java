@@ -60,7 +60,8 @@ class DshTaskMetaQueryTest {
             new DshTaskMetaService(
                 processEngine.getRepositoryService(),
                 processEngine.getRuntimeService(),
-                new StubUserRepository()));
+                new StubUserRepository(),
+                new StubApplicationRepository()));
     }
 
     @AfterEach
@@ -84,6 +85,8 @@ class DshTaskMetaQueryTest {
         assertThat(dto.processDefinitionName()).isEqualTo("元数据补齐测试流程");
         assertThat(dto.startUserId()).isEqualTo("user-9");
         assertThat(dto.startUserName()).isEqualTo("张三");
+        // stub 应用仓储未命中:applicationId 走 null 降级(前端隐藏知识库入口)
+        assertThat(dto.applicationId()).isNull();
 
         // my-tasks 按 assignee 过滤:非处理人视角为空
         assertThat(controller.getMyTasks(jwtFor("someone-else"))).isEmpty();
@@ -170,6 +173,22 @@ class DshTaskMetaQueryTest {
         @Override
         public Map<String, String> findDisplayNamesByAuthSubjects(Collection<String> authSubjects) {
             return authSubjects.contains("user-9") ? Map.of("user-9", "张三") : Map.of();
+        }
+    }
+
+    /**
+     * H2 无 public.workflow_definitions 表,stub 固定返回 null(未归属应用),
+     * 对应 TaskDto.applicationId 为 null 的降级路径。
+     */
+    private static final class StubApplicationRepository extends com.dsh.flowable.repository.DshApplicationRepository {
+
+        StubApplicationRepository() {
+            super(null);
+        }
+
+        @Override
+        public String findApplicationIdByProcdefId(String procdefId) {
+            return null;
         }
     }
 }

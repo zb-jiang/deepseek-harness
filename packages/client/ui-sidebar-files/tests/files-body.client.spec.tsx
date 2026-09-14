@@ -144,6 +144,20 @@ describe('FilesBody', () => {
     expect(other.querySelector('[aria-disabled="true"]')?.getAttribute('title')).toBe(zh['entry.other'])
   })
 
+  it('offers the entry-action slot on every file row only, with the row\'s path and name', async () => {
+    const { view, script, actions } = mountBody()
+    await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
+    expect(actions).toEqual([
+      { key: 'sidebar.files.entry.action', path: `${ROOT}/.env`, name: '.env' },
+      { key: 'sidebar.files.entry.action', path: `${ROOT}/README.md`, name: 'README.md' },
+    ])
+    // A nested level's file rows dispatch too, once that level is listed.
+    act(() => { fireEvent.click(view.container.querySelector(`[data-files-path="${ROOT}/src"] > button`)!) })
+    await act(() => script.settle({ ok: true, value: { entries: [{ name: 'a.ts', type: 'file' }], truncated: false } }))
+    expect(actions).toHaveLength(3)
+    expect(actions[2]).toEqual({ key: 'sidebar.files.entry.action', path: `${ROOT}/src/a.ts`, name: 'a.ts' })
+  })
+
   it('marks a cut listing and an empty one', async () => {
     const { view, script } = mountBody()
     await act(() => script.settle({ ok: true, value: { entries: [{ name: 'd', type: 'directory' }], truncated: true } }))

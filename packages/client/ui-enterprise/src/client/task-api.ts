@@ -74,6 +74,8 @@ export type Task = {
   startUserId: string | null
   /** 发起人显示名;未解析到为 null,前端回退显示 id。 */
   startUserName: string | null
+  /** 流程定义所属应用 id(UUID);员工端凭此定位应用知识库,未归属为 null。 */
+  applicationId: string | null
 }
 
 /**
@@ -121,7 +123,8 @@ export type HistoricVariable = {
   lastUpdatedTime: string | null
 }
 
-function readToken(): string | null {
+/** 读取企业 JWT(kb-api 等同域代理客户端复用)。 */
+export function readToken(): string | null {
   if (typeof window === 'undefined') return null
   return window.localStorage.getItem(TOKEN_KEY)
 }

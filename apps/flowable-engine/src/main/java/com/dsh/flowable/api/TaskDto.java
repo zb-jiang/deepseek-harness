@@ -26,6 +26,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param processDefinitionName 流程定义名(BPMN process name);员工工作台待办卡片人读展示
  * @param startUserId       实例发起人 auth_subject(Supabase Auth sub);查不到为 null
  * @param startUserName     发起人显示名(platform_users.display_name);未解析到为 null,前端回退显示 id
+ * @param applicationId     流程定义所属应用 id(UUID 字符串);员工端凭此定位应用知识库;
+ *                          未归属应用(含旧发布实例)为 null,前端隐藏知识库入口
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TaskDto(
@@ -40,6 +42,7 @@ public record TaskDto(
     String nodeId,
     String processDefinitionName,
     String startUserId,
-    String startUserName
+    String startUserName,
+    String applicationId
 ) {
 }

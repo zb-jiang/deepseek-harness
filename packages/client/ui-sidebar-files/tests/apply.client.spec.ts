@@ -23,6 +23,7 @@ interface Recorded {
   locale: string
   store: unknown
   inject: unknown
+  children: unknown
   component: unknown
 }
 
@@ -80,6 +81,9 @@ describe('ui-sidebar-files apply', () => {
     ])
     expect(registered[0]?.store).toBeDefined()
     expect(typeof registered[0]?.inject).toBe('function')
+    // The body owns the per-file-row action slot's dispatch.
+    expect(registered[0]?.children).toEqual({ 'sidebar.files.entry.action': { kind: 'list', scope: 'session' } })
+    expect(registered[1]?.children).toBeUndefined()
   })
 
   it('takes every registration back when the plugin is disposed', async () => {

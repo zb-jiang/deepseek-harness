@@ -154,7 +154,7 @@ public class DshTaskController {
         }
 
         DshTaskMetaService.TaskMeta safeMeta = taskMeta == null
-            ? new DshTaskMetaService.TaskMeta(null, null, null)
+            ? new DshTaskMetaService.TaskMeta(null, null, null, null)
             : taskMeta;
         return new TaskDto(
             task.getId(),
@@ -168,7 +168,8 @@ public class DshTaskController {
             nodeId,
             safeMeta.processDefinitionName(),
             safeMeta.startUserId(),
-            safeMeta.startUserName()
+            safeMeta.startUserName(),
+            safeMeta.applicationId()
         );
     }
 

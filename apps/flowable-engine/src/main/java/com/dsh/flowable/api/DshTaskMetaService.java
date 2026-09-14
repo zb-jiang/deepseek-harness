@@ -1,5 +1,6 @@
 package com.dsh.flowable.api;
 
+import com.dsh.flowable.repository.DshApplicationRepository;
 import com.dsh.flowable.repository.DshUserRepository;
 import java.util.Collection;
 import java.util.HashMap;
@@ -19,10 +20,12 @@ import org.springframework.stereotype.Service;
  *
  * <p>Flowable {@code TaskInfo} 只有 {@code processDefinitionId},没有流程定义名,
  * 也不带实例发起人。员工端待办卡片需要「流程名 + 张三发起」的人读信息,本服务按
- * 任务列表批量补齐三块数据,避免逐任务 N+1:
+ * 任务列表批量补齐四块数据,避免逐任务 N+1:
  * <ul>
  *   <li>流程定义名:distinct procdefId → RepositoryService 逐个查(单用户待办的
  *       distinct 流程数通常 &lt; 10,单查开销可忽略);</li>
+ *   <li>所属应用 id:distinct procdefId → {@code workflow_definitions} JOIN
+ *       {@code applications}(员工端凭此定位应用知识库);</li>
  *   <li>实例发起人 id:distinct processInstanceId → RuntimeService 批量查
  *       ({@code processInstanceIds(Set)});</li>
  *   <li>发起人显示名:distinct 发起人 id → {@code platform_users} 反查。</li>
@@ -36,13 +39,16 @@ public class DshTaskMetaService {
     private final RepositoryService repositoryService;
     private final RuntimeService runtimeService;
     private final DshUserRepository userRepository;
+    private final DshApplicationRepository applicationRepository;
 
     public DshTaskMetaService(RepositoryService repositoryService,
                                RuntimeService runtimeService,
-                               DshUserRepository userRepository) {
+                               DshUserRepository userRepository,
+                               DshApplicationRepository applicationRepository) {
         this.repositoryService = repositoryService;
         this.runtimeService = runtimeService;
         this.userRepository = userRepository;
+        this.applicationRepository = applicationRepository;
     }
 
     /**
@@ -68,12 +74,17 @@ public class DshTaskMetaService {
         }
 
         Map<String, String> procdefNameById = new HashMap<>();
+        Map<String, String> applicationIdByProcdef = new HashMap<>();
         for (String procdefId : procdefIds) {
             ProcessDefinition def = repositoryService.createProcessDefinitionQuery()
                 .processDefinitionId(procdefId)
                 .singleResult();
             if (def != null) {
                 procdefNameById.put(procdefId, def.getName());
+            }
+            String applicationId = applicationRepository.findApplicationIdByProcdefId(procdefId);
+            if (applicationId != null) {
+                applicationIdByProcdef.put(procdefId, applicationId);
             }
         }
 
@@ -100,9 +111,13 @@ public class DshTaskMetaService {
             String procdefName = task.getProcessDefinitionId() == null
                 ? null
                 : procdefNameById.get(task.getProcessDefinitionId());
+            String applicationId = task.getProcessDefinitionId() == null
+                ? null
+                : applicationIdByProcdef.get(task.getProcessDefinitionId());
             String startUserId = startUserByInstance.get(task.getProcessInstanceId());
             String startUserName = startUserId == null ? null : displayNameByUser.get(startUserId);
-            metaByInstance.put(task.getProcessInstanceId(), new TaskMeta(procdefName, startUserId, startUserName));
+            metaByInstance.put(task.getProcessInstanceId(),
+                new TaskMeta(procdefName, startUserId, startUserName, applicationId));
         }
         return metaByInstance;
     }
@@ -127,10 +142,10 @@ private String applicantUserIdFromVariable(String instanceId) {
      */
     public TaskMeta enrich(Task task) {
         if (task == null || task.getProcessInstanceId() == null) {
-            return new TaskMeta(null, null, null);
+            return new TaskMeta(null, null, null, null);
         }
         return enrichByInstance(List.of(task)).getOrDefault(
-            task.getProcessInstanceId(), new TaskMeta(null, null, null));
+            task.getProcessInstanceId(), new TaskMeta(null, null, null, null));
     }
 
     /**
@@ -139,11 +154,14 @@ private String applicantUserIdFromVariable(String instanceId) {
      * @param processDefinitionName 流程定义名(BPMN process name);查不到为 null
      * @param startUserId           发起人 auth_subject(Supabase Auth sub);查不到为 null
      * @param startUserName         发起人显示名;未解析到为 null,前端回退显示 id
+     * @param applicationId         流程定义所属应用 id(UUID 字符串);员工端凭此定位
+     *                              应用知识库;未归属应用(含旧发布实例)为 null
      */
     public record TaskMeta(
         String processDefinitionName,
         String startUserId,
-        String startUserName
+        String startUserName,
+        String applicationId
     ) {
     }
 }

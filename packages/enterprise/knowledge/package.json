@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-enterprise-app",
-  "description": "The dsh enterprise-surface bundle: enterprise platform-user authentication patch layer over dsh-web-app",
+  "name": "@deepseek-ai/dsh-knowledge",
+  "description": "Enterprise knowledge base access on the employee side: webserver proxy to web-console /api/kb plus model-facing kb_search/kb_read/kb_list tools",
   "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"
@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/bundle/enterprise-app"
+    "directory": "packages/enterprise/knowledge"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -22,39 +22,28 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
-    "./cordis.patch.yml": "./cordis.patch.yml",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "cordis.patch.yml",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  },
-  "dependencies": {
-    "@deepseek-ai/dsh-platform-user": "workspace:^",
-    "@deepseek-ai/dsh-platform-user-supabase": "workspace:^",
-    "@deepseek-ai/dsh-platform-user-api": "workspace:^",
-    "@deepseek-ai/dsh-user-identity-context": "workspace:^",
-    "@deepseek-ai/dsh-flowable-task-proxy": "workspace:^",
-    "@deepseek-ai/cordis-plugin-logger-console": "workspace:^",
-    "@deepseek-ai/dsh-skill-sync": "workspace:^",
-    "@deepseek-ai/dsh-knowledge": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-enterprise": "workspace:^"
-  },
   "peerDependencies": {
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-user-identity-context": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
 }

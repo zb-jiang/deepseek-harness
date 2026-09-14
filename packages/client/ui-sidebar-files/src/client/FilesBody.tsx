@@ -5,7 +5,9 @@
  * for goes through its injected face. The component itself only decides what to
  * draw for each absolute path and what a click means: a directory toggles, a
  * file opens through the owner's `tabActions` for a `file:` viewer to claim, and
- * anything else is shown but refuses to open. The header row is the text
+ * anything else is shown but refuses to open. A file row also offers the
+ * `sidebar.files.entry.action` slot — occupants render trailing controls on the
+ * row without touching its open behavior. The header row is the text
  * preview's: the root's path, directories greyed and the last segment in full
  * ink, then the one control at its end, reload, which drops every listed level
  * and asks again for the expanded ones.
@@ -14,7 +16,9 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import clsx from 'clsx'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
-import type { PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, TranslateNS,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import {
   FileTypeIcon, IconFolderClose16, IconFolderOpen16, IconRefreshOutline16, classifyFileType,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -22,6 +26,7 @@ import { fileAddressFor, pathPartsOf } from '@deepseek-ai/dsh-util-workspace-pat
 import type { WorkspaceDirectoryEntry } from '@deepseek-ai/dsh-api-workspace-files/types'
 import { childPath } from './face.ts'
 import type { FilesInjected } from './face.ts'
+import type {} from './entry-slots.ts'
 import type {} from './locales.ts'
 import type { FilesTabState, createFilesStore } from './store.ts'
 import css from './FilesBody.module.css'
@@ -29,6 +34,7 @@ import css from './FilesBody.module.css'
 /** The body's composed props: the tab it draws, its store, its face, and its copy. */
 export type FilesBodyProps =
   & PropsRuntime<'sidebar.right.pane.tab'>
+  & PropsRenderSlots<'sidebar.files.entry.action'>
   & PropsStore<ReturnType<typeof createFilesStore>>
   & FilesInjected
   & PropsLocale<'sidebarFiles'>
@@ -100,11 +106,12 @@ function usePathClipped(
 }
 /* jscpd:ignore-end */
 
-/** What every level shares: the tab's tree and the two gestures. */
+/** What every level shares: the tab's tree, the two gestures, and the action-slot dispatcher. */
 interface TreeContext {
   readonly state: FilesTabState
   readonly onToggle: (path: string) => void
   readonly onOpen: (path: string) => void
+  readonly renderAction: (path: string, name: string) => ReactNode
   readonly t: TranslateNS<'sidebarFiles'>
 }
 
@@ -130,6 +137,7 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
           <FileTypeIcon kind={classifyFileType(entry.name)} size={16} className={css.fileIcon} />
           <span className={css.name}>{entry.name}</span>
         </button>
+        {tree.renderAction(path, entry.name)}
       </li>
     )
   }
@@ -168,7 +176,7 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions, start, load, toggle, t,
+  useTabInfo, sessionId, useSessions, useStore, actions, start, load, toggle, renderSlot, t,
 }: FilesBodyProps): ReactNode {
   const { tab } = useTabInfo()
   const { signal, actions: tabActions } = tab
@@ -197,6 +205,7 @@ export function FilesBody({
     onToggle: (path) => { toggle(tab.id, path, state.levels[path] !== undefined, signal) },
     // Every row is under the tree's root, so its address is session-relative.
     onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, state.root, path)) },
+    renderAction: (path, name) => renderSlot('sidebar.files.entry.action', { path, name }),
     t,
   }
   // Reload drops every level and asks again for the expanded ones; a collapsed

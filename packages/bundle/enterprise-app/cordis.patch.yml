@@ -56,5 +56,14 @@
         skillhubToken: !!js process.env.SKILLHUB_API_TOKEN ?? ''
         intervalMs: !!js Number(process.env.SKILL_SYNC_INTERVAL_MS ?? 600000)
 
+    # 企业知识库访问：本地 webserver 代理 /api/enterprise/kb、
+    # /api/enterprise/apps → web-console，并注册 kb_search/kb_read/kb_list
+    # 工具供待办会话 AI 检索应用知识。
+    - id: knowledge
+      name: '@deepseek-ai/dsh-knowledge'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
+        readMaxChars: !!js Number(process.env.KB_READ_MAX_CHARS ?? 40000)
+
     - id: ui-enterprise
       name: '@deepseek-ai/dsh-client-ui-enterprise'

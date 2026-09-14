@@ -102,6 +102,20 @@
   padding: 0;
 }
 
+/* A file row carries trailing action-slot controls after its open button, so
+   the row is a flex line: the button takes the width and the actions ride at
+   its end. Directory and other rows stay block, so a nested level stacks under
+   its own header. */
+.item[data-files-entry='file'] {
+  display: flex;
+  align-items: center;
+}
+
+.item[data-files-entry='file'] > .row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .row {
   display: flex;
   gap: 6px;

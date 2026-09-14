@@ -4,8 +4,10 @@ import com.dsh.console.app.ApplicationJdbcRepository;
 import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.knowledge.dto.KbAppSummaryDto;
 import com.dsh.console.knowledge.dto.KbDocumentContentDto;
 import com.dsh.console.knowledge.dto.KbDocumentDto;
+import com.dsh.console.knowledge.dto.KbDocumentTextDto;
 import com.dsh.console.knowledge.dto.KbFolderDto;
 import com.dsh.console.knowledge.dto.KnowledgeBaseDto;
 import com.dsh.console.security.AuthContext;
@@ -83,6 +85,27 @@ public class KnowledgeService {
             .orElseThrow(() -> new NotFoundException("知识库不存在: " + kbId));
         checkAppMemberAccess(auth, kb.applicationId());
         return kb;
+    }
+
+    /**
+     * 按应用查知识库(成员可读,不开通):员工端待办会话的知识库选择器入口
+     * (design 2026-09-11 §6 待办定位知识库)。未开通抛 NotFound,前端隐藏入口。
+     */
+    public KnowledgeBaseDto findKnowledgeBaseByApp(AuthContext auth, UUID appId) {
+        KnowledgeBaseDto kb = repository.findKbByApp(appId)
+            .orElseThrow(() -> new NotFoundException("应用未开通知识库: " + appId));
+        checkAppMemberAccess(auth, kb.applicationId());
+        return kb;
+    }
+
+    /**
+     * 当前用户可见的知识库清单(system_admin 全部;其余为应用管理员 ∪
+     * active 成员的应用):员工端工作空间上传「选应用」数据源。
+     */
+    public List<KbAppSummaryDto> listKbsForUser(AuthContext auth) {
+        return auth.isSystemAdmin()
+            ? repository.listAllKbs()
+            : repository.listKbsForUser(auth.platformUserId(), auth.authSubject());
     }
 
     // ---------- 文件夹 ----------
@@ -179,8 +202,8 @@ public class KnowledgeService {
     // ---------- 文档 ----------
 
     /**
-     * 列文档。folderId 为 null 表示根;recursive 含子树;kw 关键字检索(强制只返回 ready);
-     * parseStatus 过滤解析状态。全文不进列表载荷,给摘要窗口。
+     * 列文档。folderId 为 null 表示根;recursive 含子树(根 + recursive = 全库);
+     * kw 关键字检索(强制只返回 ready);parseStatus 过滤解析状态。全文不进列表载荷,给摘要窗口。
      */
     public List<KbDocumentDto> listDocuments(AuthContext auth, UUID kbId, UUID folderId,
                                              boolean recursive, String kw, String parseStatus) {
@@ -248,6 +271,33 @@ public class KnowledgeService {
             .orElseThrow(() -> new NotFoundException("文档不存在: " + docId));
         byte[] content = storageClient.download(kb.storageBucket(), doc.storagePath());
         return new KbDocumentContentDto(docId, doc.name(), doc.contentType(), content);
+    }
+
+    /**
+     * 读文档抽取全文(员工端 kb_read 工具):按 docId 直查,KB 归属从行内 kb_id
+     * 推导后照常做成员校验;未解析完成返回 pending 状态由调用方呈现。
+     */
+    public KbDocumentTextDto readDocumentText(AuthContext auth, UUID docId) {
+        KbDocumentRecord doc = repository.findDocumentById(docId)
+            .orElseThrow(() -> new NotFoundException("文档不存在: " + docId));
+        KnowledgeBaseDto kb = repository.findKb(doc.kbId())
+            .orElseThrow(() -> new NotFoundException("知识库不存在: " + doc.kbId()));
+        checkAppMemberAccess(auth, kb.applicationId());
+        return new KbDocumentTextDto(
+            doc.id(), doc.kbId(), doc.name(), doc.textContent(), doc.parseStatus());
+    }
+
+    /**
+     * 按文档 id 查元数据(员工端历史消息 KB 徽标):按 docId 直查,KB 归属从
+     * 行内 kb_id 推导后照常做成员校验。
+     */
+    public KbDocumentDto getDocument(AuthContext auth, UUID docId) {
+        KbDocumentRecord doc = repository.findDocumentById(docId)
+            .orElseThrow(() -> new NotFoundException("文档不存在: " + docId));
+        KnowledgeBaseDto kb = repository.findKb(doc.kbId())
+            .orElseThrow(() -> new NotFoundException("知识库不存在: " + doc.kbId()));
+        checkAppMemberAccess(auth, kb.applicationId());
+        return toDto(doc, null, repository.displayNamesByAuthSubjects(Set.of(doc.uploadedBy())));
     }
 
     @Transactional

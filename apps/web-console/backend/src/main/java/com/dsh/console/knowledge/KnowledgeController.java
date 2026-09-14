@@ -2,8 +2,10 @@ package com.dsh.console.knowledge;
 
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.knowledge.dto.CreateFolderRequest;
+import com.dsh.console.knowledge.dto.KbAppSummaryDto;
 import com.dsh.console.knowledge.dto.KbDocumentContentDto;
 import com.dsh.console.knowledge.dto.KbDocumentDto;
+import com.dsh.console.knowledge.dto.KbDocumentTextDto;
 import com.dsh.console.knowledge.dto.KbFolderDto;
 import com.dsh.console.knowledge.dto.KnowledgeBaseDto;
 import com.dsh.console.knowledge.dto.UpdateFolderRequest;
@@ -59,6 +61,25 @@ public class KnowledgeController {
     public ApiResponse<KnowledgeBaseDto> getKb(@PathVariable UUID kbId,
                                                @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(knowledgeService.getKnowledgeBase(auth, kbId));
+    }
+
+    /**
+     * 按应用查知识库(成员可读,不开通;未开通 404)。员工端待办会话的
+     * 知识库选择器入口。
+     */
+    @GetMapping("/api/kb/by-app/{appId}")
+    public ApiResponse<KnowledgeBaseDto> findKbByApp(@PathVariable UUID appId,
+                                                     @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(knowledgeService.findKnowledgeBaseByApp(auth, appId));
+    }
+
+    /**
+     * 当前用户可见的知识库清单(应用管理员 ∪ active 成员的应用)。
+     * 员工端工作空间上传「选应用」数据源。
+     */
+    @GetMapping("/api/kb/mine")
+    public ApiResponse<List<KbAppSummaryDto>> listMyKbs(@AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(knowledgeService.listKbsForUser(auth));
     }
 
     /**
@@ -137,6 +158,24 @@ public class KnowledgeController {
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                 .filename(content.name(), StandardCharsets.UTF_8).build().toString())
             .body(content.content());
+    }
+
+    /**
+     * 读文档抽取全文(员工端 kb_read 工具;按 docId 直查,KB 归属服务层推导)。
+     */
+    @GetMapping("/api/kb/documents/{docId}/text")
+    public ApiResponse<KbDocumentTextDto> readDocumentText(@PathVariable UUID docId,
+                                                           @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(knowledgeService.readDocumentText(auth, docId));
+    }
+
+    /**
+     * 按文档 id 查元数据(员工端历史消息 KB 徽标;按 docId 直查,KB 归属服务层推导)。
+     */
+    @GetMapping("/api/kb/documents/{docId}")
+    public ApiResponse<KbDocumentDto> getDocument(@PathVariable UUID docId,
+                                                  @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(knowledgeService.getDocument(auth, docId));
     }
 
     /**
