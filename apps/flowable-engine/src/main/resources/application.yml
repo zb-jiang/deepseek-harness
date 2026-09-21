@@ -23,9 +23,13 @@ spring:
     password: ${SUPABASE_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
-      # Supabase session pooler 上限 15;与 web-console 各分 5(合计 10<15,留余量)
+      # Supabase session pooler 上限 15;与 web-console 各分 5(合计 10<15,留余量)。
+      # 恒温 5 条(不用 minimum-idle 缩池):远端 RTT 高,现建连接要数秒,缩池后突发
+      # 请求会排队超时;僵尸进程清理后名额足够,保持常连接避免建连空窗。
       maximum-pool-size: 5
       connection-timeout: 30000
+      # 30 分钟轮换连接,回收网络抖动产生的半开连接
+      max-lifetime: 1800000
 
 # Flowable 7 Spring Boot starter 配置前缀是顶级 flowable.*(不是 spring.flowable.*);
 # 写在 spring 下会被忽略,Flowable 回退到默认 schema=public 把 ACT_* 建到 public 下。
@@ -33,11 +37,11 @@ flowable:
   # ACT_* 表建在 flowable schema,与 public schema 业务表隔离
   database-schema: flowable
   # 首次启动自动建表,后续启动比对版本升级
-  database-schema-update: true
+  database-schema-update: false
   # 启用异步 executor:定时器边界事件(超时升级 §6.8)、异步 ServiceTask 需要
   async-executor-activate: true
   # 异步 executor 线程池调优(V1):
-  # 定制 delegate 的异步 ServiceTask(async=true)可调 DSH headless 执行 LLM,耗时长,
+  # DSH backend task delegate(async ServiceTask)轮询 backend profile 执行 LLM,耗时长,
   # 默认 pool=2/max=10 队列 20000 对单企业单实例偏大;V1 调小便于资源控制。
   # 生产环境按 LLM 平均耗时和实例并发度调整;LLM 调用属于 I/O 密集,可适当大于 CPU 核数。
   async-executor-core-pool-size: 4
@@ -65,20 +69,15 @@ dsh:
     # JWT issuer claim (Supabase Auth 的 iss 为 https://<ref>.supabase.co/auth/v1)
     jwt-issuer: ${SUPABASE_URL}/auth/v1
 
-  # DSH headless profile 集成配置(可选:定制 delegate 调用 LLM 智能服务时使用)
-  # DshHeadlessClient 在 repo-root 目录下启动 headless 一次性任务进程:
-  #   node --import tsx/esm apps/cli/src/bin.ts --profile headless "<任务>"
-  # 当前 DEMO 无自动节点,repo-root 可不配置(调用时才校验);
-  # 子进程继承引擎环境变量,调用时必须已设置 DEEPSEEK_API_KEY;node 须在 PATH 上。
-  headless:
-    # Node 可执行文件(默认 node)
-    node-bin: node
-    # DSH 仓库根目录(含 apps/cli 与根 node_modules);留空=未启用,调用时抛异常
-    repo-root: ${DSH_REPO_ROOT:}
-    # 仓库根目录下的 dsh CLI 入口
-    cli-entry: apps/cli/src/bin.ts
-    # 单次 headless 调用超时(秒);LLM 含 thinking 耗时较长,超时后触发 async Job 重试
-    call-timeout-seconds: 300
+  # DSH backend task delegate 集成配置(design 2026-09-14 §6.2)
+  # DshBackendClient 提交+轮询常驻 backend profile 实例:
+  #   POST {dsh:backendTask@backendProfileUrl}/api/backend/tasks → 轮询 GET 任务状态
+  # 实例 URL 存在 BPMN 节点上(画布属性面板下拉选择),不在此配置。
+  backend:
+    # 轮询间隔(秒)
+    poll-interval-seconds: 3
+    # 单次任务调用总超时(秒,含轮询累计);超时抛异常触发 async Job 重试
+    call-timeout-seconds: 600
 
 logging:
   level:

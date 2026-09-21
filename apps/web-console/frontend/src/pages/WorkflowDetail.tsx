@@ -30,8 +30,15 @@ import {
 } from '../api/workflows'
 import { rolesApi } from '../api/roles'
 import { appsApi, type ApplicationDto } from '../api/apps'
+import { backendProfilesApi } from '../api/backend-profiles'
+import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
 import BpmnModeler from '../bpmn/BpmnModeler'
-import { setDshRoleOptions, setDshSkillOptions } from '../bpmn/DshPropertiesProvider'
+import {
+  setDshRoleOptions,
+  setDshSkillOptions,
+  setDshBackendProfileOptions,
+  setDshOrgUnitOptions,
+} from '../bpmn/DshPropertiesProvider'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default',
@@ -45,6 +52,23 @@ const STATUS_TEXT: Record<string, string> = {
   published: '已发布',
   disabled: '已停用',
   archived: '已归档',
+}
+
+/**
+ * 部门树 → 扁平选项清单(value=部门 id,label=到根路径,如「总公司 / 华东区」),
+ * 供属性面板"指定部门"下拉渲染。
+ */
+function flattenOrgUnitTree(
+  nodes: OrgUnitTreeNode[],
+  parentPath: string[] = [],
+): Array<{ value: string; label: string }> {
+  const out: Array<{ value: string; label: string }> = []
+  for (const n of nodes) {
+    const path = [...parentPath, n.name]
+    out.push({ value: n.id, label: path.join(' / ') })
+    out.push(...flattenOrgUnitTree(n.children ?? [], path))
+  }
+  return out
 }
 
 /**
@@ -142,6 +166,22 @@ export default function WorkflowDetailPage() {
         }
       } else {
         setDshSkillOptions([])
+      }
+      // backend profile 活跃实例注入 properties panel 的 DSH backend task 下拉;
+      // 拉取失败静默降级为空选项(发布校验兜底拦截空 URL)
+      try {
+        const profiles = await backendProfilesApi.list()
+        setDshBackendProfileOptions(profiles ?? [])
+      } catch {
+        setDshBackendProfileOptions([])
+      }
+      // 组织树扁平化注入 properties panel 的"指定部门"下拉(到根路径显示);
+      // 组织未启用或拉取失败降级为空选项(发布校验兜底拦截空部门)
+      try {
+        const tree = await orgUnitsApi.tree()
+        setDshOrgUnitOptions(flattenOrgUnitTree(tree ?? []))
+      } catch {
+        setDshOrgUnitOptions([])
       }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载流程失败')
@@ -375,9 +415,7 @@ export default function WorkflowDetailPage() {
             children: (
               <>
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-                  左侧画布拖拽建模;选中节点后在右侧面板配置:UserTask 看"DSH 人工节点配置"
-                  (候选角色/User Prompt/输出映射/skill 引用/超时升级/SoD;多人处理用扳手菜单的多实例),
-                  ServiceTask 看"DSH 自动节点配置"(执行委托/异步)。修改后点击"保存草稿"。
+
                 </Typography.Paragraph>
                 <BpmnModeler
                   xml={bpmnXml}

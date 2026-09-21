@@ -15,7 +15,7 @@ export default function InstancesPage() {
   const [apps, setApps] = useState<ApplicationDto[]>([])
   const [loading, setLoading] = useState(false)
   const [appIdFilter, setAppIdFilter] = useState<string | undefined>()
-  // 状态过滤:running=运行中;finished=已完成;undefined=全部
+  // 状态过滤:running=运行中;completed=已完成;terminated=已终止;undefined=全部
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
 
   const appMap = useMemo(() => {
@@ -38,7 +38,7 @@ export default function InstancesPage() {
     try {
       const list = await instancesApi.list({
         appId: appIdFilter,
-        finished: statusFilter === 'running' ? false : statusFilter === 'finished' ? true : undefined,
+        state: statusFilter,
         start: 0,
         size: 200,
       })
@@ -155,7 +155,8 @@ export default function InstancesPage() {
           allowClear
           options={[
             { value: 'running', label: '运行中' },
-            { value: 'finished', label: '已完成' },
+            { value: 'completed', label: '已完成' },
+            { value: 'terminated', label: '已终止' },
           ]}
         />
         <Button onClick={() => load()}>刷新</Button>

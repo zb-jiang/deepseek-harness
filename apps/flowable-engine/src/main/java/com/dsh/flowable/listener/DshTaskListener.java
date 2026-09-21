@@ -4,8 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.delegate.TaskListener;
@@ -14,7 +12,7 @@ import org.springframework.stereotype.Component;
 import com.dsh.flowable.repository.DshMembershipRepository;
 
 /**
- * 在 userTask create 事件触发时,做三件事:
+ * 在 userTask create 事件触发时,做四件事:
  *
  * <ol>
  *   <li><b>注入 dsh 元数据</b>:从 BPMN model 解析节点 {@code dsh:} extensionElements 为
@@ -33,6 +31,10 @@ import com.dsh.flowable.repository.DshMembershipRepository;
  *         <li>把过滤后的 candidates 加入 {@code task.candidateUsers}。</li>
  *       </ul>
  *       V1 不展开角色继承(§6.6 由 DSH task-api 层做);引擎只看直接 role。</li>
+ *   <li><b>派发归属快照</b>(design 决策 13):多实例任务的 assignee(经
+ *       {@code dshCandidateUserId})从流程变量 {@code dsh_assignment_orgs_<nodeId>}
+ *       取解析依据部门,写 task-local 变量 {@code dsh_assignment_org_unit},
+ *       供超时升级锚定当前审批人。</li>
  * </ol>
  *
  * <p><b>缓存策略</b>:解析结果按 {@code (procdefId, taskDefKey)} 缓存在
@@ -54,24 +56,30 @@ public class DshTaskListener implements TaskListener {
     /** task-local 变量名:标记 SoD 过滤已应用(避免重复)。 */
     public static final String TASK_VARIABLE_SOD_APPLIED = "dsh_sod_applied";
 
-    /** userPrompt 模板占位符 {@code {{var.field}}}(design 2026-09-01 §7)。 */
-    private static final Pattern PROMPT_PLACEHOLDER = Pattern.compile("\\{\\{([^}]+)}}");
+    /**
+     * task-local 变量名:解析出该任务 assignee 依据的部门 id(design 决策 13),
+     * 超时升级锚定当前审批人时优先读取;缺失时升级方走 org_unit_members 映射表回退。
+     */
+    public static final String TASK_VARIABLE_ASSIGNMENT_ORG_UNIT = "dsh_assignment_org_unit";
 
     private final DshExtensionResolver resolver;
     private final ObjectMapper objectMapper;
     private final DshSodFilter sodFilter;
     private final DshMembershipRepository membershipRepository;
+    private final DshCandidateResolver candidateResolver;
     private final TaskService taskService;
 
     public DshTaskListener(DshExtensionResolver resolver,
                             ObjectMapper objectMapper,
                             DshSodFilter sodFilter,
                             DshMembershipRepository membershipRepository,
+                            DshCandidateResolver candidateResolver,
                             TaskService taskService) {
         this.resolver = resolver;
         this.objectMapper = objectMapper;
         this.sodFilter = sodFilter;
         this.membershipRepository = membershipRepository;
+        this.candidateResolver = candidateResolver;
         this.taskService = taskService;
     }
 
@@ -112,6 +120,18 @@ public class DshTaskListener implements TaskListener {
                 applySod(delegateTask, props, userTask);
             }
         }
+        // 3. 派发归属快照(design 决策 13):多实例逐人 assignee 的解析部门 →
+        //    任务局部变量(超时升级锚点);非多实例/global 场景无归属,不写
+        String candidateUserId = (String) delegateTask.getVariable(
+            DshMultiInstanceSetupListener.CANDIDATE_ITEM_VARIABLE);
+        if (candidateUserId != null) {
+            Object assignmentOrgs = delegateTask.getVariable(
+                DshMultiInstanceSetupListener.ASSIGNMENT_ORGS_VARIABLE_PREFIX + taskDefKey);
+            if (assignmentOrgs instanceof Map<?, ?> orgs
+                && orgs.get(candidateUserId) instanceof String assignmentOrgUnit) {
+                delegateTask.setVariableLocal(TASK_VARIABLE_ASSIGNMENT_ORG_UNIT, assignmentOrgUnit);
+            }
+        }
     }
 
     /**
@@ -125,55 +145,14 @@ public class DshTaskListener implements TaskListener {
         }
         return new DshExtensionProperties(
             props.assignmentRule(),
-            interpolate(template, delegateTask),
+            props.votingRule(),
+            DshPromptInterpolator.interpolate(template, delegateTask::getVariable, objectMapper),
             props.skillRefs(),
             props.actionPolicy(),
             props.outputMappings(),
-            props.contextVariables()
+            props.contextVariables(),
+            props.backendTask()
         );
-    }
-
-    /**
-     * 替换模板中全部 {@code {{var.field}}} 占位符。
-     */
-    private String interpolate(String template, DelegateTask delegateTask) {
-        Matcher matcher = PROMPT_PLACEHOLDER.matcher(template);
-        StringBuilder sb = new StringBuilder();
-        while (matcher.find()) {
-            String path = matcher.group(1).trim();
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(resolvePlaceholder(path, delegateTask)));
-        }
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-
-    /**
-     * 解析点路径占位符:根段从流程变量取,后续段深入 Map 字段;
-     * 值缺失(null 或路径中途断开)替换为「空」——变量未设置常见于分支跳过
-     * 未走过的节点,保留占位符原文会把模板语法泄漏给模型与办理人;
-     * string 直接替换,其余类型(object/array/数字等)序列化为 JSON 文本嵌入。
-     */
-    private String resolvePlaceholder(String path, DelegateTask delegateTask) {
-        String[] segments = path.split("\\.");
-        Object value = delegateTask.getVariable(segments[0]);
-        for (int i = 1; i < segments.length && value != null; i++) {
-            if (value instanceof Map<?, ?> map) {
-                value = map.get(segments[i]);
-            } else {
-                value = null;
-            }
-        }
-        if (value == null) {
-            return "空";
-        }
-        if (value instanceof String s) {
-            return s;
-        }
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
-            return "{{" + path + "}}";
-        }
     }
 
     /**
@@ -199,7 +178,7 @@ public class DshTaskListener implements TaskListener {
             || props.actionPolicy().sodRules().isEmpty()) {
             return;
         }
-        List<String> candidates = collectCandidates(props, userTask);
+        List<String> candidates = collectCandidates(delegateTask, props, userTask);
         if (candidates.isEmpty()) {
             return;
         }
@@ -219,15 +198,29 @@ public class DshTaskListener implements TaskListener {
         delegateTask.setVariableLocal(TASK_VARIABLE_SOD_APPLIED, "true");
     }
 
-    private List<String> collectCandidates(DshExtensionProperties props, UserTask userTask) {
+    private List<String> collectCandidates(DelegateTask delegateTask,
+                                           DshExtensionProperties props,
+                                           UserTask userTask) {
         // 优先用 BPMN 显式配的 candidateUsers
         List<String> bpmnCandidateUsers = userTask.getCandidateUsers();
         if (bpmnCandidateUsers != null && !bpmnCandidateUsers.isEmpty()) {
             return bpmnCandidateUsers;
         }
+        // 组织维度路径(design 2026-09-19):虚拟角色/范围经 resolver 解析(锚定申请人)。
+        // 自动通过信号在本路径忽略:非多实例 + 虚拟角色到顶不属产品路径
+        // (DSH 设计器产出的 userTask 恒多实例,完整到顶语义在 DshMultiInstanceSetupListener)。
+        DshExtensionProperties.AssignmentRule rule = props.assignmentRule();
+        if (rule != null && (rule.virtualRole() != null || rule.orgScope() != null)) {
+            DshCandidateResolver.Resolution resolution = candidateResolver.resolveForApplicant(
+                rule,
+                (String) delegateTask.getVariable(
+                    DshMultiInstanceSetupListener.PROCESS_VARIABLE_APPLICANT_ORG_UNIT_ID),
+                (String) delegateTask.getVariable(DshSodFilter.PROCESS_VARIABLE_APPLICANT_USER_ID)
+            );
+            return resolution == null ? List.of() : resolution.candidates();
+        }
         // 否则从 dsh:assignmentRule.candidateRoleId 或 BPMN candidateGroups 拿 role_id,查 app_memberships
-        String roleId = props.assignmentRule() != null
-            ? props.assignmentRule().candidateRoleId() : null;
+        String roleId = rule != null ? rule.candidateRoleId() : null;
         if (roleId == null || roleId.isBlank()) {
             List<String> candidateGroups = userTask.getCandidateGroups();
             if (candidateGroups != null && !candidateGroups.isEmpty()) {

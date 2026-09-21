@@ -16,19 +16,42 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DshExtensionProperties(
     AssignmentRule assignmentRule,
+    VotingRule votingRule,
     String userPrompt,
     List<String> skillRefs,
     ActionPolicy actionPolicy,
     List<OutputMapping> outputMappings,
-    List<DshContextVariable> contextVariables
+    List<DshContextVariable> contextVariables,
+    BackendTask backendTask
 ) {
 
     /**
-     * 人工节点责任规则。
+     * 人工节点责任规则(design 2026-09-19:范围 × 目标角色)。
      *
-     * @param candidateRoleId  候选角色 id(app_roles.id);按 §6.6 角色继承展开
+     * <p>互斥语义由 {@link DshBpmnExtensionParser} 解析时归一化、web-console 发布校验
+     * 严格把守:{@code virtualRole} 非空时(隐含同行政线)忽略 {@code candidateRoleId} /
+     * {@code orgScope} / {@code fixedUnitId};实体角色时 {@code orgScope} 缺省=全公司
+     * (存量流程行为不变)。
+     *
+     * @param candidateRoleId  实体候选角色 id(app_roles.id);虚拟角色时为 null
+     * @param orgScope         组织范围:sameLine(同行政线) / fixedUnit(指定部门) /
+     *                         global(全公司);null=缺省全公司(存量兼容)
+     * @param virtualRole      虚拟角色:parent / grandparent / child / grandchild;
+     *                         待办分配锚定申请人、超时升级锚定当前审批人
+     * @param fixedUnitId      指定部门 id(org_units.id);orgScope=fixedUnit 时必填
      */
-    public record AssignmentRule(String candidateRoleId) {}
+    public record AssignmentRule(String candidateRoleId, String orgScope, String virtualRole, String fixedUnitId) {}
+
+    /**
+     * 会签计票规则(design 2026-09-15):按多实例每份提交的表决变量值聚合票数,
+     * 引擎按票数自动生成完成条件(达到通过/否决票数提前收,剩余待办自动删除)。
+     *
+     * @param variable    表决变量名(必须是本节点输出映射 target 根变量,发布校验保证)
+     * @param passValue   记一票同意的值;非空且不等于它记一票否决
+     * @param passCount   通过票数阈值(>=1,发布校验保证)
+     * @param rejectCount 否决票数阈值;null 表示不设否决阈值(否决票只计数,投满自然结束)
+     */
+    public record VotingRule(String variable, String passValue, Integer passCount, Integer rejectCount) {}
 
     /**
      * 节点允许的人工动作和策略。
@@ -41,11 +64,14 @@ public record DshExtensionProperties(
     /**
      * 超时升级策略。
      *
-     * @param duration            ISO-8601 持续时长(如 PT24H)
-     * @param escalateToRoleId    升级目标角色 id
-     * @param escalateToUserId    升级目标用户 id;nullable 表示升级到角色
+     * @param duration                ISO-8601 持续时长(如 PT24H)
+     * @param escalateToRoleId         升级目标实体角色 id
+     * @param escalateToUserId        升级目标用户 id;nullable 表示升级到角色
+     * @param escalateToVirtualRole   升级目标虚拟角色(parent/grandparent);锚定当前审批人
+     *                                 (design 2026-09-19 §5.2 双锚点:升级=审批人的上级接管);
+     *                                 审批人已是组织顶点时保持原审批人并记审计变量
      */
-    public record TimeoutPolicy(String duration, String escalateToRoleId, String escalateToUserId) {}
+    public record TimeoutPolicy(String duration, String escalateToRoleId, String escalateToUserId, String escalateToVirtualRole) {}
 
     /**
      * 职责分离规则。
@@ -61,4 +87,15 @@ public record DshExtensionProperties(
      * @param target 上下文变量名,可带 {@code .field} 深入路径
      */
     public record OutputMapping(String source, String target) {}
+
+    /**
+     * DSH backend task 标记(design 2026-09-14 §6.1;多实例扩展 2026-09-15):
+     * 存在于 ServiceTask 的 extensionElements 即识别为后端任务节点,
+     * userPrompt/skillRefs/outputMappings/votingRule 与 userTask 同构复用。
+     *
+     * @param backendProfileUrl 单实例调用的 backend profile 实例 URL(发布校验保证非空)
+     * @param profileUrls       多实例时每实例绑定的 profile 列表(第 i 实例用第 i 个,
+     *                          发布校验保证长度等于 loopCardinality;空表示非多实例)
+     */
+    public record BackendTask(String backendProfileUrl, List<String> profileUrls) {}
 }

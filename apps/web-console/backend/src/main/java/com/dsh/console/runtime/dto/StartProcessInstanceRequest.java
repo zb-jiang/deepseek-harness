@@ -26,12 +26,15 @@ import java.util.UUID;
  * @param businessKey          业务键(可空,如订单号;便于按业务键查实例)
  * @param name                 实例名(可空,Flowable runtime instance.name)
  * @param variables            额外业务变量(可空)
+ * @param orgUnitId            发起身份部门 id(design 2026-09-19 §5.1:申请人多部门时必传,
+ *                             唯一部门可省略自动采用;传了必须在本人 org_unit_members 中,否则拒绝)
  */
 public record StartProcessInstanceRequest(
     @NotNull
     UUID workflowDefinitionId,
     String businessKey,
     String name,
-    Map<String, Object> variables
+    Map<String, Object> variables,
+    UUID orgUnitId
 ) {
 }

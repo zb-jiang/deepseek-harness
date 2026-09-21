@@ -27,9 +27,13 @@ spring:
     password: ${SUPABASE_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
-      # Supabase session pooler 上限 15;与 flowable-engine 各分 5(合计 10<15,留余量)
+      # Supabase session pooler 上限 15;与 flowable-engine 各分 5(合计 10<15,留余量)。
+      # 恒温 5 条(不用 minimum-idle 缩池):远端 RTT 高,现建连接要数秒,缩池后突发
+      # 请求会排队超时;僵尸进程清理后名额足够,保持常连接避免建连空窗。
       maximum-pool-size: 5
       connection-timeout: 30000
+      # 30 分钟轮换连接,回收网络抖动产生的半开连接
+      max-lifetime: 1800000
 
   # 静态资源:打包前端 dist 后从 classpath:/static/ 提供(Vite 默认 base=/)
   web:

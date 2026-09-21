@@ -1,11 +1,10 @@
 package com.dsh.flowable.api;
 
+import com.dsh.flowable.listener.DshBpmnParseHandler;
 import com.dsh.flowable.listener.DshContextVariable;
 import com.dsh.flowable.listener.DshExtensionProperties;
 import com.dsh.flowable.listener.DshExtensionResolver;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.time.format.ResolverStyle;
+import com.dsh.flowable.listener.DshVariableMappingSupport;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,14 +36,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class DshTaskCompletionService {
 
-    /** date 严格格式(设计决策 #8:字典序即时间序)。 */
-    private static final DateTimeFormatter DATE_FORMAT =
-        DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
-
-    /** datetime 严格格式(ISO-8601,不带时区与纳秒)。 */
-    private static final DateTimeFormatter DATETIME_FORMAT =
-        DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss").withResolverStyle(ResolverStyle.STRICT);
-
     private final TaskService taskService;
     private final DshExtensionResolver resolver;
 
@@ -74,7 +65,7 @@ public class DshTaskCompletionService {
                 throw new IllegalArgumentException(
                     "变量 " + name + " 为系统注入变量(source=system,启动时按登录人注入),不允许任务提交覆盖");
             }
-            Object converted = convertByType(value, decl);
+            Object converted = DshVariableMappingSupport.convertByType(value, decl);
             if ("array".equals(decl.type())) {
                 Object existing = readExisting(task.getId(), vars, name);
                 List<Object> list = existing instanceof List<?> l ? new ArrayList<>(l) : new ArrayList<>();
@@ -88,7 +79,43 @@ public class DshTaskCompletionService {
                 vars.put(name, converted);
             }
         }
+        // 会签计票(design 2026-09-15 §4.5):放在声明校验之后、complete 之前——
+        // 校验失败抛出时尚未计数,重提不会重复累计;complete 内部求值完成条件能读到计数
+        applyVotingAggregation(task, variables);
         taskService.complete(task.getId(), vars);
+    }
+
+    /**
+     * 会签计票聚合(design 2026-09-15 §4.5):节点配了 {@code dsh:votingRule} 时,
+     * 读本次提交的表决变量值并累加计票流程变量:
+     * <ul>
+     *   <li>归一化值(去空白字符串化)等于 passValue → {@code dsh_passCount_<taskId>} +1;</li>
+     *   <li>非空且不等于 passValue → {@code dsh_rejectCount_<taskId>} +1;</li>
+     *   <li>值缺失(员工在提交对话框清空了该映射)→ 不计票,不阻断提交。</li>
+     * </ul>
+     * 计数变量为运行时注入(不在上下文声明面),首次从 0 起算;完成条件由
+     * {@link com.dsh.flowable.listener.DshBpmnParseHandler} 部署时按 votingRule 自动生成。
+     */
+    private void applyVotingAggregation(Task task, Map<String, Object> variables) {
+        DshExtensionProperties props = resolver.resolveTaskProperties(
+            task.getProcessDefinitionId(), task.getTaskDefinitionKey());
+        if (props == null || props.votingRule() == null) {
+            return;
+        }
+        DshExtensionProperties.VotingRule rule = props.votingRule();
+        Object value = variables.get(rule.variable());
+        if (value == null) {
+            return;
+        }
+        String normalized = String.valueOf(value).trim();
+        boolean isPass = normalized.equals(rule.passValue().trim());
+        String countVar = (isPass
+            ? DshBpmnParseHandler.PASS_COUNT_VARIABLE_PREFIX
+            : DshBpmnParseHandler.REJECT_COUNT_VARIABLE_PREFIX)
+            + task.getTaskDefinitionKey();
+        Object current = taskService.getVariable(task.getId(), countVar);
+        long next = (current instanceof Number n ? n.longValue() : 0) + 1;
+        taskService.setVariable(task.getId(), countVar, next);
     }
 
     /**
@@ -125,16 +152,16 @@ public class DshTaskCompletionService {
                                DshExtensionProperties.OutputMapping mapping,
                                List<DshContextVariable> declarations,
                                Map<String, Object> vars) {
-        Object value = extractSource(output, mapping.source());
+        Object value = DshVariableMappingSupport.extractSource(output, mapping.source());
         if (value == null) {
             return;
         }
         String target = mapping.target();
-        String root = rootSegment(target);
+        String root = DshVariableMappingSupport.rootSegment(target);
         DshContextVariable decl = declarations.stream()
             .filter(d -> root.equals(d.name()))
             .findFirst().orElse(null);
-        Object converted = convertByType(value, decl);
+        Object converted = DshVariableMappingSupport.convertByType(value, decl);
 
         String rest = target.contains(".")
             ? target.substring(target.indexOf('.') + 1) : null;
@@ -153,95 +180,9 @@ public class DshTaskCompletionService {
                 throw new IllegalArgumentException(
                     "映射 target=" + target + " 的根变量已有非 object 值,无法深入字段路径");
             }
-            Map<String, Object> map = copyMap((Map<?, ?>) existing);
-            setPath(map, rest, converted);
+            Map<String, Object> map = DshVariableMappingSupport.copyMap((Map<?, ?>) existing);
+            DshVariableMappingSupport.setPath(map, rest, converted);
             vars.put(root, map);
-        }
-    }
-
-    /** source 点路径取值;source 空/未配置取整体提交 JSON,路径中途断开返回 null。 */
-    private Object extractSource(Map<String, Object> output, String source) {
-        if (source == null || source.isBlank()) {
-            return output;
-        }
-        Object value = output;
-        for (String segment : source.split("\\.")) {
-            if (!(value instanceof Map<?, ?> map)) {
-                return null;
-            }
-            value = map.get(segment);
-        }
-        return value;
-    }
-
-    /**
-     * 按声明类型转换提交值;decl 为 null(未声明)原样通过。
-     *
-     * @throws IllegalArgumentException 类型不符或 date/datetime 格式非法
-     */
-    private Object convertByType(Object value, DshContextVariable decl) {
-        if (decl == null) {
-            return value;
-        }
-        String name = decl.name();
-        return switch (decl.type() == null ? "" : decl.type()) {
-            case "integer" -> value instanceof Number n ? n.longValue() : parseLong(name, value);
-            case "float" -> value instanceof Number n ? n.doubleValue() : parseDouble(name, value);
-            case "boolean" -> value instanceof Boolean b ? b : parseBoolean(name, value);
-            case "date" -> validateDateFormat(name, value, DATE_FORMAT);
-            case "datetime" -> validateDateFormat(name, value, DATETIME_FORMAT);
-            case "object" -> {
-                if (value instanceof Map) {
-                    yield value;
-                }
-                throw new IllegalArgumentException("变量 " + name + " 声明为 object,提交值不是 JSON 对象");
-            }
-            case "array" -> {
-                // 员工端可能提交单个元素(append)或 List(addAll),后端统一追加处理。
-                yield value;
-            }
-            default -> value; // string 及未知类型原样
-        };
-    }
-
-    private Long parseLong(String name, Object value) {
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("变量 " + name + " 声明为 integer,提交值不是整数: " + value);
-        }
-    }
-
-    private Double parseDouble(String name, Object value) {
-        try {
-            return Double.parseDouble(String.valueOf(value));
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("变量 " + name + " 声明为 float,提交值不是数字: " + value);
-        }
-    }
-
-    private Boolean parseBoolean(String name, Object value) {
-        if ("true".equals(value) || Boolean.TRUE.equals(value)) {
-            return Boolean.TRUE;
-        }
-        if ("false".equals(value) || Boolean.FALSE.equals(value)) {
-            return Boolean.FALSE;
-        }
-        throw new IllegalArgumentException("变量 " + name + " 声明为 boolean,提交值不是布尔: " + value);
-    }
-
-    /** date/datetime 按严格格式校验,通过后以原字符串返回(设计决策 #8)。 */
-    private String validateDateFormat(String name, Object value, DateTimeFormatter format) {
-        if (!(value instanceof String s)) {
-            throw new IllegalArgumentException("变量 " + name + " 声明为 date/datetime,提交值必须是字符串: " + value);
-        }
-        try {
-            format.parse(s);
-            return s;
-        } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException(
-                "变量 " + name + " 的值 " + s + " 不符合声明的日期格式(应为 "
-                    + (format == DATE_FORMAT ? "yyyy-MM-dd" : "yyyy-MM-dd'T'HH:mm:ss") + ")");
         }
     }
 
@@ -251,29 +192,6 @@ public class DshTaskCompletionService {
             return vars.get(root);
         }
         return taskService.getVariable(taskId, root);
-    }
-
-    /** 沿点路径写叶子,路径脊柱逐层浅拷贝,不改引擎现有对象。 */
-    private void setPath(Map<String, Object> map, String path, Object value) {
-        String[] segments = path.split("\\.");
-        Map<String, Object> current = map;
-        for (int i = 0; i < segments.length - 1; i++) {
-            Object next = current.get(segments[i]);
-            Map<String, Object> copy = next instanceof Map<?, ?> m ? copyMap(m) : new LinkedHashMap<>();
-            current.put(segments[i], copy);
-            current = copy;
-        }
-        current.put(segments[segments.length - 1], value);
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> copyMap(Map<?, ?> source) {
-        return source == null ? new LinkedHashMap<>() : new LinkedHashMap<>((Map<String, Object>) source);
-    }
-
-    private static String rootSegment(String target) {
-        int dot = target.indexOf('.');
-        return dot < 0 ? target : target.substring(0, dot);
     }
 
     private static DshContextVariable findDeclaration(

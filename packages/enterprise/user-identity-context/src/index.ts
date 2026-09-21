@@ -1,28 +1,46 @@
 /**
  * Enterprise session-identity context: `ctx.currentUser` remembers the latest
  * verified platform user, and the first step of every turn injects a
- * model-visible identity block so the assistant knows who it is serving. The
+ * model-visible identity block (identity + org positions) so the assistant
+ * knows who it is serving and where that person sits in the org tree. The
  * block is display-only; authorization never travels through the model.
  *
  * The store is fed by the `platform-user/verified` and `platform-user/signout`
  * events that `platform-user-api` emits on its auth touchpoints, so the two
  * packages stay decoupled: without this plugin the events emit into the void.
  *
+ * Org positions (design 2026-09-19 §6.4) are fetched from the web-console
+ * runtime API with the verified token at injection time and cached per token;
+ * a fetch failure degrades to a positions-free identity block (warn, retry on
+ * the next turn) so the org dimension never blocks identity injection.
+ *
  * @module @deepseek-ai/dsh-user-identity-context
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { PlatformUser } from '@deepseek-ai/dsh-platform-user'
-import { renderIdentityText } from './text.ts'
+import { fetchOrgPositions } from './positions.ts'
+import { type OrgPosition, renderIdentityText } from './text.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'user-identity-context'
 
 /** Service that must be available before the identity listener mounts. */
 export const inject = ['agents'] as const
+
+/** 插件配置:web-console 基地址(组织身份清单拉取目标)。 */
+export interface Config {
+  /** web-console 基地址(协议+主机+端口,无路径)。 */
+  webConsoleBaseUrl: string
+}
+
+export const Config: z<Config> = z.object({
+  webConsoleBaseUrl: z.string().default('http://127.0.0.1:8080'),
+})
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -85,20 +103,55 @@ export class CurrentUserService extends Service {
   }
 }
 
+/** 组织身份缓存 TTL:调动岗位/新设部门后最迟 5 分钟对齐。 */
+const POSITIONS_TTL_MILLIS = 5 * 60_000
+
 /**
  * Mount the current-user store and register the identity-injection listener.
  * Injection happens at step 1 of every turn: one deterministic block per turn
  * keeps the identity fresh in context without per-step duplicates, and the
  * store being empty (no verified login yet) injects nothing.
  *
+ * <p>webConsoleBaseUrl 在注册前解析一次,格式非法立即失败(misconfiguration
+ * fails loud),否则表现为每次注入一条难排查的 fetch 错误。
+ *
  * @param ctx - plugin context; the listener and store are disposed with it.
+ * @param config - 插件配置,提供 web-console 基地址。
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config): void {
+  const webConsoleBaseUrl = config.webConsoleBaseUrl.replace(/\/+$/, '')
+  new URL(webConsoleBaseUrl)
   new CurrentUserService(ctx)
+
+  /** 单条组织身份缓存(按 token 失效;失败不缓存,下一轮重试)。 */
+  let positionsCache: { token: string; expiresAt: number; positions: OrgPosition[] } | undefined
+
+  const loadPositions = async (token: string): Promise<OrgPosition[]> => {
+    const now = Date.now()
+    if (positionsCache !== undefined && positionsCache.token === token
+      && positionsCache.expiresAt > now) {
+      return positionsCache.positions
+    }
+    try {
+      const positions = await fetchOrgPositions(webConsoleBaseUrl, token)
+      positionsCache = { token, expiresAt: now + POSITIONS_TTL_MILLIS, positions }
+      return positions
+    } catch (error) {
+      ctx.logger.warn(
+        'user-identity-context: 组织身份拉取失败,本轮身份块不含组织位置',
+        error instanceof Error ? error : new Error(String(error)),
+      )
+      return []
+    }
+  }
+
   ctx.on('platform-user/verified', (user, accessToken) => {
     ctx.currentUser.observe(user, accessToken)
   }, { global: true })
-  ctx.on('platform-user/signout', () => { ctx.currentUser.clear() }, { global: true })
+  ctx.on('platform-user/signout', () => {
+    ctx.currentUser.clear()
+    positionsCache = undefined
+  }, { global: true })
   ctx.on('agent/pre-step', async (
     { step, signal },
     next,
@@ -108,7 +161,9 @@ export function apply(ctx: Context): void {
     if (step !== 1) return decision
     const user = ctx.currentUser.get()
     if (user === undefined) return decision
-    const text = renderIdentityText(user)
+    const token = ctx.currentUser.getToken()
+    const positions = token === undefined ? [] : await loadPositions(token)
+    const text = renderIdentityText(user, positions)
     return {
       kind: 'enter',
       messages: [

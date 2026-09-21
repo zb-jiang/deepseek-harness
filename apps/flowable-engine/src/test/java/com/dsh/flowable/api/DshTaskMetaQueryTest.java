@@ -177,7 +177,7 @@ class DshTaskMetaQueryTest {
     }
 
     /**
-     * H2 无 public.workflow_definitions 表,stub 固定返回 null(未归属应用),
+     * H2 无 public.workflow_definitions 表,stub 固定返回空 Map(未归属应用),
      * 对应 TaskDto.applicationId 为 null 的降级路径。
      */
     private static final class StubApplicationRepository extends com.dsh.flowable.repository.DshApplicationRepository {
@@ -187,8 +187,9 @@ class DshTaskMetaQueryTest {
         }
 
         @Override
-        public String findApplicationIdByProcdefId(String procdefId) {
-            return null;
+        public java.util.Map<String, String> findApplicationIdsByProcdefIds(
+                java.util.Collection<String> procdefIds) {
+            return java.util.Map.of();
         }
     }
 }

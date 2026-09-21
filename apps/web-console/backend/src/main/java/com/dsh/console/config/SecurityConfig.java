@@ -76,6 +76,9 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/api/health").permitAll()
+                // DSH backend profile 实例调用(无 Supabase 登录态,内网服务间信任,
+                // design 2026-09-14 §5.3):注册/心跳 + skill 归属拉取
+                .requestMatchers("/api/backend-profiles/register", "/api/backend-profiles/skills").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )

@@ -350,6 +350,7 @@
       "@deepseek-ai/dsh-platform-user-api/invariant": ["./packages/enterprise/platform-user-api/src/invariant.ts"],
       "@deepseek-ai/dsh-platform-user-supabase": ["./packages/enterprise/platform-user-supabase/src"],
       "@deepseek-ai/dsh-platform-user-supabase/invariant": ["./packages/enterprise/platform-user-supabase/src/invariant.ts"],
+      "@deepseek-ai/dsh-process-start": ["./packages/enterprise/process-start/src"],
       "@deepseek-ai/dsh-plugin-package-inventory-deepseek": ["./packages/llm/plugin-package-inventory-deepseek/src"],
       "@deepseek-ai/dsh-pwsh-sandbox": ["./packages/shell/pwsh-sandbox/src"],
       "@deepseek-ai/dsh-remote-mock": ["./packages/test-support/remote-mock/src"],

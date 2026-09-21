@@ -29,8 +29,9 @@ import org.springframework.web.server.ResponseStatusException;
  * {@link com.dsh.flowable.config.FlowableConfig} 一致)直接构造 controller(不经 Spring 上下文),
  * 覆盖:
  * <ol>
- *   <li>历史实例:processInstanceId/processDefinitionId 精确过滤、finished 状态过滤,
- *       已结束实例的 endTime/deleteReason 语义;</li>
+ *   <li>历史实例:processInstanceId/processDefinitionId 精确过滤、state 状态过滤
+ *       (completed/terminated 按 deleteReason 本地过滤),已结束实例的
+ *       endTime/deleteReason 语义;</li>
  *   <li>历史变量:实例上下文变量的最终值(标量/JSON 字符串),缺 processInstanceId 报 400;</li>
  *   <li>历史活动:start → userTask → end 的执行顺序回溯;</li>
  *   <li>历史任务:带 processInstanceId 时返回实例全部任务(不按当前用户过滤),
@@ -98,12 +99,14 @@ class DshHistoryQueryTest {
         assertThat(historic.deleteReason()).isNull();
         assertThat(historic.processDefinitionId()).isEqualTo(procdefId);
 
-        // processDefinitionId 过滤命中,finished=true 只含已结束
+        // processDefinitionId 过滤命中,state=completed 只含正常完成(不含已终止)
         List<HistoricProcessInstanceDto> byDef = controller.getHistoricProcessInstances(
-            null, procdefId, null, Boolean.TRUE, null, 0, 50);
+            null, procdefId, null, "completed", null, 0, 50);
         assertThat(byDef).extracting(HistoricProcessInstanceDto::id).containsExactly(instance.getId());
         assertThat(controller.getHistoricProcessInstances(
-            null, procdefId, null, Boolean.FALSE, null, 0, 50)).isEmpty();
+            null, procdefId, null, "running", null, 0, 50)).isEmpty();
+        assertThat(controller.getHistoricProcessInstances(
+            null, procdefId, null, "terminated", null, 0, 50)).isEmpty();
 
         // 历史变量:最终值完整,JSON 字符串保持文本
         List<HistoricVariableDto> variables = controller.getHistoricVariables(instance.getId());
@@ -139,14 +142,14 @@ class DshHistoryQueryTest {
     }
 
     @Test
-    void runningInstanceAppearsInHistoricQueryWithUnfinishedFilter() {
+    void runningInstanceAppearsInHistoricQueryWithRunningState() {
         String procdefId = deployApprovalProcess();
         ProcessInstance instance = processEngine.getRuntimeService()
             .startProcessInstanceById(procdefId);
 
-        // 运行中实例也写入 ACT_HI_PROCINST:unfinished 过滤可见,endTime 为 null
+        // 运行中实例也写入 ACT_HI_PROCINST:state=running 过滤可见,endTime 为 null
         List<HistoricProcessInstanceDto> running = controller.getHistoricProcessInstances(
-            null, procdefId, null, Boolean.FALSE, null, 0, 50);
+            null, procdefId, null, "running", null, 0, 50);
         assertThat(running).extracting(HistoricProcessInstanceDto::id)
             .containsExactly(instance.getId());
         assertThat(running.get(0).endTime()).isNull();
@@ -162,6 +165,26 @@ class DshHistoryQueryTest {
             .toList();
         assertThat(ongoing).hasSize(1);
         assertThat(ongoing.get(0).activityId()).isEqualTo("approve");
+    }
+
+    @Test
+    void terminatedInstanceFilteredByDeleteReason() {
+        String procdefId = deployApprovalProcess();
+        ProcessInstance instance = processEngine.getRuntimeService()
+            .startProcessInstanceById(procdefId, "biz-term", Map.of());
+        processEngine.getRuntimeService().deleteProcessInstance(instance.getId(), "管理员强制终止");
+
+        // 已终止实例:state=terminated 按 deleteReason 非空命中,completed 不含它
+        List<HistoricProcessInstanceDto> terminated = controller.getHistoricProcessInstances(
+            null, procdefId, null, "terminated", null, 0, 50);
+        assertThat(terminated).extracting(HistoricProcessInstanceDto::id)
+            .containsExactly(instance.getId());
+        assertThat(terminated.get(0).endTime()).isNotNull();
+        assertThat(terminated.get(0).deleteReason()).isEqualTo("管理员强制终止");
+        assertThat(controller.getHistoricProcessInstances(
+            null, procdefId, null, "completed", null, 0, 50)).isEmpty();
+        assertThat(controller.getHistoricProcessInstances(
+            null, procdefId, null, "running", null, 0, 50)).isEmpty();
     }
 
     @Test

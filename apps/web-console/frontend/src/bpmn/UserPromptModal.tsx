@@ -379,7 +379,7 @@ function UserPromptModalContent({
 
   return (
     <Modal
-      title="Bpmn:UserTask / User Prompt"
+      title="User Prompt"
       open
       onCancel={onClose}
       width={1000}
@@ -396,9 +396,9 @@ function UserPromptModalContent({
       <div style={{ display: 'flex', gap: 16 }}>
         {/* 左侧:prompt 编辑区 */}
         <div style={{ flex: 1.25, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Text strong>User Prompt</Text>
+          <Text strong></Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            任务指令模板:角色、输入变量、应用 skill、任务要求、输出 JSON 格式均写在此;
+            任务指令模板 : 输入变量、应用 skill、任务要求、输出 JSON 格式均写在此;
             {'{{变量.字段}}'} 占位符会在任务创建时插值为流程变量快照。
           </Text>
           <TextArea
@@ -415,7 +415,7 @@ function UserPromptModalContent({
         <div style={{ flex: 0.75, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Card title="默认输出映射" size="small" bodyStyle={{ padding: 12 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              仅作为员工端提交对话框的初始映射,员工提交前仍可修改;可为空。
+
             </Text>
             <Space direction="vertical" style={{ width: '100%', marginTop: 8 }}>
               {mappings.map((m, idx) => (

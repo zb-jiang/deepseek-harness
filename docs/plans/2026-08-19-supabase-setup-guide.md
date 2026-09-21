@@ -1,15 +1,5 @@
 # Supabase 配置手册:企业级应用平台
 
-本手册指导你在 Supabase 中完成 DSH 企业级应用平台所需的全部配置,覆盖认证中心、统一存储和各组件连接。
-
-认证与授权设计见 [DSH 企业级应用平台设计文档](2026-08-30-dsh-enterprise-design.md)。本手册仅覆盖 Supabase 初始配置步骤。
-
-## 0. 命名约定
-
-对象字段使用 camelCase(如 `loginName`、`appAdminUserIds`),数据库表使用 snake_case(如 `login_name`、`app_admin_user_ids`)。Java/Node 代码层用 camelCase,通过映射层与数据库 snake_case 互转。本手册 SQL 一律使用 snake_case。
-
-数组类型字段(如 `app_admin_user_ids`、`role_ids`、`visibility_roles`)使用 PostgreSQL 的 `UUID[]` 或 `TEXT[]`,元素为引用对象的 UUID。数组外键约束 PostgreSQL 不原生支持,由应用层校验引用完整性。
-
 ## 1. 创建 Supabase 项目
 
 1. 访问 <https://supabase.com>,注册或登录
@@ -17,18 +7,16 @@
 3. 设置数据库密码,选择区域(建议选离用户最近的区域)
 4. 等待项目初始化完成(约 2 分钟)
 
-> 记住数据库密码,Java 组件(Flowable 引擎、Web Console 后端)需要用它直连 Postgres。
-
 ## 2. 获取项目凭据
 
 进入 **Project Settings → API**,记录以下信息:
 
 ### 2.1 Supabase API 凭据(给 Node 认证和前端直连用)
 
-| 凭据       | 字段名     | 获取方式                                                                                       |
-| -------- | ------- | ------------------------------------------------------------------------------------------ |
-| Project URL | `url`   | 页面顶部完整地址,形如 `https://<project-ref>.supabase.co`(`.co` 结尾;`<project-ref>` 是约 20 位随机字母数字 ID) |
-| anon key | `anonKey` | **Project API keys** 区域 `anon` / `public` 行,点 **Reveal** 复制。前端直连 Supabase Auth(注册/登录)和 Node 端 RLS 自读均需要此 key |
+| 凭据          | 字段名       | 获取方式                                                                                                         |
+| ----------- | --------- | ------------------------------------------------------------------------------------------------------------ |
+| Project URL | `url`     | 页面顶部完整地址,形如 `https://<project-ref>.supabase.co`(`.co` 结尾;`<project-ref>` 是约 20 位随机字母数字 ID)                   |
+| anon key    | `anonKey` | **Project API keys** 区域 `anon` / `public` 行,点 **Reveal** 复制。前端直连 Supabase Auth(注册/登录)和 Node 端 RLS 自读均需要此 key |
 
 ### 2.2 数据库连接信息(给 Java 组件直连 Postgres 用)
 
@@ -52,7 +40,7 @@
 
 ### 2.3 JWT 验证
 
-后端自动通过 JWKS 公钥验证 Supabase JWT，无需获取或配置 JWT Secret。各组件配置中的 `jwt-issuer` 填 `${SUPABASE_URL}/auth/v1`（见第 10 节）。
+后端自动通过 JWKS 公钥验证 Supabase JWT，无需获取或配置 JWT Secret。各组件配置中的 `jwt-issuer` 填 `${SUPABASE_URL}/auth/v1`。
 
 ## 3. 创建数据库 Schema
 
@@ -180,8 +168,6 @@ CREATE INDEX idx_audit_events_target_user_id ON public.audit_events (target_user
 
 ## 5. 企业治理元数据表(public schema)
 
-Web Console 后端通过 JDBC 直连操作，与平台用户治理表同在 `public` schema。
-
 ```sql
 -- 5.1 应用表
 CREATE TABLE public.applications (
@@ -204,7 +190,7 @@ CREATE TABLE public.applications (
 CREATE INDEX idx_applications_status ON public.applications (status);
 ```
 
-SkillHub namespace 列（2026-09-11）：应用绑定 SkillHub 命名空间（应用下流程的 skillRefs 仅可引用该命名空间下已发布 skill）。已建表的环境手工执行：
+SkillHub namespace 列：应用绑定 SkillHub 命名空间（应用下流程的 skillRefs 仅可引用该命名空间下已发布 skill）。已建表的环境手工执行：
 
 ```sql
 ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS skillhub_namespace text;
@@ -279,6 +265,7 @@ CREATE TABLE public.workflow_definitions (
     updated_at TIMESTAMPTZ,
     updated_by UUID
 );
+ALTER TABLE public.workflow_definitions ADD COLUMN bpmn_process_key text;
 
 CREATE INDEX idx_workflow_definitions_app_id ON public.workflow_definitions (app_id);
 CREATE INDEX idx_workflow_definitions_status ON public.workflow_definitions (status);
@@ -288,11 +275,11 @@ CREATE INDEX idx_workflow_definitions_status ON public.workflow_definitions (sta
 
 Flowable 引擎启动时根据配置自动在 `flowable` schema 创建 `ACT_*` 系列表，无需手动建表。配置 `flowable.database-schema=flowable` 和 `flowable.database-schema-update=true` 后，首次启动自动建表。
 
-`postgres` 超级用户自动拥有 `flowable` schema 权限。生产环境用专用角色时，需 `GRANT ALL ON SCHEMA flowable TO <role>;`。
+`postgres` 超级用户自动拥有 `flowable` schema 权限。
 
 ## 7. 配置行级安全(RLS)
 
-### 7.1 起步:启用 RLS + platform_users 自读策略
+### 7.1 起步:启用 RLS + platform\_users 自读策略
 
 ```sql
 -- 启用 RLS(postgres 超级用户自动绕过)
@@ -310,32 +297,6 @@ ALTER TABLE public.app_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workflow_definitions ENABLE ROW LEVEL SECURITY;
 ```
-
-### 7.2 生产环境:专用角色与策略(可选)
-
-生产环境建议为每个 Java 组件创建专用数据库角色,限制权限:
-
-```sql
--- Flowable 引擎专用角色:flowable schema 的 DDL + DML
-CREATE ROLE flowable_role WITH LOGIN PASSWORD '<强密码>';
-GRANT USAGE ON SCHEMA flowable TO flowable_role;
-GRANT ALL ON SCHEMA flowable TO flowable_role;
-GRANT ALL ON ALL TABLES IN SCHEMA flowable TO flowable_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA flowable GRANT ALL ON TABLES TO flowable_role;
-
--- Web Console 后端专用角色:治理元数据表 DDL + DML,platform_users/audit_events 只读
-CREATE ROLE webconsole_role WITH LOGIN PASSWORD '<强密码>';
-GRANT USAGE ON SCHEMA public TO webconsole_role;
--- 治理元数据表:DDL + DML(applications/app_roles/app_memberships/workflow_definitions)
-GRANT ALL ON public.applications, public.app_roles, public.app_memberships,
-    public.workflow_definitions
-    TO webconsole_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO webconsole_role;
--- platform_users / audit_events 只读(显示用户列表、审计查看)
-GRANT SELECT ON public.platform_users, public.audit_events TO webconsole_role;
-```
-
-专用角色不是超级用户，RLS 会生效。需为每张表配置 RLS 策略允许该角色访问，或给角色 `BYPASSRLS` 属性。
 
 ## 8. 配置 Supabase Auth
 
@@ -360,8 +321,8 @@ GRANT SELECT ON public.platform_users, public.audit_events TO webconsole_role;
 
 项目初始化后,需要手动将第一个用户设为系统管理员。注册 trigger 已自动插入 `pending_approval` 行,这里只需更新状态与角色(第一个管理员无人在 UI 审批,走 SQL 引导):
 
-1. 在 Supabase Auth 中创建用户:**Authentication -> Users -> Add user**,填邮箱密码,获得 `user.id`(trigger 自动在 `platform_users` 插入 `pending_approval` 行)
-2. 在 SQL Editor 执行(将该行更新为 active + system_admin):
+1. 在 Supabase Auth 中创建用户:**Authentication -> Users -> Add user**,填邮箱密码,获得 `user.id`(trigger on\_auth\_user\_created 自动在 `platform_users` 插入 `pending_approval` 行)
+2. 在 SQL Editor 执行(将该行更新为 active + system\_admin):
 
 ```sql
 UPDATE public.platform_users
@@ -372,162 +333,15 @@ SET status = 'active',
 WHERE auth_subject = '<你的 Supabase Auth user.id>';
 ```
 
-> 初始管理员需在 Supabase Auth 中创建对应认证用户,才能在 Web Console 或 DSH Electron APP 登录。`auth_subject` 填该用户的 `user.id`。
-
-## 10. 各组件连接配置清单
-
-完成上述配置后,各组件按以下方式连接 Supabase。
-
-### 10.1 Node `platform-user-supabase`(enterprise profile,员工端)
-
-配置在 enterprise-app bundle 的 `cordis.patch.yml` 中注入:
-
-```yaml
-- id: platform-user-supabase
-  name: '@deepseek-ai/dsh-platform-user-supabase'
-  config:
-    url: '<第 2.1 节 Project URL>'
-    anonKey: '<第 2.1 节 anon key>'
-    usersTable: 'platform_users'
-
-- id: platform-user-api
-  name: '@deepseek-ai/dsh-platform-user-api'
-  config:
-    supabaseUrl: '<第 2.1 节 Project URL>'
-    supabaseAnonKey: '<第 2.1 节 anon key>'
-```
-
-通过环境变量注入(`SUPABASE_URL`、`SUPABASE_ANON_KEY`)。
-
-### 10.2 Flowable 引擎(Java Spring Boot,服务器端)
-
-**application.yml**(敏感值通过环境变量注入):
-
-```yaml
-server:
-  port: 8090
-
-spring:
-  datasource:
-    url: jdbc:postgresql://${SUPABASE_DB_HOST}:5432/postgres
-    username: ${SUPABASE_DB_USER}
-    password: ${SUPABASE_DB_PASSWORD}
-    driver-class-name: org.postgresql.Driver
-
-# Flowable 配置前缀是顶级 flowable.*
-flowable:
-  database-schema: flowable
-  database-schema-update: true
-  async-executor-activate: true
-  rest-api-enabled: true
-  id-generator: false
-
-# Supabase JWT 验证
-dsh:
-  supabase:
-    jwt-issuer: ${SUPABASE_URL}/auth/v1
-  # DSH headless 集成:定制 delegate 注入 DshHeadlessClient 时才用到,repo-root 未配置引擎照常启动
-  headless:
-    node-bin: node
-    repo-root: ${DSH_REPO_ROOT:}
-    cli-entry: apps/cli/src/bin.ts
-    call-timeout-seconds: 300
-```
-
-环境变量见 `.env.ps1.example`。`DSH_REPO_ROOT` / `DEEPSEEK_API_KEY` 只在流程含调 `DshHeadlessClient` 的自动节点时需要(headless 的 LLM 调用读它们);纯人工流程不配置也能正常跑。
-
-### 10.3 Web Console 后端(Java Spring Boot,服务器端)
-
-**application.yml**(敏感值通过环境变量注入):
-
-```yaml
-server:
-  port: 8080
-
-spring:
-  datasource:
-    url: jdbc:postgresql://${SUPABASE_DB_HOST}:5432/postgres
-    username: ${SUPABASE_DB_USER}
-    password: ${SUPABASE_DB_PASSWORD}
-    driver-class-name: org.postgresql.Driver
-  web:
-    resources:
-      static-locations: classpath:/static/
-
-# Supabase JWT 验证 + Flowable REST 客户端 + SkillHub REST 客户端
-dsh:
-  supabase:
-    jwt-issuer: ${SUPABASE_URL}/auth/v1
-  flowable:
-    base-url: ${FLOWABLE_BASE_URL}
-  # 企业 Skill 仓库(SkillHub);浏览器不直连,后端持只读 token 代理
-  skillhub:
-    base-url: ${SKILLHUB_BASE_URL:http://127.0.0.1:8095}
-    api-token: ${SKILLHUB_API_TOKEN:}
-```
-
-环境变量见 `.env.ps1.example`。
-
-### 10.4 服务器端 DSH(web profile)
-
-**启动命令**:
-
-```sh
-dsh web --profile web --patch ./server-side-overlay.yml
-```
-
-`server-side-overlay.yml`(示意):
-
-```yaml
-- insert:
-    - id: mcp-client
-      name: '@deepseek-ai/dsh-mcp-client'
-      config: { servers: { ... } }
-    - id: auto-node-api
-      name: '@deepseek-ai/dsh-enterprise-auto-node-api'
-      inject: [webServer]
-```
-
-web profile 默认 `127.0.0.1:3080`，与 Flowable 引擎同机部署。
-
-### 10.5 员工端 DSH Electron APP(enterprise profile)
-
-环境变量(`$DSH_HOME/.env` 或进程环境):
-
-```sh
-SUPABASE_URL=<第 2.1 节 Project URL>
-SUPABASE_ANON_KEY=<第 2.1 节 anon key>
-DEEPSEEK_API_KEY=<员工自己的 LLM key,本地管理>
-```
-
-## 11. 配置校验清单
-
-完成全部配置后,按此清单验证:
-
-1. Supabase 项目已创建,获得 URL / anon key / 数据库密码
-2. 两个 schema 已创建:`public`(默认,含所有业务表)、`flowable`
-3. `public.platform_users` 和 `public.audit_events` 表已建,索引和约束齐全
-4. 注册 trigger 已创建:在 Supabase Auth 注册一个测试用户,`platform_users` 自动插入 `pending_approval` 行
-5. `public` 下 4 张治理表已建,外键和约束齐全
-6. 初始系统管理员已设置为 `active` + `system_admin`,`auth_subject` 对应 Supabase Auth 用户
-7. Flowable 引擎首次启动后,`flowable` schema 下出现 `ACT_*` 系列表
-8. DSH enterprise profile 启动后,`/api/enterprise/auth/me` 能验证 JWT 并返回用户治理状态
-9. Web Console 后端能用 JWKS 本地验证 Supabase JWT
-10. 服务器端 DSH(web profile)启动后,`127.0.0.1:3080` 可访问
-
-## 12. 知识库(2026-09-11 增补,web-console 知识库模块配套)
-
-知识库设计见 [2026-09-11-knowledge-base-design.md](2026-09-11-knowledge-base-design.md)。
+## 9. 知识库
 
 **文件存在哪里(存储模型,先读这段再看 SQL)**:
 
 - **文件本体(原始字节)存 Supabase Storage,不存数据库字段**。Storage 是 Supabase 内置的对象存储(类似阿里云 OSS / AWS S3),按"桶(bucket)"组织,桶可以理解为存储里的一个顶级目录。每个应用一个专属桶,桶名 `kb-{appId}`。
-- 数据库三张表(knowledge_bases / kb_folders / kb_documents)只存**元数据和可检索文本**:`storage_path` 列记录文件在桶里的路径(如 `<文档id>/报价单.pdf`),`text_content` 列只存从文件里抽取出的纯文本(供关键字检索和 AI 阅读),都不是文件本身。
+- 数据库三张表(knowledge\_bases / kb\_folders / kb\_documents)只存**元数据和可检索文本**:`storage_path` 列记录文件在桶里的路径(如 `<文档id>/报价单.pdf`),`text_content` 列只存从文件里抽取出的纯文本(供关键字检索和 AI 阅读),都不是文件本身。
 - **桶不需要手工创建**,所以下面的 SQL 里没有建桶语句:应用第一次打开知识库时,web-console 后端自动向 Supabase 的 `storage.buckets` 系统表插入一条桶登记(与治理表同一条 JDBC 直连连接),桶随首个知识库自动出现。
 
-建表 SQL 与 RLS 手工执行,模式同前文。
-
-### 12.1 建表 SQL(public schema,SQL Editor 执行)
+### 9.1 建表 SQL(public schema,SQL Editor 执行)
 
 三张表只存"元数据 + 抽取文本";文件原始字节全部在 Storage 桶里(见本节开头存储模型说明)。
 
@@ -602,7 +416,7 @@ create unique index if not exists uk_kb_documents_sibling
 --   using gin ((name) gin_trgm_ops, (text_content) gin_trgm_ops);
 ```
 
-### 12.2 RLS
+### 9.2 RLS
 
 RLS(Row Level Security,行级安全)= Postgres 按"当前连接的用户是谁"决定他能看到/写入哪些行。Supabase 的 SQL 接口(PostgREST、Storage)都以请求者的用户 JWT 打开连接,`auth.uid()` 即 JWT 里的用户 id——所以即使有人绕过 web-console 直接连 Supabase,也只能看到自己有权限的应用的数据。
 
@@ -700,26 +514,101 @@ with check (
 
 桶本身不需要预先创建:应用首次开通知识库时,web-console 后端经 JDBC 连接 `INSERT INTO storage.buckets`(同一条直连路径)自动登记桶,无需手工建桶。
 
-### 12.3 OCR(Tesseract traineddata)
+### 9.3 OCR(Tesseract traineddata)
 
 tess4j 内置 Windows 原生库,无需安装 Tesseract 本体,只需语言训练数据:
 
-1. 下载 [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) 的 `chi_sim.traineddata` 与 `eng.traineddata`(追求精度可换 [tessdata_best](https://github.com/tesseract-ocr/tessdata_best),best 与 fast 的中文/英文模型在本机均实测可用);注意用仓库内文件的 raw 下载链接,直接右键另存网页存下来的是 HTML 不是数据文件
-https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_sim.traineddata
-https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata
-
+1. 下载 \[tessdata\_best]训练数据
+   <https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_sim.traineddata>
+   <https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata>
 2. 放入服务器目录(如 `D:\tessdata`)
-3. 设置环境变量 `TESSDATA_PATH=D:\tessdata`(见 12.4)
+3. 启动web-console时,设置环境变量 `TESSDATA_PATH=D:\tessdata`
 
-**JDK 版本要求:web-console 必须用 JDK 21+ 运行**(如 `D:\Java21\bin\java.exe -jar dsh-web-console.jar`)。本机实测 JDK 17.0.12 下 tess4j 5.20 的 OCR 在引擎初始化(`TessBaseAPIInit1`)必现 native 段错误(`Invalid memory access`),JDK 21.0.12 完全正常;多开终端时注意 `java` 可能解析到不同 JDK(本机 D:\Java 为 17,D:\Java21 为 21),以启动后日志或进程路径为准。
+**JDK 版本要求:web-console 必须用 JDK 21+ 运行**(如 `D:\Java21\bin\java.exe -jar dsh-web-console.jar`)。
 
 OCR 中文时控制台打印 `Error opening data file ... chi_sim_vert.traineddata / Failed loading language 'chi_sim_vert'` 是 Tesseract 尝试加载竖排中文伴随模型的无害警告(引擎行为,非配置错误),可忽略;要消除可另行下载 `chi_sim_vert.traineddata` 放入同目录。
 
-### 12.4 Web Console 环境变量增补(§10.3 基础上追加)
+## 10. DSH Backend Task 注册表
 
-```sh
-# Supabase Storage 访问(透传用户 JWT 时随附的 apikey 头,取 §2.1 anon key)
-SUPABASE_ANON_KEY=<§2.1 anon key>
-# OCR 训练数据目录(§12.3;不配则 OCR 失败并标记 parse_status=failed)
-TESSDATA_PATH=D:\tessdata
+### 10.1 建表 SQL(public schema,SQL Editor 执行)
+
+```sql
+-- DSH backend profile 实例注册表:按 url 唯一,实例重启/换址都按 url upsert。
+-- active 判定 = last_heartbeat_at 在 5 分钟内(注册心跳周期 60s 的冗余),不维护状态列。
+CREATE TABLE public.backend_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- 实例展示名(设计器下拉显示)
+    name TEXT NOT NULL,
+    -- 实例对外可达的调用 URL(flowable delegate 按此提交任务)
+    url TEXT NOT NULL UNIQUE,
+    -- 当前默认 LLM 标签(实例注册时上报,展示用)
+    llm_label TEXT,
+    -- 工作空间标签(展示用)
+    workspace_label TEXT,
+    last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_backend_profiles_url ON public.backend_profiles (url);
+ALTER TABLE public.backend_profiles ENABLE ROW LEVEL SECURITY;
+```
+
+### 10.2 workflow\_definitions 加列
+
+```sql
+-- 发布版 BPMN XML 快照:发布成功时写入,skill 归属聚合只认这份(不解析草稿)。
+-- 存量已发布流程此列为 NULL,需重新发布一次补齐快照。
+ALTER TABLE public.workflow_definitions ADD COLUMN published_bpmn_xml TEXT;
+```
+
+## 11. 组织树(组织维度审批路由)
+
+### 11.1 建表 SQL(public schema,SQL Editor 执行,幂等)
+
+```sql
+-- ============================================================
+-- 组织树:节点=部门,parent_id 自引用构成行政线。
+-- head_user_id 是部门负责人,虚拟角色"上一级"等运行时取这一列。
+-- 治理数据由 web-console 维护(JDBC 超级用户),RLS 只开不配策略。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.org_units (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- 部门名称
+    name TEXT NOT NULL,
+    -- 父部门 id;NULL=根节点。循环引用由应用层校验(同 app_roles 惯例)
+    parent_id UUID REFERENCES public.org_units(id),
+    -- 部门负责人,引用 platform_users.id
+    head_user_id UUID REFERENCES public.platform_users(id),
+    -- 同级排序
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 索引:按父部门列子部门;按负责人反查
+CREATE INDEX IF NOT EXISTS idx_org_units_parent ON public.org_units (parent_id);
+CREATE INDEX IF NOT EXISTS idx_org_units_head ON public.org_units (head_user_id);
+
+-- 同级同名唯一:parent_id 可空,Postgres 唯一约束视 NULL 互异,
+-- 用 coalesce 表达式索引让"根下同名"也能被唯一索引拦住(同 kb_folders 惯例)
+CREATE UNIQUE INDEX IF NOT EXISTS uk_org_units_sibling
+  ON public.org_units (coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), name);
+
+-- ============================================================
+-- 员工×部门多对多映射:员工可属 0..N 个部门(兼岗/跨部门任职)。
+-- 审批路由成员判定(sameLine/fixedUnit)与发起身份选择都按此表;
+-- platform_users.org_unit_id 单主部门列已废弃删除(见下方迁移 SQL)。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.org_unit_members (
+    org_unit_id UUID NOT NULL REFERENCES public.org_units(id),
+    user_id UUID NOT NULL REFERENCES public.platform_users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (org_unit_id, user_id)
+);
+
+-- 索引:按员工反查其全部部门(发起身份选择/超时升级锚点回退)
+CREATE INDEX IF NOT EXISTS idx_org_unit_members_user ON public.org_unit_members (user_id);
+
+-- RLS:治理读写只走 web-console/引擎的 JDBC 超级用户连接(同 applications 模式)
+ALTER TABLE public.org_units ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.org_unit_members ENABLE ROW LEVEL SECURITY;
 ```

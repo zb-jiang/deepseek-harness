@@ -1,8 +1,9 @@
-import { CheckCircleOutlined, EditOutlined, LockOutlined, StopOutlined } from '@ant-design/icons'
-import { App, Button, Form, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd'
+import { CheckCircleOutlined, EditOutlined, LockOutlined, StopOutlined, TeamOutlined } from '@ant-design/icons'
+import { App, Button, Form, Modal, Popconfirm, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
+import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
 import { PLATFORM_ROLE } from '../api/types'
 import { type UpdateUserRequest, usersApi, type UserDto } from '../api/users'
 
@@ -26,6 +27,15 @@ const ROLE_OPTIONS = [
   { label: '普通用户', value: 'normal_user' },
 ]
 
+/** 部门树 → TreeSelect treeData(仅显示部门名,层级由树结构表达) */
+function toTreeSelectData(nodes: OrgUnitTreeNode[]): { title: string; value: string; children: ReturnType<typeof toTreeSelectData> }[] {
+  return (nodes ?? []).map(n => ({
+    title: n.name,
+    value: n.id,
+    children: toTreeSelectData(n.children ?? []),
+  }))
+}
+
 export default function UsersPage() {
   const { message } = App.useApp()
   const [data, setData] = useState<UserDto[]>([])
@@ -33,6 +43,9 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
   const [editTarget, setEditTarget] = useState<UserDto | null>(null)
   const [editForm] = Form.useForm<UpdateUserRequest>()
+  const [orgTree, setOrgTree] = useState<OrgUnitTreeNode[]>([])
+  const [orgTarget, setOrgTarget] = useState<UserDto | null>(null)
+  const [orgForm] = Form.useForm<{ orgUnitIds?: string[] }>()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -45,6 +58,11 @@ export default function UsersPage() {
       setLoading(false)
     }
   }, [statusFilter, message])
+
+  useEffect(() => {
+    // 部门树一次拉全量:分配弹窗下拉用
+    orgUnitsApi.tree().then(t => setOrgTree(t ?? [])).catch(() => {})
+  }, [])
 
   useEffect(() => {
     void load()
@@ -104,6 +122,24 @@ export default function UsersPage() {
     editForm.setFieldsValue({ platformRoles: ensureNormalUser(user.platformRoles ?? []) })
   }
 
+  const openAssignOrg = (user: UserDto) => {
+    setOrgTarget(user)
+    orgForm.setFieldsValue({ orgUnitIds: (user.orgUnits ?? []).map(o => o.orgUnitId) })
+  }
+
+  const submitAssignOrg = async () => {
+    if (!orgTarget) return
+    const values = await orgForm.validateFields()
+    try {
+      await usersApi.assignOrgUnits(orgTarget.id, values.orgUnitIds ?? [])
+      message.success(`已更新 ${orgTarget.loginName} 的所属部门`)
+      setOrgTarget(null)
+      void load()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '分配部门失败')
+    }
+  }
+
   const submitEdit = async () => {
     if (!editTarget) return
     const values = await editForm.validateFields()
@@ -154,6 +190,21 @@ export default function UsersPage() {
         ),
     },
     {
+      title: '所属部门',
+      dataIndex: 'orgUnits',
+      key: 'orgUnits',
+      render: (orgUnits: UserDto['orgUnits']) =>
+        (orgUnits ?? []).length === 0 ? (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ) : (
+          <Space wrap size={4}>
+            {orgUnits.map(o => (
+              <Tag key={o.orgUnitId} color="cyan">{o.name}</Tag>
+            ))}
+          </Space>
+        ),
+    },
+    {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -186,9 +237,14 @@ export default function UsersPage() {
             </Popconfirm>
           )}
           {user.status !== 'pending_approval' && (
-            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(user)}>
-              编辑角色
-            </Button>
+            <>
+              <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(user)}>
+                编辑角色
+              </Button>
+              <Button size="small" type="link" icon={<TeamOutlined />} onClick={() => openAssignOrg(user)}>
+                分配部门
+              </Button>
+            </>
           )}
         </Space>
       ),
@@ -251,6 +307,34 @@ export default function UsersPage() {
           </Form.Item>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
             系统管理员可访问所有应用;应用管理员只能访问自己所属应用。
+          </Typography.Paragraph>
+        </Form>
+      </Modal>
+      <Modal
+        title={orgTarget ? `分配 ${orgTarget.loginName} 的所属部门` : '分配所属部门'}
+        open={!!orgTarget}
+        onCancel={() => setOrgTarget(null)}
+        onOk={submitAssignOrg}
+        destroyOnClose
+      >
+        <Form form={orgForm} layout="vertical">
+          <Form.Item
+            name="orgUnitIds"
+            label="所属部门(可多选)"
+            tooltip="员工可归属多个部门;发起流程时选择以哪个身份发起,同行政线审批路由按该身份解析"
+          >
+            <TreeSelect
+              multiple
+              allowClear
+              showSearch
+              treeNodeFilterProp="title"
+              placeholder="选择部门(可多选,可清空)"
+              treeData={toTreeSelectData(orgTree)}
+              maxTagCount="responsive"
+            />
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            提交即全量覆盖;部门的负责人不能被移出该部门,需先更换负责人。
           </Typography.Paragraph>
         </Form>
       </Modal>

@@ -52,7 +52,7 @@ expression 模式（`${smsSender.send(execution, phone)}`）是例外：引擎�
 
 多实例输出聚合：会签 / 串签下每个实例提交都上传各自的 variables Map，引擎端按 target 声明类型写入——array 类型追加（读现有 List → append → 写回），scalar / object 类型直接覆写。single（任一人提交即通过）用并行多实例 + 完成条件 `nrOfCompletedInstances >= 1`，首个提交值生效，其余任务被引擎自动删除。并发提交同一 array target 时读-改-写窗口由 Flowable 乐观锁兜底，冲突请求报错由客户端重试。
 
-其余所有节点都在代码里写变量，不配映射：delegate 代码、脚本或 DMN 输出列直接 `setVariable` 写流程变量（Flowable 原生能力），变量名写在代码里；不设节点级产出标注（`dsh:outputVariables` 已废弃删除），代码写了什么由代码本身表达。DSH 自动节点同样如此，无特殊机制：通用的 DSH headless 调用逻辑（进程启动、超时控制、输出 JSON 解析）抽成可复用组件 `DshHeadlessClient`，每个自动节点一个定制 delegate 注入它，在自己的代码里 setVariable 写结果变量。开发阶段无存量 delegate，无兼容负担。
+其余所有节点都在代码里写变量，不配映射：delegate 代码、脚本或 DMN 输出列直接 `setVariable` 写流程变量（Flowable 原生能力），变量名写在代码里；不设节点级产出标注（`dsh:outputVariables` 已废弃删除），代码写了什么由代码本身表达。DSH backend task 是唯一例外：它配 outputMappings，映射由引擎端 delegate 执行（result JSON → 变量，见 `2026-09-14-dsh-backend-task-design.md`）。
 
 收益：
 
@@ -66,7 +66,7 @@ expression 模式（`${smsSender.send(execution, phone)}`）是例外：引擎�
 | 组件                                                          | 与上下文的关系              | 适配方式                                                                                                                                                     |
 | ----------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | userTask                                                    | 读 prompt 引用、写提交 JSON | prompt 引用即输入（§5）；输出映射 source=提交 JSON                                                                                                                     |
-| Service Task / Send Task / Script Task / Business Rule Task | 代码或脚本读写              | 直接 setVariable 写流程变量，不配输出映射，输入直读。调 DSH 的自动节点（定制 delegate 注入 `DshHeadlessClient`）同此规则；Send Task 引擎内部同 Service Task；Script Task 在脚本里写；DMN 决策表输出列经 delegate 写回 |
+| Service Task / Send Task / Script Task / Business Rule Task | 代码或脚本读写              | 直接 setVariable 写流程变量，不配输出映射，输入直读。需 DSH AI 生成的自动节点用 DSH backend task（见 `2026-09-14-dsh-backend-task-design.md`）；Send Task 引擎内部同 Service Task；Script Task 在脚本里写；DMN 决策表输出列经 delegate 写回 |
 | 排他 / 包容网关、连线条件、Conditional 事件                               | 纯读（JUEL 表达式）         | 不配映射；发布校验静态解析 `${}` 提取变量引用，做存在性与来源闭环检查                                                                                                                   |
 | Receive Task、Message / Signal 捕获事件                          | 唤醒时注入变量              | trigger / messageEventReceived 捎带的变量直写上下文；可在属性面板做注入声明，归入节点产出来源                                                                                           |
 | Message / Signal Start                                      | 带变量启动                | start-param 的另一传入通道，严格声明制同样覆盖（未声明报错）                                                                                                                     |
@@ -134,7 +134,7 @@ prompt 不用 `${}` 的原因：prompt 是自然语言模板且内嵌 JSON 格�
 
 - `DshBpmnParseHandler`：解析 contextVariables（实例启动时初始化 initial 变量）与 userTask 的 outputMappings。
 - 提交端点 `/dsh/tasks/{id}/complete`：接收员工端传来的流程上下文变量 Map，按 target 声明类型转换（integer→Long、float→Double 等），array 类型追加、其他类型覆写，再 complete 任务。
-- `DshHeadlessClient`：通用 DSH headless 调用组件（进程启动、超时控制、输出 JSON 解析）；定制 delegate 需要智能服务时注入它，在自己的代码里 setVariable 写语义化结果变量（不设 `dsh_auto_output` / `dsh_auto_notes` 这类通用输出变量）。
+- `DshBackendTaskDelegate` + `DshBackendClient`：DSH backend task 的引擎端执行——prompt `{{}}` 插值、HTTP 提交+轮询 backend profile、result JSON 按 outputMappings 写入（见 `2026-09-14-dsh-backend-task-design.md`）。
 - `DshTaskListener`：userPrompt `{{}}` 插值（任务创建时快照）。
 - 启动校验：拒绝未声明的启动变量（web-console 后端为主，引擎端点兜底）。
 

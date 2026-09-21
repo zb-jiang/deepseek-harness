@@ -36,9 +36,11 @@
         supabaseAnonKey: !!js process.env.SUPABASE_ANON_KEY ?? ''
 
     # 会话身份上下文：订阅 platform-user 事件维护 ctx.currentUser，
-    # 并在每轮第一个 step 向模型注入展示用身份块。
+    # 并在每轮第一个 step 向模型注入展示用身份块（含 web-console 组织身份）。
     - id: user-identity-context
       name: '@deepseek-ai/dsh-user-identity-context'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
 
     # flowable-engine 任务 API 代理：/dsh/tasks、/dsh/history → engineBaseUrl。
     - id: flowable-task-proxy
@@ -64,6 +66,14 @@
       config:
         webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
         readMaxChars: !!js Number(process.env.KB_READ_MAX_CHARS ?? 40000)
+
+    # 员工端 AI 对话发起流程：注册 dsh_process_list / dsh_process_start_form /
+    # dsh_process_start 工具，服务端直连 web-console（发起身份 orgUnitId 由
+    # 上下文身份块的多位置确认交互产生）。
+    - id: process-start
+      name: '@deepseek-ai/dsh-process-start'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
 
     - id: ui-enterprise
       name: '@deepseek-ai/dsh-client-ui-enterprise'

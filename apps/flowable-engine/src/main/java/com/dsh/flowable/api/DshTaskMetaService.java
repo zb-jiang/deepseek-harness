@@ -22,12 +22,14 @@ import org.springframework.stereotype.Service;
  * 也不带实例发起人。员工端待办卡片需要「流程名 + 张三发起」的人读信息,本服务按
  * 任务列表批量补齐四块数据,避免逐任务 N+1:
  * <ul>
- *   <li>流程定义名:distinct procdefId → RepositoryService 逐个查(单用户待办的
- *       distinct 流程数通常 &lt; 10,单查开销可忽略);</li>
+ *   <li>流程定义名:distinct procdefId → RepositoryService 批量查
+ *       ({@code processDefinitionIds(Set)});</li>
  *   <li>所属应用 id:distinct procdefId → {@code workflow_definitions} JOIN
- *       {@code applications}(员工端凭此定位应用知识库);</li>
+ *       {@code applications} 一次 IN 查完(员工端凭此定位应用知识库);</li>
  *   <li>实例发起人 id:distinct processInstanceId → RuntimeService 批量查
- *       ({@code processInstanceIds(Set)});</li>
+ *       ({@code processInstanceIds(Set)});REST 启动的生产路径不写 startUserId,
+ *       缺失的实例按应用隔离变量 {@code dsh_applicant_user_id} 一次 executionIds
+ *       批量回退;</li>
  *   <li>发起人显示名:distinct 发起人 id → {@code platform_users} 反查。</li>
  * </ul>
  *
@@ -74,31 +76,39 @@ public class DshTaskMetaService {
         }
 
         Map<String, String> procdefNameById = new HashMap<>();
-        Map<String, String> applicationIdByProcdef = new HashMap<>();
-        for (String procdefId : procdefIds) {
-            ProcessDefinition def = repositoryService.createProcessDefinitionQuery()
-                .processDefinitionId(procdefId)
-                .singleResult();
-            if (def != null) {
-                procdefNameById.put(procdefId, def.getName());
-            }
-            String applicationId = applicationRepository.findApplicationIdByProcdefId(procdefId);
-            if (applicationId != null) {
-                applicationIdByProcdef.put(procdefId, applicationId);
-            }
+        for (ProcessDefinition def : repositoryService.createProcessDefinitionQuery()
+                .processDefinitionIds(procdefIds).list()) {
+            procdefNameById.put(def.getId(), def.getName());
         }
+        // procdefId → 所属应用 id:一次 IN 查完(逐 procdef 单查在远端 DB 上是 N+1)
+        Map<String, String> applicationIdByProcdef =
+            applicationRepository.findApplicationIdsByProcdefIds(procdefIds);
 
         Map<String, String> startUserByInstance = new HashMap<>();
         if (!instanceIds.isEmpty()) {
             List<ProcessInstance> instances = runtimeService.createProcessInstanceQuery()
                 .processInstanceIds(instanceIds)
                 .list();
+            // REST 启动的生产路径不写 startUserId,发起人读应用隔离变量
+            // dsh_applicant_user_id(流程级变量挂 root execution,executionId = 实例 id);
+            // 缺 startUserId 的实例集合一次 executionIds 批量查,不逐实例 getVariable
+            Set<String> missingApplicantIds = new HashSet<>();
             for (ProcessInstance instance : instances) {
-                String startUserId = instance.getStartUserId() != null
-                    ? instance.getStartUserId()
-                    : applicantUserIdFromVariable(instance.getId());
-                if (startUserId != null) {
-                    startUserByInstance.put(instance.getId(), startUserId);
+                if (instance.getStartUserId() != null) {
+                    startUserByInstance.put(instance.getId(), instance.getStartUserId());
+                } else {
+                    missingApplicantIds.add(instance.getId());
+                }
+            }
+            if (!missingApplicantIds.isEmpty()) {
+                for (var variable : runtimeService.createVariableInstanceQuery()
+                        .executionIds(missingApplicantIds)
+                        .variableName("dsh_applicant_user_id")
+                        .list()) {
+                    Object value = variable.getValue();
+                    if (value instanceof String s && !s.isBlank()) {
+                        startUserByInstance.putIfAbsent(variable.getExecutionId(), s);
+                    }
                 }
             }
         }
@@ -123,19 +133,7 @@ public class DshTaskMetaService {
     }
 
     /**
- * 发起人回退:Flowable {@code startUserId} 仅在启动方经 IdentityService 设置过认证用户时
- * 才有值,web-console 经 REST 启动的生产路径不写该字段;此时读应用隔离变量
- * {@code dsh_applicant_user_id}(启动时按登录人 JWT sub 写入)。
- *
- * @return 申请人 auth_subject;变量缺失或非字符串时 null
- */
-private String applicantUserIdFromVariable(String instanceId) {
-    Object applicant = runtimeService.getVariable(instanceId, "dsh_applicant_user_id");
-    return applicant instanceof String s && !s.isBlank() ? s : null;
-}
-
-/**
- * 单个任务的展示元数据。
+     * 单个任务的展示元数据。
      *
      * @param task 任务
      * @return 元数据;task 或其实例 id 为 null 时字段全 null
@@ -155,7 +153,7 @@ private String applicantUserIdFromVariable(String instanceId) {
      * @param startUserId           发起人 auth_subject(Supabase Auth sub);查不到为 null
      * @param startUserName         发起人显示名;未解析到为 null,前端回退显示 id
      * @param applicationId         流程定义所属应用 id(UUID 字符串);员工端凭此定位
-     *                              应用知识库;未归属应用(含旧发布实例)为 null
+     *                              应用知识库;未归属应用(两级归属解析都未命中)为 null
      */
     public record TaskMeta(
         String processDefinitionName,

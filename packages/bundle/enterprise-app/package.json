@@ -47,6 +47,7 @@
     "@deepseek-ai/cordis-plugin-logger-console": "workspace:^",
     "@deepseek-ai/dsh-skill-sync": "workspace:^",
     "@deepseek-ai/dsh-knowledge": "workspace:^",
+    "@deepseek-ai/dsh-process-start": "workspace:^",
     "@deepseek-ai/dsh-client-ui-enterprise": "workspace:^"
   },
   "peerDependencies": {

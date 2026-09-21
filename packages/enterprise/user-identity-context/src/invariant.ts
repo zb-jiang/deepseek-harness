@@ -3,7 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { IDENTITY_DISCIPLINE, USER_IDENTITY_SECTION } from './text.ts'
+import { IDENTITY_DISCIPLINE, ORG_POSITIONS_HEADER, USER_IDENTITY_SECTION } from './text.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-user-identity-context'
 const SOURCE_NAME = 'user-identity-context'
@@ -12,6 +12,8 @@ const BLOCK = new RegExp(
   '^<user_identity>\\n'
   + '当前登录人：(.+)（(.+)）\\n'
   + 'userId: (.+)\\n'
+  // 组织身份段可选(未登录拉取失败/组织维度未启用时不渲染),有则至少一条
+  + '(?:' + escapeRegExp(ORG_POSITIONS_HEADER) + '\\n(?:- .+\\n)+)?'
   + escapeRegExp(IDENTITY_DISCIPLINE)
   + '\\n</user_identity>$',
 )
@@ -112,7 +114,6 @@ function validateReading(
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Validate all package-owned identity blocks already present in one session. */
 function validateSession(session: Session, fail: InvariantFailure): void {
-  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   const history = session.snapshotEvents()
   for (const [index, event] of history.entries()) {
     if (event.type !== 'user/message'
@@ -132,7 +133,6 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) return
-    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     validateReading(session.snapshotEvents(), event, fail)
   }, { global: true })
 }, { inject: ['sessions'] })

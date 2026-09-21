@@ -4,12 +4,18 @@ import com.dsh.console.app.ApplicationJdbcRepository;
 import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.orgunit.OrgUnitJdbcRepository;
+import com.dsh.console.orgunit.OrgUnitMemberJdbcRepository;
+import com.dsh.console.orgunit.dto.OrgUnitDto;
+import com.dsh.console.orgunit.dto.UserOrgUnitDto;
 import com.dsh.console.runtime.FlowableRestClient;
 import com.dsh.console.user.dto.UserDto;
 import com.dsh.console.user.dto.UpdateUserRequest;
-import com.dsh.console.user.dto.UserActionRequest;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,20 +35,26 @@ public class UserService {
     private final ApplicationJdbcRepository appRepository;
     private final FlowableRestClient flowableRestClient;
     private final AuditService auditService;
+    private final OrgUnitJdbcRepository orgUnitRepository;
+    private final OrgUnitMemberJdbcRepository memberRepository;
 
     public UserService(UserJdbcRepository userRepository,
                        ApplicationJdbcRepository appRepository,
                        FlowableRestClient flowableRestClient,
-                       AuditService auditService) {
+                       AuditService auditService,
+                       OrgUnitJdbcRepository orgUnitRepository,
+                       OrgUnitMemberJdbcRepository memberRepository) {
         this.userRepository = userRepository;
         this.appRepository = appRepository;
         this.flowableRestClient = flowableRestClient;
         this.auditService = auditService;
+        this.orgUnitRepository = orgUnitRepository;
+        this.memberRepository = memberRepository;
     }
 
     public UserDto getById(UUID userId) {
-        return userRepository.findById(userId)
-            .orElseThrow(() -> new NotFoundException("用户不存在: " + userId));
+        return withOrgUnits(userRepository.findById(userId)
+            .orElseThrow(() -> new NotFoundException("用户不存在: " + userId)));
     }
 
     /**
@@ -57,14 +69,30 @@ public class UserService {
      */
     @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
     public UserDto findMe(String authSubject) {
-        return userRepository.findByAuthSubject(authSubject).orElse(null);
+        return userRepository.findByAuthSubject(authSubject).map(this::withOrgUnits).orElse(null);
+    }
+
+    /**
+     * 批量查显示名(实例/任务列表的发起人/办理人列展示用;缺失的 subject 不在返回 Map)。
+     */
+    public Map<String, String> findDisplayNames(java.util.Collection<String> authSubjects) {
+        return userRepository.findDisplayNamesByAuthSubjects(authSubjects);
+    }
+
+    /**
+     * 查流程身份的全部所属部门 id(组织维度审批路由发起身份解析,design 2026-09-19 §5.1)。
+     *
+     * <p>未注册/未分配部门返回空列表。
+     */
+    public List<UUID> findOrgUnitIdsByAuthSubject(String authSubject) {
+        return memberRepository.findOrgUnitIdsByAuthSubject(authSubject);
     }
 
     public List<UserDto> list(String statusFilter, int offset, int limit) {
-        if (statusFilter == null || statusFilter.isBlank()) {
-            return userRepository.list(offset, limit);
-        }
-        return userRepository.listByStatus(statusFilter, offset, limit);
+        List<UserDto> users = statusFilter == null || statusFilter.isBlank()
+            ? userRepository.list(offset, limit)
+            : userRepository.listByStatus(statusFilter, offset, limit);
+        return withOrgUnits(users);
     }
 
     /**
@@ -160,5 +188,62 @@ public class UserService {
         auditService.record("USER_UPDATE_ROLES", "platform_user", userId, updaterId,
             java.util.Map.of("roles", request.platformRoles()));
         return getById(userId);
+    }
+
+    /**
+     * 覆盖写用户的全部所属部门(组织维度审批路由,design 2026-09-19 §3/决策 10)。
+     *
+     * <p>orgUnitIds 为空列表表示全部移出;每个部门校验存在;被移出的部门中
+     * 用户若为负责人(head_user_id)则阻止——负责人必然有本部门归属(决策 12),
+     * 先更换负责人再移出。
+     */
+    @Transactional
+    public UserDto assignOrgUnits(UUID userId, List<UUID> orgUnitIds, UUID updaterId) {
+        UserDto user = getById(userId);
+        List<UUID> target = orgUnitIds == null ? List.of()
+            : orgUnitIds.stream().distinct().toList();
+        for (UUID orgUnitId : target) {
+            orgUnitRepository.findById(orgUnitId)
+                .orElseThrow(() -> new NotFoundException("部门不存在: " + orgUnitId));
+        }
+        Set<UUID> targetSet = new HashSet<>(target);
+        for (UUID currentOrgUnitId : memberRepository.findOrgUnitIdsByUser(userId)) {
+            if (targetSet.contains(currentOrgUnitId)) {
+                continue;
+            }
+            OrgUnitDto unit = orgUnitRepository.findById(currentOrgUnitId).orElse(null);
+            if (unit != null && userId.equals(unit.headUserId())) {
+                throw new IllegalStateException(
+                    "用户是部门「%s」的负责人,先更换负责人再移出该部门".formatted(unit.name()));
+            }
+        }
+        memberRepository.replaceForUser(userId, target);
+        auditService.record("USER_ASSIGN_ORG_UNITS", "platform_user", userId, updaterId,
+            Map.of("orgUnitIds", target.stream().map(UUID::toString).toList()));
+        return getById(userId);
+    }
+
+    // ===== orgUnits 补齐(RowMapper 只映射表字段,部门列表按需批量补) =====
+
+    /** 单条补齐(详情/写操作回读,一次 join 查询)。 */
+    private UserDto withOrgUnits(UserDto user) {
+        return withOrgUnits(user, memberRepository.listByUser(user.id()));
+    }
+
+    /** 列表批量补齐(一次 ANY(:userIds) 查齐一页,避免逐行 N+1)。 */
+    private List<UserDto> withOrgUnits(List<UserDto> users) {
+        Map<UUID, List<UserOrgUnitDto>> byUser = memberRepository.mapByUsers(
+            users.stream().map(UserDto::id).toList());
+        return users.stream()
+            .map(u -> withOrgUnits(u, byUser.getOrDefault(u.id(), List.of())))
+            .toList();
+    }
+
+    private static UserDto withOrgUnits(UserDto u, List<UserOrgUnitDto> orgUnits) {
+        return new UserDto(
+            u.id(), u.authSubject(), u.loginName(), u.displayName(), u.email(),
+            u.status(), u.platformRoles(), u.createdAt(), u.createdBy(),
+            u.approvedAt(), u.approvedBy(), u.disabledAt(), u.disabledBy(), u.disabledReason(),
+            u.lockedAt(), u.lockedBy(), u.lockedReason(), orgUnits);
     }
 }

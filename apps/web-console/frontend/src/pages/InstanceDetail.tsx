@@ -27,6 +27,7 @@ import {
   type StartFormVariableDto,
   type TaskDto,
 } from '../api/process-instances'
+import { type OrgPositionDto, runtimeApi } from '../api/runtime'
 import { workflowsApi, type WorkflowDefinitionDto } from '../api/workflows'
 import BpmnHistoryViewer from '../bpmn/BpmnHistoryViewer'
 
@@ -105,6 +106,7 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
   const navigate = useNavigate()
   const [wf, setWf] = useState<WorkflowDefinitionDto | null>(null)
   const [startVars, setStartVars] = useState<StartFormVariableDto[]>([])
+  const [positions, setPositions] = useState<OrgPositionDto[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm<Record<string, unknown>>()
 
@@ -124,6 +126,18 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
       }
     })()
   }, [workflowId, message])
+
+  useEffect(() => {
+    // 当前用户组织身份:多身份时必选发起身份,唯一身份预选
+    runtimeApi.myOrgPositions().then((list) => {
+      setPositions(list ?? [])
+      if (list && list.length === 1) {
+        form.setFieldValue('orgUnitId', list[0].orgUnitId)
+      }
+    }).catch(() => {
+      // 拉取失败不阻断表单:提交时后端仍会校验身份
+    })
+  }, [form])
 
   const submit = async () => {
     const values = await form.validateFields()
@@ -153,6 +167,7 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
         workflowDefinitionId: workflowId,
         businessKey: (values.businessKey as string) || undefined,
         name: (values.name as string) || undefined,
+        orgUnitId: (values.orgUnitId as string) || undefined,
         variables,
       })
       message.success(`已启动实例 ${instance.id}`)
@@ -197,6 +212,33 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
       />
 
       <Form form={form} layout="vertical" style={{ maxWidth: 600 }}>
+        {positions.length === 0 ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="当前账号未分配部门"
+            description="流程将不以任何组织身份发起;若流程含同行政线审批节点,发起会被拒绝。可在「平台用户」页分配所属部门。"
+          />
+        ) : (
+          <Form.Item
+            name="orgUnitId"
+            label="发起身份"
+            tooltip="以哪个部门的身份发起:同行政线审批路由、上级链均按该部门解析"
+            rules={positions.length > 1 ? [{ required: true, message: '存在多个组织身份,请选择发起身份' }] : undefined}
+          >
+            <Select
+              allowClear={positions.length > 1}
+              showSearch
+              optionFilterProp="label"
+              placeholder={positions.length > 1 ? '请选择以哪个部门身份发起' : '唯一组织身份'}
+              options={positions.map(p => ({
+                label: p.pathToRoot.join(' / '),
+                value: p.orgUnitId,
+              }))}
+            />
+          </Form.Item>
+        )}
         <Form.Item name="businessKey" label="业务键">
           <Input placeholder="如订单号(可空)" />
         </Form.Item>

@@ -28,6 +28,8 @@ export interface StartProcessInstanceRequest {
   workflowDefinitionId: string
   businessKey?: string
   name?: string
+  /** 发起身份部门 id:多组织身份时必传(后端校验须在本人归属列表中);唯一身份可省略 */
+  orgUnitId?: string
   variables?: Record<string, unknown>
 }
 
@@ -92,9 +94,10 @@ export const instancesApi = {
   startForm: (workflowDefinitionId: string) =>
     get<StartFormVariableDto[]>('/api/process-instances/start-form', { workflowDefinitionId }),
   /**
-   * 列实例。finished 不传查全部(运行中 + 已结束);true 只看已完成;false 只看运行中。
+   * 列实例。state 不传查全部(运行中 + 已结束);running 只看运行中;
+   * completed 只看正常完成;terminated 只看已终止。
    */
-  list: (params?: { appId?: string; procdefId?: string; finished?: boolean; start?: number; size?: number }) =>
+  list: (params?: { appId?: string; procdefId?: string; state?: string; start?: number; size?: number }) =>
     get<ProcessInstanceDto[]>('/api/process-instances', params as Record<string, unknown>),
   get: (instanceId: string) => get<ProcessInstanceDto>(`/api/process-instances/${instanceId}`),
   /** 列实例任务(已结束实例返回历史任务,含完成时间/终止原因)。 */

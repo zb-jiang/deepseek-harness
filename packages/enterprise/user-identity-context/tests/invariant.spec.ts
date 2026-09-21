@@ -78,6 +78,18 @@ describe('user-identity-context invariants', () => {
   it('accepts a well-formed block inside an open step', async () => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', preparing(1, 1), event(BLOCK_TEXT)) }).not.toThrow()
+  })
+
+  it('accepts a block carrying the optional org-positions section', async () => {
+    const ctx = await setup()
+    const withPositions = renderIdentityText(platformUser(), [
+      { orgUnitId: 'unit-a', orgUnitName: 'A 部门', pathToRoot: ['总公司', 'A 部门'] },
+    ])
+    expect(() => { ctx.emit('session/event', preparing(1, 1), event(withPositions)) }).not.toThrow()
+  })
+
+  it('accepts a well-formed block at a later step of an open turn', async () => {
+    const ctx = await setup()
     expect(() => { ctx.emit('session/event', preparing(2, 3), event(BLOCK_TEXT)) }).not.toThrow()
   })
 

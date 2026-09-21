@@ -7,8 +7,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
@@ -131,7 +134,8 @@ public class DshHistoryController {
      * @param processInstanceId     可选;按实例 id 精确过滤(查单个实例,含已结束的详情回退)
      * @param processDefinitionId   可选;按流程定义 id 过滤(部署版本级,Web Console 按应用聚合用)
      * @param startedBy             可选;按发起人 user.id 过滤
-     * @param finished              可选;{@code true} 只看已完成,{@code false} 只看运行中
+     * @param state                 可选;{@code running} 只看运行中,{@code completed} 只看正常完成,
+     *                              {@code terminated} 只看已终止(deleteReason 非空),不传看全部
      * @param processDefinitionKey  可选;按流程定义 key 过滤(同流程不同版本一并查)
      * @param page                  页码(0-based),默认 0
      * @param size                  单页条数,默认 50,上限 200
@@ -141,7 +145,7 @@ public class DshHistoryController {
         @RequestParam(name = "processInstanceId", required = false) String processInstanceId,
         @RequestParam(name = "processDefinitionId", required = false) String processDefinitionId,
         @RequestParam(name = "startedBy", required = false) String startedBy,
-        @RequestParam(name = "finished", required = false) Boolean finished,
+        @RequestParam(name = "state", required = false) String state,
         @RequestParam(name = "processDefinitionKey", required = false) String processDefinitionKey,
         @RequestParam(name = "page", defaultValue = "0") int page,
         @RequestParam(name = "size", defaultValue = "50") int size
@@ -160,17 +164,65 @@ public class DshHistoryController {
         if (startedBy != null && !startedBy.isBlank()) {
             query.startedBy(startedBy);
         }
-        if (Boolean.TRUE.equals(finished)) {
-            query.finished();
-        } else if (Boolean.FALSE.equals(finished)) {
+        // completed/terminated 都按 finished() 取数后本地过滤 deleteReason
+        // (HistoricProcessInstanceQuery 没有 deleteReason isNull 过滤 API),过滤后再分页
+        boolean completedOnly = "completed".equalsIgnoreCase(state);
+        boolean terminatedOnly = "terminated".equalsIgnoreCase(state);
+        if ("running".equalsIgnoreCase(state)) {
             query.unfinished();
+        } else if (completedOnly || terminatedOnly) {
+            query.finished();
         }
         if (processDefinitionKey != null && !processDefinitionKey.isBlank()) {
             query.processDefinitionKey(processDefinitionKey);
         }
 
-        List<HistoricProcessInstance> instances = query.listPage(firstResult, safeSize);
-        return instances.stream().map(this::toDto).toList();
+        List<HistoricProcessInstance> instances;
+        if (completedOnly || terminatedOnly) {
+            instances = query.list().stream()
+                .filter(i -> terminatedOnly == hasDeleteReason(i))
+                .skip(firstResult)
+                .limit(safeSize)
+                .toList();
+        } else {
+            instances = query.listPage(firstResult, safeSize);
+        }
+        return instances.stream()
+            .map(i -> toDto(i, loadProcdefById(instances)))
+            .toList();
+    }
+
+    /**
+     * 收集历史实例列表的 distinct procdefId,一次批量查 ProcessDefinition。
+     *
+     * <p>名称/key/版本 Flowable 7 在 HistoricProcessInstance 上不一定全有,统一从
+     * RepositoryService 补齐;历史版本定义保留在 ACT_RE_PROCDEF 不删,旧实例也能命中。
+     * 逐条 toDto 补查(同 procdefId 重复查)在远端 DB 上是 N+1,本方法一次往返查完。
+     *
+     * @return procdefId → ProcessDefinition;无 procdefId 的实例列表返回空 Map
+     */
+    private Map<String, ProcessDefinition> loadProcdefById(List<HistoricProcessInstance> instances) {
+        Set<String> procdefIds = new HashSet<>();
+        for (HistoricProcessInstance instance : instances) {
+            if (instance.getProcessDefinitionId() != null) {
+                procdefIds.add(instance.getProcessDefinitionId());
+            }
+        }
+        if (procdefIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, ProcessDefinition> defById = new HashMap<>();
+        for (ProcessDefinition def : repositoryService.createProcessDefinitionQuery()
+                .processDefinitionIds(procdefIds).list()) {
+            defById.put(def.getId(), def);
+        }
+        return defById;
+    }
+
+    /** 正常完成实例无 deleteReason;终止实例 deleteReason 非空——completed/terminated 状态过滤依据。 */
+    private static boolean hasDeleteReason(HistoricProcessInstance instance) {
+        String deleteReason = instance.getDeleteReason();
+        return deleteReason != null && !deleteReason.isBlank();
     }
 
     /**
@@ -305,22 +357,15 @@ public class DshHistoryController {
         );
     }
 
-    private HistoricProcessInstanceDto toDto(HistoricProcessInstance instance) {
-        // 流程定义名称/key/版本 Flowable 7 在 HistoricProcessInstance 上不一定全有;补查 RepositoryService
-        // 用 procdefId 查 ProcessDefinition 拿 name/key/version,避免依赖 historic 接口字段差异。
-        String defName = null;
-        String defKey = null;
-        Integer defVersion = null;
-        if (instance.getProcessDefinitionId() != null) {
-            ProcessDefinition def = repositoryService.createProcessDefinitionQuery()
-                .processDefinitionId(instance.getProcessDefinitionId())
-                .singleResult();
-            if (def != null) {
-                defName = def.getName();
-                defKey = def.getKey();
-                defVersion = def.getVersion();
-            }
-        }
+    private HistoricProcessInstanceDto toDto(HistoricProcessInstance instance,
+                                             Map<String, ProcessDefinition> defById) {
+        // 流程定义名称/key/版本 Flowable 7 在 HistoricProcessInstance 上不一定全有;从列表路径
+        // 批量预查的 defById 取(避免逐条补查),查不到为 null。
+        ProcessDefinition def = instance.getProcessDefinitionId() == null
+            ? null : defById.get(instance.getProcessDefinitionId());
+        String defName = def == null ? null : def.getName();
+        String defKey = def == null ? null : def.getKey();
+        Integer defVersion = def == null ? null : def.getVersion();
 
         return new HistoricProcessInstanceDto(
             instance.getId(),

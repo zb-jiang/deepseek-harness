@@ -34,9 +34,9 @@
 
 本 DEMO **没有自动（LLM）节点**：发票的信息提取与要素审核并入第一个 user task（员工提交报销单），由员工端 skill（§6.1）在一次会话里完成——AI 逐张提取发票字段、审核要素（金额>0、开票日期距今≤30天、类型映射）、算好合计金额，员工核对后随提交 JSON 一次写入流程上下文。
 
-引擎侧的 DSH headless 调用逻辑沉淀为可复用组件 `DshHeadlessClient`（`apps/flowable-engine/.../delegate/DshHeadlessClient.java`）：定制 delegate 需要智能服务时注入它，在 repo-root 目录下启动 headless 一次性任务进程（`node --import tsx/esm apps/cli/src/bin.ts --profile headless "<任务>"`）执行 LLM，把模型输出的 JSON 返回给 delegate 写流程变量。将来要做自动节点 = 写一个定制 JavaDelegate 调 `DshHeadlessClient`，BPMN 里 `delegateExpression` 指向它即可。
+引擎侧的自动（LLM）节点机制后来由 **DSH backend task + backend profile** 承接（见 `2026-09-14-dsh-backend-task-design.md`，`apps/flowable-engine/.../delegate/DshBackendTaskDelegate.java`）：画布上拖 DSH backend task 节点配置 userPrompt/skillRefs/outputMappings，引擎 delegate 通过 HTTP 调用常驻 backend profile 实例生成 JSON 并按输出映射写流程变量。
 
-因此本 DEMO 的引擎终端**不需要** `DEEPSEEK_API_KEY` / `DSH_REPO_ROOT`（那是将来自动节点才用的，见 application.yml `dsh.headless.*`）；员工端 skill 用的 key 在 §1.3 终端 C 设置。
+因此本 DEMO 的引擎终端**不需要** `DEEPSEEK_API_KEY` / DSH 仓库/Node；员工端 skill 用的 key 在 §1.3 终端 C 设置。
 
 ### 0.3 端口总览
 
@@ -66,7 +66,7 @@ $env:SUPABASE_DB_PASSWORD="<数据库密码>"
 $env:SUPABASE_URL="https://<project-ref>.supabase.co"
 ```
 
-> 引擎不读 `DSH_WEB_PROFILE_BASE_URL`（历史遗留变量，代码已无引用）。`DSH_REPO_ROOT` / `DEEPSEEK_API_KEY` 本 DEMO 不需要（见 §0.2，将来自动节点才用）。
+> 引擎不读 `DSH_WEB_PROFILE_BASE_URL`（历史遗留变量，代码已无引用）。`DEEPSEEK_API_KEY` 本 DEMO 不需要（见 §0.2；引擎侧无 LLM 集成）。
 
 **文件 2**：`apps/web-console/backend/.env.ps1`（变量集与文件 1 不同：多 `FLOWABLE_BASE_URL`，少其余）
 
@@ -630,7 +630,7 @@ decision id 是 `approvalLevel`，与 §3 BPMN 里 Service Task（DMN 节点）�
 
 复制到 `apps/flowable-engine/src/main/java/com/dsh/flowable/delegate/`，然后 `mvn compile` + 重启引擎。
 
-> 本 DEMO 无自动（LLM）节点，3 个 delegate 都是通知类；将来的自动节点 = 定制 delegate 注入 `DshHeadlessClient`（见 §0.2）。
+> 本 DEMO 无自动（LLM）节点，3 个 delegate 都是通知类；自动（LLM）节点 = DSH backend task（见 §0.2）。
 
 ### 5.1 NotifyPaymentDelegate —— 通知出纳打款
 

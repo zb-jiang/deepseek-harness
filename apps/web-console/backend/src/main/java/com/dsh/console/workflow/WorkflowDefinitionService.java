@@ -154,12 +154,24 @@ public class WorkflowDefinitionService {
                 "BPMN 校验失败: " + String.join("; ", validation.errors()));
         }
 
+        // 1.5) process key 查重:key 是历史实例归属反查的回退键,两个流程定义共用同一
+        //      key 会让反查归错应用(fail loud,复制流程 XML 忘改 process id 是常见来源)
+        String bpmnProcessKey = BpmnContextParser.parseProcessKey(wf.draftBpmnXml());
+        workflowRepository.findByBpmnProcessKey(bpmnProcessKey)
+            .filter(other -> !other.id().equals(workflowId))
+            .ifPresent(other -> {
+                throw new IllegalArgumentException("BPMN process key「" + bpmnProcessKey
+                    + "」已被流程定义「" + other.name() + "」使用,请修改草稿的 process id");
+            });
+
         // 2) 部署到 Flowable
         String deploymentName = wf.name() + " (workflow:" + workflowId + ")";
         PublishResult result = publishService.publish(wf.draftBpmnXml(), deploymentName);
 
-        // 3) 更新本地状态
-        workflowRepository.markPublished(workflowId, result.deploymentId(), result.procdefId(), publisherId);
+        // 3) 更新本地状态 + 发布版 XML 快照(skill 归属聚合只认这份,setup guide §13.2);
+        //    同时落 BPMN process key(跨发布版本稳定,历史实例归属反查的回退键)
+        workflowRepository.markPublished(workflowId, result.deploymentId(), result.procdefId(),
+            wf.draftBpmnXml(), bpmnProcessKey, publisherId);
         auditService.record("WORKFLOW_PUBLISH", "workflow_definition", null, publisherId,
             java.util.Map.of("workflowId", workflowId, "appId", wf.appId(),
                 "deploymentId", result.deploymentId(), "procdefId", result.procdefId()));

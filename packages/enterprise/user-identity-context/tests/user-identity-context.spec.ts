@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -9,6 +9,18 @@ import { renderIdentityText } from '../src/text.ts'
 import { platformUser } from './helpers.ts'
 
 const SIGNAL = new AbortController().signal
+
+/** Stub the global fetch with a my-org-positions envelope response. */
+function stubPositionsResponse(data: unknown, ok = true): void {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(
+    JSON.stringify(ok ? { success: true, data } : { success: false, error: { message: 'denied' } }),
+    { status: ok ? 200 : 403 },
+  )))
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 async function mount() {
   const ctx = new Context()
@@ -205,6 +217,7 @@ describe('per-turn identity injection', () => {
 describe('platform-user event wiring', () => {
   it('caches the identity announced by platform-user/verified', async () => {
     const { ctx } = await mount()
+    stubPositionsResponse([])
     const user = platformUser()
     ctx.emit('platform-user/verified', user, 'jwt-event')
     const session = Session.create(SessionId('event-verified'))
@@ -224,6 +237,101 @@ describe('platform-user event wiring', () => {
 
     await fire(ctx, sessionAgent(session), 1, 1)
 
+    expect(identityTexts(session)).toEqual([])
+  })
+})
+
+describe('org positions injection (design 2026-09-19 §6.4)', () => {
+  const POSITIONS = [
+    { orgUnitId: 'unit-a', orgUnitName: 'A 部门', pathToRoot: ['总公司', '华东区', 'A 部门'] },
+    { orgUnitId: 'unit-b', orgUnitName: 'B 部门', pathToRoot: ['总公司', 'B 部门'] },
+  ]
+
+  it('renders fetched positions into the identity block and caches per token', async () => {
+    const { ctx } = await mount()
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ success: true, data: POSITIONS }),
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    const user = platformUser()
+    ctx.emit('platform-user/verified', user, 'jwt-1')
+    const session = Session.create(SessionId('positions'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1)
+
+    await fire(ctx, agent, 1, 1)
+    openMessageTurn(session, 2)
+    await fire(ctx, agent, 2, 1)
+
+    expect(identityTexts(session)).toEqual([
+      renderIdentityText(user, POSITIONS),
+      renderIdentityText(user, POSITIONS),
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('refetches when the verified token changes', async () => {
+    const { ctx } = await mount()
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ success: true, data: POSITIONS }),
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    const session = Session.create(SessionId('re-login-positions'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session, 1)
+    ctx.emit('platform-user/verified', platformUser(), 'jwt-1')
+    await fire(ctx, agent, 1, 1)
+
+    const relogged = platformUser({ authSubject: 'sub-2' })
+    ctx.emit('platform-user/verified', relogged, 'jwt-2')
+    openMessageTurn(session, 2)
+    await fire(ctx, agent, 2, 1)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(identityTexts(session)).toEqual([
+      renderIdentityText(platformUser(), POSITIONS),
+      renderIdentityText(relogged, POSITIONS),
+    ])
+  })
+
+  it('degrades to a positions-free block when web-console is unreachable', async () => {
+    const { ctx } = await mount()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED') }))
+    const user = platformUser()
+    ctx.emit('platform-user/verified', user, 'jwt-1')
+    const session = Session.create(SessionId('unreachable'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(identityTexts(session)).toEqual([renderIdentityText(user)])
+  })
+
+  it('degrades to a positions-free block when the envelope reports failure', async () => {
+    const { ctx } = await mount()
+    stubPositionsResponse(undefined, false)
+    const user = platformUser()
+    ctx.emit('platform-user/verified', user, 'jwt-1')
+    const session = Session.create(SessionId('envelope-error'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(identityTexts(session)).toEqual([renderIdentityText(user)])
+  })
+
+  it('skips the positions fetch when no verified token exists', async () => {
+    const { ctx } = await mount()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const session = Session.create(SessionId('no-token'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(identityTexts(session)).toEqual([])
   })
 })

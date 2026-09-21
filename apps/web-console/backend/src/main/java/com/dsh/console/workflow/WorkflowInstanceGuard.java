@@ -36,6 +36,20 @@ public class WorkflowInstanceGuard {
     }
 
     /**
+     * 解析流程的 process definition key:优先 {@code workflow_definitions.bpmn_process_key}
+     * (本地 DB 字段,零远端调用),为空的迁移旧行兜底问引擎一次。
+     *
+     * <p>调用方(各守卫判定)逐 workflow 循环时,key 获取若走引擎会成 N+1 HTTP
+     * (每次引擎再查远端 DB);DB 字段命中时整轮循环零 key 查询。
+     */
+    private String resolveProcessKey(WorkflowDefinitionDto wf) {
+        if (wf.bpmnProcessKey() != null && !wf.bpmnProcessKey().isBlank()) {
+            return wf.bpmnProcessKey();
+        }
+        return flowableRestClient.getProcessDefinitionKey(wf.publishedProcdefId());
+    }
+
+    /**
      * 统计流程全部部署版本的运行中实例数。
      *
      * <p>从未发布过(procdefId 为空)返回 0;Flowable 查询失败抛
@@ -45,7 +59,7 @@ public class WorkflowInstanceGuard {
         if (wf.publishedProcdefId() == null || wf.publishedProcdefId().isBlank()) {
             return 0;
         }
-        String key = flowableRestClient.getProcessDefinitionKey(wf.publishedProcdefId());
+        String key = resolveProcessKey(wf);
         int count = flowableRestClient.countRunningInstancesByProcdefKey(key);
         if (count < 0) {
             throw new IllegalStateException(
@@ -92,7 +106,7 @@ public class WorkflowInstanceGuard {
                 || wf.publishedProcdefId() == null || wf.publishedProcdefId().isBlank()) {
                 continue;
             }
-            String key = flowableRestClient.getProcessDefinitionKey(wf.publishedProcdefId());
+            String key = resolveProcessKey(wf);
             int count = flowableRestClient.countOpenTasksByAssigneeAndProcdefKey(authSubject, key);
             if (count < 0) {
                 throw new IllegalStateException(
@@ -107,7 +121,7 @@ public class WorkflowInstanceGuard {
      * 流程的运行中实例所挂版本中,是否有任一版本的 BPMN 引用指定角色。
      */
     private boolean referencesRoleInRunningVersions(WorkflowDefinitionDto wf, UUID roleId) {
-        String key = flowableRestClient.getProcessDefinitionKey(wf.publishedProcdefId());
+        String key = resolveProcessKey(wf);
         for (String procdefId : flowableRestClient.listProcessDefinitionIdsByKey(key)) {
             int count = flowableRestClient.countRunningInstancesByProcdefId(procdefId);
             if (count < 0) {

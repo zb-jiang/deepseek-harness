@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
@@ -43,13 +44,79 @@ public class ProcessStartValidationService {
      * 取已部署 BPMN 的上下文声明(启动表单生成与启动校验共用)。
      */
     public List<ContextVariable> loadDeclarations(String procdefId) {
+        return loadStartContext(procdefId).declarations();
+    }
+
+    /**
+     * 启动上下文(design 2026-09-19 §5.1):上下文声明 + 流程是否含同行政线节点。
+     *
+     * @param declarations            已部署 BPMN 的上下文声明(启动表单/严格声明制)
+     * @param requiresApplicantOrgUnit 流程含虚拟角色或 sameLine 实体角色节点
+     *                                 (组织维度审批路由要求申请人已分配部门)
+     */
+    public record StartContext(List<ContextVariable> declarations, boolean requiresApplicantOrgUnit) {
+    }
+
+    /**
+     * 一次引擎 XML 拉取同时解析上下文声明与审批规则(启动链路避免重复拉取)。
+     */
+    public StartContext loadStartContext(String procdefId) {
         String bpmnXml = flowableRestClient.getProcessDefinitionBpmnXml(procdefId);
         try {
-            return BpmnContextParser.parseContextVariables(
-                BpmnContextParser.parseXml(bpmnXml));
+            org.w3c.dom.Document doc = BpmnContextParser.parseXml(bpmnXml);
+            boolean requires = BpmnContextParser.parseAssignmentRules(doc).stream()
+                .anyMatch(BpmnContextParser.AssignmentRuleInfo::requiresApplicantOrgUnit);
+            return new StartContext(BpmnContextParser.parseContextVariables(doc), requires);
         } catch (Exception e) {
             throw new IllegalStateException("解析已部署 BPMN 失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 解析发起身份部门(design 2026-09-19 §5.1 发起身份选择,决策 10)。
+     *
+     * <p>申请人的部门归属是多对多(org_unit_members),锚点在发起时动态确定:
+     * <ul>
+     *   <li>0 个部门:流程含同行政线节点 → 拒绝(§5.3);否则照常启动,返回 null(变量不注入)。</li>
+     *   <li>唯一部门:自动采用;requested 传了必须匹配,不匹配拒绝(防伪造)。</li>
+     *   <li>多个部门:requested 必传(员工端/管理台选择后传入);未传拒绝;
+     *       传入必须在归属列表中,否则拒绝。</li>
+     * </ul>
+     *
+     * @param startContext       启动上下文(是否含同行政线节点)
+     * @param memberOrgUnitIds   申请人全部所属部门 id
+     * @param requestedOrgUnitId 请求指定的发起身份部门(可空)
+     * @return 发起身份部门 id;申请人无部门且流程不依赖行政线时返回 null
+     * @throws IllegalArgumentException 多身份未选、指定身份不在归属列表,或无身份而流程含同行政线节点
+     */
+    public UUID resolveApplicantOrgUnit(StartContext startContext,
+                                        List<UUID> memberOrgUnitIds,
+                                        UUID requestedOrgUnitId) {
+        List<UUID> memberships = memberOrgUnitIds == null ? List.of() : memberOrgUnitIds;
+        if (memberships.isEmpty()) {
+            if (requestedOrgUnitId != null) {
+                throw new IllegalArgumentException(
+                    "发起身份部门与申请人所属部门不符(申请人无部门归属)");
+            }
+            if (startContext.requiresApplicantOrgUnit()) {
+                throw new IllegalArgumentException(
+                    "流程包含同行政线审批节点(虚拟角色或同行政线实体角色),"
+                        + "申请人尚未分配部门,请先在管理后台分配所属部门");
+            }
+            return null;
+        }
+        if (memberships.size() == 1 && requestedOrgUnitId == null) {
+            return memberships.get(0);
+        }
+        if (requestedOrgUnitId == null) {
+            throw new IllegalArgumentException(String.format(
+                "申请人存在 %d 个组织身份,请选择发起身份后再启动", memberships.size()));
+        }
+        if (!memberships.contains(requestedOrgUnitId)) {
+            throw new IllegalArgumentException(
+                "发起身份部门不在申请人所属部门列表中(身份无效或伪造)");
+        }
+        return requestedOrgUnitId;
     }
 
     /**

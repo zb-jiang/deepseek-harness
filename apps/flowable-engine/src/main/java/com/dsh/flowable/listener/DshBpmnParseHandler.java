@@ -31,6 +31,11 @@ import org.springframework.util.StringUtils;
  *   <li>为配置了 {@code dsh:assignmentRule.candidateRoleId} 的多实例 userTask 补齐
  *       collection 表达式 / elementVariable / assignee,并附加 start ExecutionListener
  *       注入候选人变量;</li>
+ *   <li>为配置了 {@code dsh:votingRule} 的多实例 userTask 自动写入计票完成条件
+ *       (design 2026-09-15:提交端点聚合票数,达到通过/否决票数提前收);</li>
+ *   <li>为配置了 {@code dsh:votingRule} 的多实例 ServiceTask(普通自动节点或 DSH
+ *       backend task)写入计票完成条件并附加 end ExecutionListener 逐实例计票
+ *       (2026-09-15 三种 task 统一计票);</li>
  *   <li>为配置了 {@code dsh:timeoutPolicy.duration} 的 userTask 合成 non-interrupting
  *       boundary timer + escalation service task + sequence flow。</li>
  * </ol>
@@ -62,6 +67,23 @@ public class DshBpmnParseHandler implements BpmnParseHandler {
     /** DshMultiInstanceSetupListener Spring bean 名。 */
     public static final String DSH_MULTI_INSTANCE_SETUP_LISTENER_BEAN_EXPRESSION = "${dshMultiInstanceSetupListener}";
 
+    /** 会签计票同意票数变量前缀(design 2026-09-15),完整变量名 {@code dsh_passCount_<taskId>}。 */
+    public static final String PASS_COUNT_VARIABLE_PREFIX = "dsh_passCount_";
+
+    /** 会签计票否决票数变量前缀(design 2026-09-15),完整变量名 {@code dsh_rejectCount_<taskId>}。 */
+    public static final String REJECT_COUNT_VARIABLE_PREFIX = "dsh_rejectCount_";
+
+    /**
+     * Flowable 多实例默认下标变量名:引擎 {@code ContinueMultiInstanceOperation} 以
+     * {@code setVariableLocal} 写在每个实例执行上,MI 根与流程级执行上不存在。
+     * 计票 end listener 用它区分「实例完成触发」与「body 整体收工触发」
+     * (后者在 MI 根执行上,无该本地变量,不重复计票)。
+     */
+    public static final String LOOP_COUNTER_VARIABLE = "loopCounter";
+
+    /** DshVotingEndListener Spring bean 名(service task 逐实例计票)。 */
+    public static final String DSH_VOTING_END_LISTENER_BEAN_EXPRESSION = "${dshVotingEndListener}";
+
     @Override
     public Collection<Class<? extends BaseElement>> getHandledTypes() {
         return Set.of(Process.class);
@@ -72,19 +94,26 @@ public class DshBpmnParseHandler implements BpmnParseHandler {
         if (!(element instanceof Process process)) {
             return;
         }
-        processUserTasks(process);
+        processDshElements(process);
     }
 
-    private void processUserTasks(FlowElementsContainer container) {
+    private void processDshElements(FlowElementsContainer container) {
         // 迭代快照:processUserTask 会向 container 追加超时升级元素
         for (FlowElement element : List.copyOf(container.getFlowElements())) {
             if (element instanceof UserTask userTask) {
                 DshExtensionProperties props = new DshBpmnExtensionParser().parse(userTask);
                 attachCreateListener(userTask);
                 attachMultiInstanceSetup(userTask, props);
+                attachVotingCompletionCondition(userTask, props);
                 attachTimeoutEscalation(userTask, props, container);
+            } else if (element instanceof ServiceTask serviceTask) {
+                DshExtensionProperties props = new DshBpmnExtensionParser().parseBackendTask(serviceTask);
+                if (props == null) {
+                    props = new DshBpmnExtensionParser().parsePlainServiceTask(serviceTask);
+                }
+                attachServiceTaskVoting(serviceTask, props);
             } else if (element instanceof FlowElementsContainer nested) {
-                processUserTasks(nested);
+                processDshElements(nested);
             }
         }
     }
@@ -107,12 +136,13 @@ public class DshBpmnParseHandler implements BpmnParseHandler {
      * 裸字符串,Flowable 7 校验还要求额外配 flowable:collectionParser handler。
      */
     private void attachMultiInstanceSetup(UserTask userTask, DshExtensionProperties props) {
-        if (!hasDshCandidateRole(userTask, props)) {
+        if (!hasDshCandidateRole(userTask, props) && !hasVotingRule(userTask, props)) {
             return;
         }
 
-        // 配了候选角色即注入 start listener:候选人变量注入是 DSH 产品承诺
-        // (办理人=角色成员),与设计师是否自配 collection 无关
+        // 配了候选角色或会签计票即注入 start listener:候选人变量注入与计票变量
+        // 初始化(0 起算,完成条件首次求值前必须已存在)是 DSH 产品承诺,
+        // 与设计师是否自配 collection 无关
         FlowableListener startListener = new FlowableListener();
         startListener.setImplementationType(ImplementationType.IMPLEMENTATION_TYPE_DELEGATEEXPRESSION);
         startListener.setImplementation(DSH_MULTI_INSTANCE_SETUP_LISTENER_BEAN_EXPRESSION);
@@ -134,8 +164,79 @@ public class DshBpmnParseHandler implements BpmnParseHandler {
     }
 
     /**
-     * 该 userTask 是否为配置了 candidateRoleId 的多实例任务。
-     * start listener 注入({@link DshMultiInstanceSetupListener})以此为条件。
+     * 为配置了 {@code dsh:votingRule} 的多实例 userTask 自动写入计票完成条件
+     * (design 2026-09-15 §4.4):票数由提交端点逐份聚合,达到通过票数或否决票数
+     * 即提前收,剩余活动实例由引擎自动删除。
+     *
+     * <p>与 collection 补齐同理必须在 parse 前改模型(completionCondition 在 parse 时
+     * 拷入 MultiInstanceActivityBehavior)。设计师手写完成条件时不覆盖(纵深防御;
+     * web-console 发布校验已拒绝 votingRule 与手写完成条件并存的矛盾配置)。</p>
+     */
+    private void attachVotingCompletionCondition(UserTask userTask, DshExtensionProperties props) {
+        if (props == null || props.votingRule() == null) {
+            return;
+        }
+        MultiInstanceLoopCharacteristics loop = userTask.getLoopCharacteristics();
+        if (loop == null) {
+            return;
+        }
+        if (StringUtils.hasText(loop.getCompletionCondition())) {
+            return;
+        }
+        loop.setCompletionCondition(
+            buildVotingCondition(userTask.getId(), props.votingRule()));
+    }
+
+    /**
+     * 为配置了 {@code dsh:votingRule} 的多实例 ServiceTask(普通自动节点或 DSH
+     * backend task)写入计票完成条件并挂 end ExecutionListener(2026-09-15 三种
+     * task 统一计票):每实例完成时 delegate 已写完表决变量,{@link DshVotingEndListener}
+     * 读值累加计数,完成条件随后求值——Flowable {@code ParallelMultiInstanceBehavior /
+     * SequentialMultiInstanceBehavior.internalLeave} 保证 {@code callActivityEndListeners}
+     * 先于 {@code completionConditionSatisfied},计票对本次完成条件求值可见。
+     *
+     * <p>计数变量由 listener 首次计票时创建(从 0 起算),不能用 user task 的
+     * start listener 预置:service task 实例创建与完成交错(同步同命令内逐实例
+     * 贯穿执行 / 异步各自 job),逐实例 start 会把已累加的计数重置回 0;
+     * 完成条件只在每实例完成后求值,listener 先行创建即保证变量已存在。</p>
+     *
+     * <p>手写完成条件时不覆盖(纵深防御;web-console 发布校验拒绝并存配置)。</p>
+     */
+    private void attachServiceTaskVoting(ServiceTask serviceTask, DshExtensionProperties props) {
+        if (props == null || props.votingRule() == null) {
+            return;
+        }
+        MultiInstanceLoopCharacteristics loop = serviceTask.getLoopCharacteristics();
+        if (loop == null) {
+            return;
+        }
+        FlowableListener endListener = new FlowableListener();
+        endListener.setImplementationType(ImplementationType.IMPLEMENTATION_TYPE_DELEGATEEXPRESSION);
+        endListener.setImplementation(DSH_VOTING_END_LISTENER_BEAN_EXPRESSION);
+        endListener.setEvent(ExecutionListener.EVENTNAME_END);
+        serviceTask.getExecutionListeners().add(endListener);
+        if (!StringUtils.hasText(loop.getCompletionCondition())) {
+            loop.setCompletionCondition(
+                buildVotingCondition(serviceTask.getId(), props.votingRule()));
+        }
+    }
+
+    /**
+     * 计票完成条件(userTask / ServiceTask 共用):
+     * {@code ${dsh_passCount_<id> >= P[ || dsh_rejectCount_<id> >= R]}}。
+     */
+    static String buildVotingCondition(String activityId, DshExtensionProperties.VotingRule rule) {
+        String passExpr = PASS_COUNT_VARIABLE_PREFIX + activityId
+            + " >= " + rule.passCount();
+        return rule.rejectCount() == null
+            ? "${" + passExpr + "}"
+            : "${" + passExpr + " || " + REJECT_COUNT_VARIABLE_PREFIX + activityId
+                + " >= " + rule.rejectCount() + "}";
+    }
+
+    /**
+     * 该 userTask 是否为配置了候选规则(实体角色、虚拟角色或组织范围,design 2026-09-19)
+     * 的多实例任务。start listener 注入({@link DshMultiInstanceSetupListener})以此为条件。
      */
     static boolean hasDshCandidateRole(UserTask userTask, DshExtensionProperties props) {
         if (userTask.getLoopCharacteristics() == null) {
@@ -144,7 +245,20 @@ public class DshBpmnParseHandler implements BpmnParseHandler {
         if (props == null || props.assignmentRule() == null) {
             return false;
         }
-        return StringUtils.hasText(props.assignmentRule().candidateRoleId());
+        DshExtensionProperties.AssignmentRule rule = props.assignmentRule();
+        return StringUtils.hasText(rule.candidateRoleId())
+            || StringUtils.hasText(rule.virtualRole())
+            || StringUtils.hasText(rule.orgScope())
+            || StringUtils.hasText(rule.fixedUnitId());
+    }
+
+    /**
+     * 该 userTask 是否为配置了 {@code dsh:votingRule} 的多实例任务
+     * (design 2026-09-15):start listener 初始化计票变量以此为条件。
+     */
+    static boolean hasVotingRule(UserTask userTask, DshExtensionProperties props) {
+        return userTask.getLoopCharacteristics() != null
+            && props != null && props.votingRule() != null;
     }
 
     /**

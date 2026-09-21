@@ -15,6 +15,7 @@ import '@bpmn-io/properties-panel/assets/properties-panel.css'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
 import { DshPropertiesProviderModule } from './DshPropertiesProvider'
+import { DshBackendTaskPaletteModule } from './dsh-backend-task-palette'
 import { ReplaceMenuFilterModule } from './replace-menu-filter'
 import { dshModdleDescriptor, flowableModdleDescriptor } from './dsh-moddle'
 
@@ -55,6 +56,7 @@ export default function BpmnModeler({ xml, onXmlChange, readonly = false }: Bpmn
         BpmnPropertiesPanelModule,
         BpmnPropertiesProviderModule,
         DshPropertiesProviderModule,
+        DshBackendTaskPaletteModule,
         ReplaceMenuFilterModule,
       ],
       moddleExtensions: {

@@ -1,5 +1,11 @@
 import { get, patch, post } from './client'
 
+/** 用户所属部门项(对齐 com.dsh.console.orgunit.dto.UserOrgUnitDto)。 */
+export interface UserOrgUnitDto {
+  orgUnitId: string
+  name: string
+}
+
 export interface UserDto {
   id: string
   authSubject: string
@@ -18,6 +24,7 @@ export interface UserDto {
   lockedAt: string | null
   lockedBy: string | null
   lockedReason: string | null
+  orgUnits: UserOrgUnitDto[]
 }
 
 export interface UpdateUserRequest {
@@ -38,4 +45,7 @@ export const usersApi = {
   lock: (userId: string, body?: UserActionRequest) => post<UserDto>(`/api/users/${userId}/lock`, body),
   activate: (userId: string) => post<UserDto>(`/api/users/${userId}/activate`),
   updateRoles: (userId: string, body: UpdateUserRequest) => patch<UserDto>(`/api/users/${userId}`, body),
+  /** 全量覆盖分配所属部门(空数组=脱离所有组织线;负责人守卫见后端) */
+  assignOrgUnits: (userId: string, orgUnitIds: string[]) =>
+    patch<UserDto>(`/api/users/${userId}/org-units`, { orgUnitIds }),
 }

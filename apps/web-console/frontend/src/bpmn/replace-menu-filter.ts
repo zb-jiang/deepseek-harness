@@ -23,6 +23,10 @@
  *       delegateExpression 被完全忽略,缺 kie-api 时部署直接
  *       NoClassDefFoundError。调 DMN 决策表一律用 Service Task + 表达式
  *       dmnRuleService(教程第 6.1 节)。</li>
+ *   <li>替换菜单头部(任务节点):标准循环 Loop 图标——不是多实例(同一份任务
+ *       反复执行直到条件不满足),与候选人派发/计票/集合派发机制无关;人工节点与
+ *       ServiceTask(含 DSH backend task)都用并行/串行多实例,循环图标已隐藏
+ *       (教程第 11 节组合速查)。</li>
  *   <li>调色板:Data Store Reference(数据存储引用)——DSH 场景的数据载体是
  *       流程变量树(context),节点输出经"输出 Process Variables 定义"校验后
  *       写入变量树,下游直接读;Data Store 只作图面标注、不参与引擎数据流,
@@ -31,10 +35,20 @@
  */
 import type PopupMenuProvider from 'diagram-js/lib/features/popup-menu/PopupMenuProvider'
 import type { PopupMenuEntries } from 'diagram-js/lib/features/popup-menu/PopupMenuProvider'
+import type { PopupMenuTarget } from 'diagram-js/lib/features/popup-menu/PopupMenu'
 import type PopupMenu from 'diagram-js/lib/features/popup-menu/PopupMenu'
 import type PaletteProvider from 'diagram-js/lib/features/palette/PaletteProvider'
 import type { PaletteEntries } from 'diagram-js/lib/features/palette/PaletteProvider'
 import type Palette from 'diagram-js/lib/features/palette/Palette'
+import { isAny } from 'bpmn-js/lib/util/ModelUtil'
+
+/**
+ * 替换菜单头部条目的运行时形态:diagram-js 类型声明为 list,实际累积为
+ * keyed record(bpmn-js ReplaceMenuProvider._getLoopCharacteristicsHeaderEntries
+ * 按 'toggle-parallel-mi' 等 key 合并,PopupMenu._getHeaderEntries 的 updater
+ * 分支把 record 传给本过滤器)。
+ */
+type HeaderEntries = Record<string, unknown>
 
 /** 要隐藏的替换菜单条目 actionName(定义于 bpmn-js ReplaceOptions.js 的 GATEWAY 数组)。 */
 const HIDDEN_REPLACE_ACTIONS = new Set(['replace-with-complex-gateway', 'replace-with-send-task', 'replace-with-rule-task'])
@@ -50,6 +64,21 @@ ReplaceMenuFilterProvider.prototype.getPopupMenuEntries = function () {
   return function (entries: PopupMenuEntries) {
     for (const action of HIDDEN_REPLACE_ACTIONS) {
       delete entries[action]
+    }
+    return entries
+  }
+}
+
+ReplaceMenuFilterProvider.prototype.getPopupMenuHeaderEntries = function (target: PopupMenuTarget) {
+  return function (entries: HeaderEntries) {
+    // 人工节点与 ServiceTask 均隐藏标准循环(Loop)图标:重做语义与候选人派发/
+    // 计票/集合派发无关,DSH 任务节点只用并行/串行多实例。多选时 target 是
+    // 数组,不过滤。断言理由:PopupMenuTarget 声明为 diagram-js Element,
+    // 替换菜单的运行时 target 实为 bpmn-js shape(带 businessObject),
+    // is() 需要 bpmn-js Element。
+    if (!Array.isArray(target)
+      && isAny(target as Parameters<typeof isAny>[0], ['bpmn:UserTask', 'bpmn:ServiceTask'])) {
+      delete entries['toggle-loop']
     }
     return entries
   }

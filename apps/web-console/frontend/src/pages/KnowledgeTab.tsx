@@ -156,7 +156,7 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
 
   // ---------- 文件夹树 ----------
 
-  const folderMenuItems = (folder: KbFolderDto) => [
+  const folderMenuItems = () => [
     { key: 'rename', label: '重命名' },
     { key: 'move', label: '移动' },
     { key: 'delete', label: '删除', danger: true },
@@ -213,7 +213,7 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
         {folder.name}
       </span>
       <Dropdown
-        menu={{ items: folderMenuItems(folder), onClick: ({ key }) => handleFolderMenu(folder, key) }}
+        menu={{ items: folderMenuItems(), onClick: ({ key }) => handleFolderMenu(folder, key) }}
         trigger={['click']}
       >
         <Button
@@ -267,7 +267,6 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
         children: buildTreeNodes(null, selectedKey),
       },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [folders, selectedKey],
   )
 

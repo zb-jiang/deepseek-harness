@@ -1,36 +1,15 @@
 # BPMN 组件通俗教程
 
-> 配套环境：Web Console 的 BPMN 图形设计器（bpmn-js + Flowable 7 引擎）。
-> 贯穿案例：学生请假审批。全文所有 DEMO 都围绕这个案例展开，方便对照理解。
-
-***
-
-## 读教程前：3 个基本概念
-
-把一张 BPMN 流程图想象成成成一张校园地图成成：
-
-1. 流程   = 从家走到学校的路线图
-2. 节点  （各种方块、圆圈、菱形）= 路上的地点（教学楼、食堂、门卫室）
-3. 连线  （箭头）= 连接地点的路，流程顺着箭头方向走
-
-还有一个重要概念：流程变量（Process Variables）。
-
-把它想象成一张张随身的记事卡，流程走到哪里就把这张卡带到哪里。每个节点干活时可以往卡上写字（比如 `days=5` 表示请假 5 天），后面的节点能读到卡上的内容。"流程变量树（context）"就是这张卡。
-
-> 画布和 XML 的关系：画布上每一个拖拽、每一次属性填写，背后都是在生成一段 XML 文本。引擎部署和执行的是 XML。所以本教程每个组件都会给你看"画布操作后生成的 XML 长什么样"——看懂 XML 不是必须的，但它能帮你确认自己配的东西引擎到底认不认。
-
-***
-
 ## 读教程前：流程定义生命周期（状态机）
 
 Web Console 里的每一张流程图（流程定义）都有 4 个状态，状态决定你能做什么操作：
 
-| 状态 | 含义 | 编辑 BPMN | 保存草稿 | 校验 | 发布 | 停用 | 归档 | 启动新实例 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **draft** 草稿 | 刚创建，还没部署 | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| **published** 已发布 | 已部署到 Flowable，可能正在跑实例 | ✅ | ✅ | ✅ | ✅（覆盖旧版本） | ✅ | ✅ | ✅ |
-| **disabled** 已停用 | 暂停使用，不接收新实例 | ✅ | ✅ | ✅ | ✅（恢复并覆盖） | ❌ | ✅ | ❌ |
-| **archived** 已归档 | 终态，不再使用 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 状态                | 含义                    | 编辑 BPMN | 保存草稿 | 校验 | 发布       | 停用 | 归档 | 启动新实例 |
+| ----------------- | --------------------- | ------- | ---- | -- | -------- | -- | -- | ----- |
+| **draft** 草稿      | 刚创建，还没部署              | ✅       | ✅    | ✅  | ✅        | ❌  | ✅  | ❌     |
+| **published** 已发布 | 已部署到 Flowable，可能正在跑实例 | ✅       | ✅    | ✅  | ✅（覆盖旧版本） | ✅  | ✅  | ✅     |
+| **disabled** 已停用  | 暂停使用，不接收新实例           | ✅       | ✅    | ✅  | ✅（恢复并覆盖） | ❌  | ✅  | ❌     |
+| **archived** 已归档  | 终态，不再使用               | ❌       | ❌    | ❌  | ❌        | ❌  | ❌  | ❌     |
 
 状态转换图：
 
@@ -41,18 +20,9 @@ draft ──发布──► published ──停用──► disabled ──重�
   （重新发布也会回到 published）          （终态，不可再变）
 ```
 
-**要点**
-
-- **归档后不能再操作**：归档是终态，相当于把流程"封存"。
-- **已发布流程可以直接改**：不用先停用。在 published 状态编辑 BPMN、保存草稿、再点发布，会生成新的 Flowable deployment 覆盖旧版本。
-- **停用后再发布 = 恢复**：disabled 状态可以编辑保存，发布后状态回到 published。
-- **保存草稿不限于 draft**：只要没归档，都可以保存 BPMN XML 草稿；只有发布时才真正把 BPMN 部署到引擎。
-
-***
-
 # 第一部分：任务类组件
 
-## 1. Service Task 服务任务 —— 机器人自动干活
+## 1. Service Task 服务任务
 
 是什么：像一个自动售货机——投币、按按钮、掉饮料，全程不需要人参与。流程走到这一步，程序自动执行，做完立刻走下一步。
 
@@ -64,50 +34,7 @@ DEMO：学生提交请假单后，系统统统自动给班主任发一条提醒�
 (开始) → [填请假单] → [自动发提醒(服务任务)] → [班主任审批] → (结束)
 ```
 
-教程（怎么操作）：
-
-1. 从左侧工具栏拖一个Task到画布，点节点旁的小扳手图标，选Service Task（齿轮图标）
-2. 点选中这个节点，右侧属性面板出现"Flowable 实现方式"组
-3. 二选一填一个：
-   - 委托表达式 (delegateExpression)：
-     - `${sendReminderDelegate}`——自定义 JavaDelegate，自己写 Java 代码干活（见 1.1 节）
-   - 表达式 (expression)：`${smsSender.send(execution, phone)}`——直接调 Spring Bean 的某个方法，不走 JavaDelegate 接口（见 1.3 节）
-4. 需要后台慢慢执行不卡流程时，勾选"异步执行"
-
-***
-
-## 1.1 深入：自定义 JavaDelegate —— 以 `sendReminderDelegate` 为例
-
-**直接回答**：`${sendReminderDelegate}` 里的 `sendReminderDelegate` **是一个 Spring Bean 的名字**。这个 Bean 对应的类 `SendReminderDelegate` 实现了 Flowable 引擎的 `JavaDelegate` 接口。引擎执行到 Service Task 时，拆开 `${...}` 拿到名字，去 Spring 容器里找到这个 Bean，调用它的 `execute(execution)` 方法。
-
-**打个比方**：Spring 容器像学校的广播站登记簿。每个 Java 类盖好章（`@Component` 注解）登记进簿子时，可以起一个"广播名"（Bean 名）。BPMN 里的 `${...}` 就是"按广播名到登记簿上找人"——找到谁，就让谁干活。
-
-**完整的点名链条**（引擎执行 Service Task 时发生的事）：
-
-```
-画布上的节点 [自动发提醒],属性 flowable:delegateExpression = "${sendReminderDelegate}"
-        ↓ 流程走到这个节点,引擎准备执行它
-引擎拆开 ${...},取出名字:sendReminderDelegate
-        ↓ 拿这个名字去 Spring 登记簿(容器)里找
-找到盖了 @Component("sendReminderDelegate") 章的类 → SendReminderDelegate
-        ↓ 引擎调用它按接口必须实现的方法
-执行 SendReminderDelegate.execute(execution) —— 代码真正跑起来的地方
-```
-
-**画布上填完之后，生成的 XML 长这样**：
-
-```xml
-<serviceTask id="Activity_autoRemind" name="自动发提醒"
-    flowable:delegateExpression="${sendReminderDelegate}" />
-```
-
-### DEMO：自己写一个"给班主任发提醒"的委托类
-
-**场景**：学生提交请假单后，系统自动给班主任发一条提醒。这件事逻辑完全确定，适合写一个**自定义 JavaDelegate**。
-
-#### 第 1 步：写 Java 类
-
-新建文件 `apps/flowable-engine/src/main/java/com/dsh/flowable/delegate/SendReminderDelegate.java`：
+自定义 JavaDelegate —— 以 `sendReminderDelegate` 为例。新建文件 `apps/flowable-engine/src/main/java/com/dsh/flowable/delegate/SendReminderDelegate.java`：
 
 ```java
 package com.dsh.flowable.delegate;
@@ -160,246 +87,7 @@ public class SendReminderDelegate implements JavaDelegate {  // ← 实现 Flowa
 | `execution.setVariable("reminderSent", true)` | 往记事卡写字：提醒已发出（写回后下游可用）                          |
 | `log.info(...)`                               | 真实系统把这一行换成调短信 / 邮件 API 的代码即可                   |
 
-#### 第 2 步：重启引擎
-
-新增 Java 类必须重启才生效：
-
-```powershell
-cd d:\works\deepseek-harness\apps\flowable-engine
-mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
-```
-
-> **重启会弄丢正在跑的流程吗？——不会。** Flowable 是"状态全在数据库"的设计，引擎内存里没有任何独占状态。运行中的流程实例（`ACT_RU_EXECUTION`）、用户的待办（`ACT_RU_TASK`）、流程变量（`ACT_RU_VARIABLE`）、定时器（`ACT_RU_TIMER_JOB`）全在 Supabase PG 的 `flowable` schema 里，重启后原样恢复：
->
-> | 对象        | 重启后                                        |
-> | --------- | ------------------------------------------ |
-> | 运行中的流程实例  | 停在哪一步，重启后还在哪一步等                            |
-> | 用户待办      | 原样保留，DSH 待办中心查询照常返回                        |
-> | Timer 倒计时 | 记的是"到期时刻"不是剩余时间；停机期间已到期的，重启后立刻触发——不丢也不重新计时 |
->
-> 两个小坑：① 恰好执行到 Service Task 一半被 kill，事务回滚、流程退回上个提交点，重启后走到该节点会重执行一次——委托要写成幂等的（发通知前先查发没发过）；② 改了 BPMN 重新部署产生新版本，正在跑的实例继续走旧版本，互不干扰。
-
-#### 第 3 步：在 Web Console 画布里接线
-
-1. 拖一个 Task，小扳手换成 **Service Task**，起名"自动发提醒"，连在"填请假单"后面
-2. 选中它，属性面板 **"Flowable 实现方式"** 组里，**委托表达式 (delegateExpression)** 填：`${sendReminderDelegate}`
-   —— 注意要带 `${}` 花括号，括号里的名字必须和 `@Component("...")` 里的**完全一致**
-3. 它的上游节点"填请假单"（UserTask）的"输出 Process Variables 定义"里要声明 `studentName`、`days`、`reason` 这几个字段——没有它们，第 1 步读出来全是 null
-
-#### 第 4 步：验证
-
-发起一个流程实例，走完"填请假单"后，看引擎控制台日志——出现 `[DSH 提醒] 【请假提醒】...` 字样，说明你的第一个自定义委托跑通了。
-
-### 一句话总结
-
-自定义 JavaDelegate = 你亲手写的"机器人"。逻辑固定、不动脑、不需要 LLM 的活，都适合这种方式。要动脑的活，按 1.2 节在委托里调 `DshHeadlessClient`。
-
-***
-
-## 1.2 深入：让自动节点"动脑"——定制 delegate 调 `DshHeadlessClient`
-
-**是什么**：Service Task 的定位是"通过代码调用 Java delegate"。1.1 节的纯自定义委托适合不动脑的活；要动脑的活（写摘要、做判断、生成内容），引擎仓库提供了可复用组件 `DshHeadlessClient`——你写一个自己的委托注入它，把任务交给 DSH 的"大脑"（LLM）去想。
-
-**比喻**：`DshHeadlessClient` 是引擎雇的**专职快递员**。你（定制 delegate）写好任务指令——要 LLM 干什么、按什么 JSON 字段交回报告；快递员负责"打包 → 寄给 DSH headless → 等回信 → 拆出 JSON"。报告怎么写回流程变量树，完全由你的代码决定。
-
-### 内部流程（四步走）
-
-```
-[引擎执行到 ServiceTask]
-        ↓
-① 你的 delegate 读上下文：execution.getVariable(...) 挑要给 LLM 看的变量
-        ↓
-② 调 DshHeadlessClient.execute(指令, 变量, activityId)
-   指令 + 变量 JSON + "最终回复只输出一个 JSON 对象"组成一次性任务文本
-        ↓
-③ 启动 DSH headless 子进程执行 LLM：
-   node --import tsx/esm apps/cli/src/bin.ts --profile headless "<任务>"
-   （工作目录 = DSH 仓库根；stdout 收到的最终回复即产出）
-        ↓
-④ 你的 delegate 把返回的 JSON 按自己的语义 setVariable 写回变量树
-        ↓
-[引擎继续走下游节点]
-```
-
-### 代码骨架（以"请假摘要"自动节点为例）
-
-```java
-@Component("autoSummarizeDelegate")  // ← BPMN 里 ${autoSummarizeDelegate} 对应的名字
-public class AutoSummarizeDelegate implements JavaDelegate {
-
-    private final DshHeadlessClient dshHeadlessClient;
-
-    public AutoSummarizeDelegate(DshHeadlessClient dshHeadlessClient) {
-        this.dshHeadlessClient = dshHeadlessClient;  // Spring 自动注入引擎组件
-    }
-
-    @Override
-    public void execute(DelegateExecution execution) {
-        // ① 挑要给 LLM 看的变量（这里传全部），指令里写明输出 JSON 的字段约定
-        Map<String, Object> output = dshHeadlessClient.execute(
-            "你是请假审批助手。根据流程变量判断该请假是否紧急，"
-                + "输出 {\"urgency\": \"紧急|普通\", \"summary\": \"一句话摘要\"}",
-            execution.getVariables(),
-            execution.getCurrentActivityId());
-
-        // ② 写回哪些变量、叫什么名字，你的代码说了算（语义化命名）
-        execution.setVariable("leaveSummary", output.get("summary"));
-        execution.setVariable("urgency", output.get("urgency"));
-    }
-}
-```
-
-两个要点：
-
-- **没有固定的 `dsh_auto_output` / `dsh_auto_notes`**。写回的变量名由你的 delegate 语义化命名，下游网关直接写 `${leaveSummary}`、`${urgency == '紧急'}`，不必再从大 JSON 里挖字段。
-- **BPMN 上 ServiceTask 不需要任何 dsh: 扩展属性**。属性面板"Flowable 实现方式"组的 `delegateExpression` 填 `${autoSummarizeDelegate}` 即可；Service Task 没有 userPrompt——任务指令写在你的 delegate 代码里，不在画布上。
-
-### 引擎侧配置（`application.yml`）
-
-headless 子进程在 DSH 仓库根目录下启动，**仅当流程里有调 headless 的自动节点时**才需要配：
-
-```yaml
-dsh:
-  headless:
-    node-bin: node
-    repo-root: ${DSH_REPO_ROOT:}   # DSH 仓库根目录（环境变量 DSH_REPO_ROOT 注入）
-    cli-entry: apps/cli/src/bin.ts
-    call-timeout-seconds: 300      # LLM 含 thinking 耗时长，默认 300 秒
-```
-
-引擎进程的环境变量里要有 `DEEPSEEK_API_KEY`（headless 的 LLM 调用读它，子进程继承引擎环境）；`node` 要在 PATH 上。`repo-root` 未配置时引擎照常启动，走到调用 `DshHeadlessClient` 的节点才报错——没有自动节点的流程完全不用配。
-
-### 失败处理（重要）
-
-`repo-root` 未配置、子进程非 0 退出、超时（默认 300 秒）、回复里解析不出 JSON，`DshHeadlessClient` 都会**抛异常**。此时：
-
-- **同步模式**：异常直接往上抛，流程事务回滚，实例停在这个节点
-- **异步模式**（勾了 async）：异常被 async-executor 捕获，Job 进入重试队列，按你配的 `failedJobRetryTimeCycle` 重试；全部失败后变成死信（deadletter），流程卡住等人工干预
-
-> 这就是为什么要给"要动脑的活"配 async + 重试策略——LLM 不稳定，必须给它"多几次机会"。
-
-### 纯自定义委托 vs 委托 + DshHeadlessClient，怎么选？
-
-| <br /> | `${sendReminderDelegate}`（纯自定义委托，1.1 节） | 定制 delegate + `DshHeadlessClient` |
-| ------ | -------------------------------------- | ----------------------------------- |
-| 活由谁干   | 你亲手写的 Java 代码                          | DSH headless（LLM 思考后回答）             |
-| 适合     | 不动脑的活：发消息、查数据库、算数、调第三方接口               | 要动脑的活：写摘要、做判断、生成内容                 |
-| 逻辑放哪   | 全部写死在 Java 类里                          | 指令写在 delegate 代码里，思考由 LLM 完成       |
-| 写回变量   | delegate 自己 setVariable（语义化命名）          | delegate 拿到 JSON 后自己 setVariable（语义化命名） |
-
-> 判断口诀：**要动脑的活，在委托里调 `DshHeadlessClient`；不动脑的活，纯手写委托。**
-
-### 一句话总结
-
-`DshHeadlessClient` = 引擎和 DSH 大脑之间的**可复用快递员**。写一个自己的 delegate 注入它、在画布上填 `${你的delegate名}`，"打包 → 寄送 → 等回信 → 拆包"全由它完成，拆出来的东西怎么写回变量树由你的代码决定。
-
-***
-
-## 1.3 深入：表达式 (expression) 模式详解——每个词是谁定义的？
-
-Service Task 属性面板里除了**委托表达式 (delegateExpression)**，还有一个 **表达式 (expression)** 输入框。填法是 `${bean名.方法名(参数)}`，比如 `${smsSender.send(execution, phone)}`。
-
-**先坦白**：`smsSender` 在本项目里**根本不存在**，下面是一个语法示例。填这种表达式之前，冒号里的每一段都必须由你**亲手创造**出来，缺一段就报错：
-
-| 片段           | 是什么                    | 谁定义的                               |
-| ------------ | ---------------------- | ---------------------------------- |
-| `smsSender`  | 一个普通 Spring Bean 的名字   | **你自己写** `@Component("smsSender")` |
-| `.send(...)` | 那个 Bean 上的一个 public 方法 | **你自己**在类里定义                       |
-| `execution`  | 引擎塞进来的"记事卡"对象          | Flowable 引擎**自动提供**，不用管            |
-| `phone`      | 一个流程变量                 | **上游节点**写进记事卡的；变量不存在直接报错           |
-
-要让 `${smsSender.send(execution, phone)}` 跑起来，你需要先写这样一个类（注意和 1.1 节的关键区别：**表达式模式不需要实现 JavaDelegate 接口**，任何普通类都行）：
-
-```java
-package com.dsh.flowable.service;
-
-import org.flowable.engine.delegate.DelegateExecution;
-import org.springframework.stereotype.Component;
-
-/**
- * 短信发送器(表达式模式的普通 Bean,不实现 JavaDelegate)。
- * BPMN 中通过 flowable:expression="${smsSender.send(execution, phone)}" 调用。
- */
-@Component("smsSender")                    // ← Bean 名,和 ${smsSender} 对上
-public class SmsSender {
-
-    /** 方法名随便起,参数名有讲究:phone 会从流程变量里找同名值传入 */
-    public void send(DelegateExecution execution, String phone) {
-        // execution:引擎自动递进来的当前执行(记事卡)
-        String studentName = (String) execution.getVariable("studentName");
-        // phone:引擎从记事卡里找名为 phone 的变量,找到才调得进来
-        // ...这里调短信 API,用 phone 和 studentName 拼内容发送
-    }
-}
-```
-
-同时在画布属性面板"表达式"里填：`${smsSender.send(execution, phone)}`，生成的 XML：
-
-```xml
-<serviceTask id="Activity_sendSms" name="给家长发短信"
-    flowable:expression="${smsSender.send(execution, phone)}" />
-```
-
-### 两种实现方式对比（怎么选）
-
-| <br />              | delegateExpression（委托表达式） | expression（表达式）   |
-| ------------------- | ------------------------- | ----------------- |
-| 类要实现 JavaDelegate 吗 | 要                         | **不要**，普通类即可      |
-| 方法名                 | execute（接口规定死）            | 随便起               |
-| 引擎怎么找到它             | 按 Bean 名找                 | 按 Bean 名 + 方法名调   |
-| 同一个类能干几种活           | 一种                        | 多种（不同方法）          |
-| Bean 实例             | Spring 单例，复用              | Spring 单例，复用      |
-| 适合                  | **绝大多数场景（推荐）**            | 一个 Bean 要暴露多个小动作时 |
-
-> 判断口诀：**默认用委托表达式；一个类想提供好几个小方法时才用表达式。**
-
-### 一句话总结
-
-表达式模式 = 直接点名 Spring Bean 的某个方法。适合"一个工具类里封装了好几个小操作"的场景，不需要实现 `JavaDelegate` 接口。
-
-***
-
-## 1.4 深入：异步执行 + 失败重试
-
-Service Task 属性组里有这两个配置项：
-
-- 异步执行 (async)   勾选框
-- 失败重试策略 (failedJobRetryTimeCycle)   输入框，填 ISO-8601 循环格式，如 `R5/PT1M`
-  ——两个字段有联动：没勾"异步执行"时，重试策略输入框是灰的（禁用），勾上才可编辑。这是故意的：引擎只对异步 Job 应用重试周期，先开异步再配重试，避免配一个永远不生效的值
-
-画布上勾选/填写后生成的 XML（重试策略是 `extensionElements` 的子元素，不是属性）：
-
-```xml
-<serviceTask id="Activity_sendWecom" name="给家长发企业微信"
-    flowable:delegateExpression="${sendWecomDelegate}"
-    flowable:async="true">
-  <extensionElements>
-    <flowable:failedJobRetryTimeCycle>R5/PT1M</flowable:failedJobRetryTimeCycle>
-  </extensionElements>
-</serviceTask>
-```
-
-为什么重试策略依赖异步开关？（引擎的底层机制）
-
-```
-同步执行(不勾 async):
-  任务抛异常 → 整个事务立即回滚 → 上一步操作全部撤销 → 流程停在原地,无重试
-        ↓
-异步执行(勾选 async):
-  任务交给 async-executor 线程池 → 执行失败 → 失败被记录成一个"Job"(待办重试的作业)
-        ↓ 按重试策略的节奏
-  R5/PT1M = 隔 1 分钟重试,最多 5 次 → 全失败 → 挂起的 Job 人工处理
-```
-
-所以教程只在"勾了异步 + 填了重试策略"时才构成生产级的可靠投递：同步模式下调外部 API 失败 = 直接回滚，连重试的机会都没有。
-
-格式速记（附录 D 有完整表）：`R次数/PT间隔`——`R5/PT1M` = 最多 5 次、每次隔 1 分钟；`R3/PT10M` = 最多 3 次、每次隔 10 分钟。
-
-***
-
-## 1.5 深入：发一条真实的企业微信通知
-
-场景：审批通过后往企业微信群里推一条消息。这次我们写一个真发 HTTP 请求的委托，和 1.1 节的"日志版"对比，看真实系统怎么写。
+再举一个例子：审批通过后往企业微信群里推一条消息。这次我们写一个真发 HTTP 请求的委托。
 
 第 1 步：写 Java 类
 
@@ -483,9 +171,42 @@ dsh:
 
 第 4 步：验证：跑完审批后，看企业微信群————真收到了一条 markdown 卡片消息——。
 
-***
+## 2 让自动节点"动脑"——DSH backend task 节点
 
-## 3. Receive Task 接收任务 —— 等快递上门
+**是什么**：Service Task的纯自定义委托适合不动脑的活；要动脑的活（写摘要、做判断、生成内容），直接拖这个节点、在属性面板配置即可——**不用写任何 Java 代码**。它在服务器端自动调用常驻的 **DSH backend profile**（一个配好 LLM 的 DSH 实例），生成 JSON 后按输出映射写回流程变量，全程无人工参与。
+
+画布操作：
+
+1. palette 拖入 **DSH backend task**——`delegateExpression=${dshBackendTaskDelegate}`、`async=true`、重试策略 `R3/PT1M` 由画布一次写入，不用手填
+2. 属性面板选择 **backend profile 实例**（下拉列出已注册的实例 URL）
+3. 编辑 **user prompt**：变量选择器插入 `{{studentName}}`、`{{reason}}` 等占位符，文案写明输出 JSON 字段约定
+4. 配 **输出映射**（outputMappings）：如 `summary → leaveSummary`、`urgency → urgency`——report 字段对到哪个上下文变量，下拉点选
+
+两个要点：
+
+- **写回的变量名由输出映射决定**（画布配置，不是代码）；下游网关直接写 `${leaveSummary}`、`${urgency == '紧急'}`。
+- **节点扩展与 user task 同构**（userPrompt/skillRefs/outputMappings），但没有多实例、候选角色、超时升级、SoD——没有人工环节，这些语义无从谈起。
+
+前提与配置：
+
+- **backend profile 先启动并注册**：多实例可并存，选哪个是流程设计决策
+- **引擎侧**（`application.yml`）只有轮询节奏两项：
+
+```yaml
+dsh:
+  backend:
+    poll-interval-seconds: 3    # 轮询backend profile 任务是否完成的时间间隔
+    call-timeout-seconds: 600   # 单次任务总超时，超时走重试
+```
+
+### 失败处理（重要）
+
+backend profile 不通、任务 failed、超时、结果解析不出 JSON 对象、输出映射违规，引擎 delegate 都会**抛异常**。节点自带 async + `R3/PT1M`（每分钟重试、共 3 次）：
+
+- 重试期间 profile 恢复 → 下一次重试自动成功，流程继续（自愈）
+- 3 次耗尽 → Job 变成死信（deadletter），流程卡住等人工干预
+
+## 3. Receive Task 接收任务
 
 是什么：和发通知的 Service Task 正好相反。Service Task 干完活自动走；Receive Task 走到这里会停下来休息，直到外部系统"敲门喊一声"才继续。
 
@@ -505,28 +226,14 @@ DEMO：请假通过后，流程停在"等宿舍系统确认离校"这一步；�
 
 1. 拖一个 Task，小扳手换成   Receive Task  （信封+向下箭头图标），起名"等宿舍确认离校"
 2. 这个节点本身身身不需要配属性身身——属性面板只有 General + Documentation
-3. 它的"钥匙"在外部系统手里（见 3.1 节）
+3. 它的"钥匙"在外部系统手里
 4. 画图时给它起个清楚的名字，一看就知道流程在等什么
 
-***
+流程怎么被"唤醒"？流程走到 Receive Task 时，引擎不往下走，也不生成待办，而是把这次执行（execution）挂起存进数据库的"运行中执行"表。外部系统要推进它，必须调 Flowable 的 `RuntimeService.trigger(executionId)`这就是"敲门"。
 
-## 3.1 深入：流程怎么被"唤醒"？（含完整可运行的唤醒接口）
+DEMO：给宿舍系统写一个唤醒接口，我们建一个 Controller 当"传达室"，收到 HTTP 请求后帮它去敲引擎的门。
 
-机制：流程走到 Receive Task 时，引擎不往下走，也不生成待办，而是把这次执行（execution）挂起存进数据库的"运行中执行"表。外部系统要推进它，必须调 Flowable 的 `RuntimeService.trigger(executionId)`——这一嗓子就是"敲门"。
-
-```
-流程走到 [等宿舍确认] ──→ 引擎把 execution 挂起,存进 ACT_RU_EXECUTION 表
-                                ↓
-宿舍系统扫码确认 ──→ 调唤醒接口 ──→ RuntimeService.trigger(executionId)
-                                ↓
-引擎让 execution 复活,继续走 [等宿舍确认] 的出线 → (结束)
-```
-
-DEMO：给宿舍系统写一个唤醒接口
-
-宿舍系统不会 Java，它只会发 HTTP 请求。所以我们建一个 Controller 当"传达室"，收到 HTTP 请求后帮它去敲引擎的门。
-
-新建 `apps/flowable-engine/src/main/java/com/dsh/flowable/controller/DormConfirmController.java`：
+第 1 步：新建 `apps/flowable-engine/src/main/java/com/dsh/flowable/controller/DormConfirmController.java`：
 
 ```java
 package com.dsh.flowable.controller;
@@ -597,13 +304,11 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8090/api/dorm/confirm" `
 
 1. 返回 `{"ok": true}`，刷新流程状态——已经走到结束了
 
-> Receive Task vs Message 事件  ：两者都能"等外部喊一声"。区别是 Receive Task 等"无名的敲门"（trigger），Message 事件等"点名的信"（必须消息名对上）。简单等待用 Receive Task，一个流程要区分等好几种消息时用 Message 事件（见第 16 节）。
+> Receive Task vs Message 事件  ：两者都能"等外部喊一声"。区别是 Receive Task 等"无名的敲门"（trigger），Message 事件等"点名的信"（必须消息名对上）。简单等待用 Receive Task，一个流程要区分等好几种消息时用 Message 事件（见后文）。
 
-***
+## 4. Manual Task 手工任务
 
-## 4. Manual Task 手工任务 —— 贴在图上的便利贴
-
-是什么：一个只写给人类看的提示，引擎完全不管它。流程走到这里里里直接跳过里里，一秒都不停。
+是什么：一个只写给人类看的提示，引擎完全不管它。流程走到这里直接跳过，一秒都不停。
 
 关键区别：
 
@@ -628,42 +333,7 @@ DEMO：班主任审批通过后，学生需要线下要要去教务处领出门�
 2. 不用配任何属性，起个好名字就够了（名字就是它的全部价值）
 3. 常见误区：如果你希望这一步出现在 DSH 代办中心、要跟踪谁做完了——那你要的是   User Task  ，不是 Manual Task！
 
-***
-
-## 4.1 深入：亲手验证"引擎真的跳过它"
-
-想知道引擎到底怎么对待 Manual Task？做个 10 秒小实验。
-
-画布上两个节点的 XML 对照
-
-（右键 → View XML 看）：
-
-```xml
-<!-- User Task:引擎的"正式工",要建档、要打卡、要人签字 -->
-<bpmn:userTask id="Activity_teacherApprove" name="班主任审批">
-  <bpmn:extensionElements>
-    <dsh:assignmentRule candidateRoleId="role-teacher" taskStrategy="single" />
-  </bpmn:extensionElements>
-</bpmn:userTask>
-
-<!-- Manual Task:引擎的"过客",连档案都不建 -->
-<bpmn:manualTask id="Activity_pickUpPass" name="线下领出门条" />
-```
-
-看出区别了吗：`userTask` 挂着 DSH 配置（要派单给谁），`manualTask` 光秃秃一行——引擎对它没有任何动作，`<bpmn:manualTask>` 这行字存在的唯一意义就是是是画给人看是是。
-
-验证实验：
-
-1. 画一个最简流程：`(开始) → [班主任审批] → [线下领出门条] → (结束)`，部署并发起实例
-2. 完成班主任审批任务后，立刻查 DSH 代办中心——没有任何新任务
-3. 再查流程实例状态—直接是"已结束"
-4. 如果把 Manual Task 换成 User Task 再试一次：审批完代办中心立刻多出"线下领出门条"的待办，流程停在"进行中"
-
-同一张图、同一个位置，换成不同任务类型，引擎行为完全不同——这就是"组件选型"的意义。
-
-***
-
-## 5. Script Task 脚本任务 —— 现场心算
+## 5. Script Task 脚本任务
 
 是什么：流程走到这里，引擎当场执行一小段代码，算出的结果写到随身记事卡（流程变量）上，然后继续走。像收银员当场心算找零。
 
@@ -684,10 +354,6 @@ DEMO：班主任审批的输出是 `output = {conclusion: "approved", comment: "
    - 脚本语言  ：下拉选 `javascript` / `groovy` / `juel`
    - 脚本内容  ：填代码，比如 `execution.setVariable('approvalResult', output.conclusion)`
 3. 保存部署，上游审批完成后变量 `approvalResult` 就出现在记事卡上了
-
-***
-
-## 5.1 深入：三种脚本写法
 
 ### 写法一：juel（零依赖，推荐入门）
 
@@ -711,8 +377,6 @@ XML 形态：
 脚本里可以直接裸用变量名：`output.conclusion` 里的 `output` 就是上游写进记事卡的变量，引擎执行前会把整张卡"摊开"成脚本的局部变量。
 
 适合：变量改名、取字段、简单计算。一行能写完的活儿。
-
-***
 
 ### 写法二：javascript
 
@@ -754,8 +418,6 @@ XML 形态：
 
 适合：有 if/for/函数等复杂逻辑，但还不够复杂到值得写 JavaDelegate。
 
-***
-
 ### 写法三：groovy
 
 画布操作：
@@ -796,8 +458,6 @@ XML 形态：
 
 适合：团队里有 Groovy 基础的人；语法比 JavaScript 更接近 Java，Java 程序员上手快。
 
-***
-
 ### 三种写法对比
 
 | <br /> | juel             | javascript + GraalJS   | groovy              |
@@ -814,8 +474,6 @@ XML 形态：
 > - 逻辑很重、要调外部 API、要复用的，别硬塞脚本——直接写 JavaDelegate（第 1.1 节），可测试、可调试、可复用
 
 验证：部署后发起实例、完成审批，在引擎日志或 `ACT_RU_VARIABLE` 表里能看到 `approvalResult=approved` 和 `needGradeDirector=true/false`——拍平成功。
-
-***
 
 ## 6. DMN 决策表 —— 查规则对照表（用 Service Task 接进流程）
 
@@ -835,260 +493,15 @@ DEMO：学校有一张"请假审批层级表"：
 
 教程（怎么操作）：
 
-1. 拖一个 Task，小扳手换成   Service Task  （齿轮图标；菜单里没有 Business Rule Task 表格图标——它已隐藏），起名"决定审批层级"
-2. 为什么藏起来？Flowable 7 里 businessRuleTask 是 Drools 规则引擎的专用元素：解析器只认 Java class 或内置的 Drools 行为（需要额外的 kie-api 依赖），画布上配的表达式/委托表达式会被引擎**完全忽略**，部署直接报 `NoClassDefFoundError`。所以查 DMN 决策表一律用 Service Task：属性面板"Flowable 实现方式"组里填表达式或委托表达式（见 6.1 节的两种 DEMO）
-3. 务实建议  ：如果规则只有两三条，直接用排他网关 + 条件表达式更简单；规则多、变得频繁时才值得上决策表
-
-***
-
-## 6.1 深入：DMN 决策表长什么样？怎么接进流程？
-
-### DMN 决策表长什么样
-
-DMN 决策表（DMN 文件放 `apps/flowable-engine/src/main/resources/dmn/` 目录（引擎自动扫描 `classpath*:/dmn/`，认 `.dmn` / `.dmn.xml` 后缀））
-
-是一份独立的 XML 文件（后缀 `.dmn`），和流程 XML 平级部署。上面那张"审批层级表"翻译成 DMN 就是：
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-             id="approvalLevelDefs"
-             name="approvalLevel"
-             namespace="http://dsh.ai/dmn">
-
-  <decision id="approvalLevel" name="请假审批层级">
-    <decisionTable id="approvalLevelTable" hitPolicy="FIRST">
-      <!-- 输入列:请假天数 -->
-      <input id="in_days" label="请假天数">
-        <inputExpression id="in_days_expr" typeRef="number" expressionLanguage="juel">
-          <text>days</text>
-        </inputExpression>
-      </input>
-      <!-- 输出列:审批层级 -->
-      <output id="out_level" name="level" label="审批层级" typeRef="string" />
-
-      <!-- 规则行:从上到下,命中第一条就出结果(hitPolicy=FIRST) -->
-      <rule id="rule_1">
-        <inputEntry id="ie_1"><text>[0..2]</text></inputEntry>
-        <outputEntry id="oe_1"><text>"班主任"</text></outputEntry>
-      </rule>
-      <rule id="rule_2">
-        <inputEntry id="ie_2"><text>[3..7]</text></inputEntry>
-        <outputEntry id="oe_2"><text>"班主任+年级主任"</text></outputEntry>
-      </rule>
-      <rule id="rule_3">
-        <inputEntry id="ie_3"><text>[8..999]</text></inputEntry>
-        <outputEntry id="oe_3"><text>"班主任+年级主任+教务处"</text></outputEntry>
-      </rule>
-      <!-- 兜底行:输入留空 = 什么都匹配,防止一个都没命中导致节点报错 -->
-      <rule id="rule_catchall">
-        <inputEntry id="ie_catchall"><text/></inputEntry>
-        <outputEntry id="oe_catchall"><text>"班主任+年级主任+教务处"</text></outputEntry>
-      </rule>
-    </decisionTable>
-  </decision>
-</definitions>
-```
-
-对照着看，它就是那张表格的 XML 版：`<input>`输入、`<output>`输出、一条`<rule>`一行。`[0..2]` 是区间的写法，`"班主任"` 是字符串结果。注意默认命名空间必须是 `https://www.omg.org/spec/DMN/20191111/MODEL/`
-
-### 怎么接进流程？两种方式完整 DEMO
-
-两种方式生成不同 XML，效果一样：查表 -> 把输出列`level`写回流程变量，后面的网关按 `level` 分流。
-
-***
-
-#### 方式一：表达式（expression）——一行 XML 接住结果
-
-画布"Flowable 实现方式"组的"""表达式"""里填：
-
-```text
-${execution.setVariables(dmnRuleService.createExecuteDecisionBuilder().decisionKey('approvalLevel').variables(execution.getVariables()).executeWithSingleResult())}
-```
-
-生成的 XML：
-
-```xml
-<serviceTask id="Activity_decideLevel" name="决定审批层级"
-    flowable:expression="${execution.setVariables(dmnRuleService.createExecuteDecisionBuilder()
-        .decisionKey('approvalLevel')
-        .variables(execution.getVariables())
-        .executeWithSingleResult())}" />
-```
-
-拆开读：
-
-| 片段                                     | 白话解释                                                                             |
-| -------------------------------------- | -------------------------------------------------------------------------------- |
-| `dmnRuleService`                       | Flowable 自带的"决策表遥控器" Bean（DMN 模块装好后自动注册），不用自己写                                   |
-| `.decisionKey('approvalLevel')`        | 用哪张决策表——对应 DMN 文件里 `<decision id="approvalLevel">`                               |
-| `.variables(execution.getVariables())` | 把整本记事卡递给决策表当输入                                                                   |
-| `.executeWithSingleResult()`           | 查表！只要单条要要命中结果（配 `hitPolicy="FIRST"` 正好最多命中一条），返回一个 `{level: "班主任+年级主任"}` 这样的 Map |
-| `execution.setVariables(...)`          | 关键一步  ：把查表结果写回记事卡——没有这步，查表等于白查                                                   |
-
-***
-
-#### 方式二：委托表达式（delegateExpression）——写成 Java 类（推荐）
-
-查表逻辑放 Java 类里，画布"""委托表达式"""里填 `${approvalLevelDelegate}`（写法同 1.1 节的自定义委托）：
-
-```java
-package com.dsh.flowable.delegate;
-
-import java.util.Map;
-
-import org.flowable.dmn.api.DmnDecisionService;      // 注意:Flowable 7 接口叫 DmnDecisionService
-import org.flowable.engine.delegate.DelegateExecution;
-import org.flowable.engine.delegate.JavaDelegate;
-import org.springframework.stereotype.Component;
-
-/**
- * 审批层级决策委托:查 DMN 决策表 approvalLevel,
- * 把命中行的输出列原样写回流程变量(输出列名 level → 变量 level)。
- * 画布配置:flowable:delegateExpression="${approvalLevelDelegate}"
- */
-@Component("approvalLevelDelegate")                   // Bean 名,和 ${approvalLevelDelegate} 对上
-public class ApprovalLevelDelegate implements JavaDelegate {
-
-    private final DmnDecisionService dmnRuleService;  // 按类型注入,Bean 名恰好也叫 dmnRuleService
-
-    public ApprovalLevelDelegate(DmnDecisionService dmnRuleService) {
-        this.dmnRuleService = dmnRuleService;
-    }
-
-    @Override
-    public void execute(DelegateExecution execution) {
-        Map<String, Object> result = dmnRuleService
-                .createExecuteDecisionBuilder()
-                .decisionKey("approvalLevel")          // 用哪张决策表
-                .variables(execution.getVariables())   // 整本记事卡当输入
-                .executeWithSingleResult();            // 单条命中结果,如 {level=班主任}
-        execution.setVariables(result);                // 写回记事卡,下游网关就能读到 level
-    }
-}
-```
-
-生成的 XML：
-
-```xml
-<serviceTask id="Activity_decideLevel" name="决定审批层级"
-    flowable:delegateExpression="${approvalLevelDelegate}" />
-```
-
-为什么推荐：查表入参（比如只想传两三个变量、不传整本记事卡）、查完的后处理（记日志、清洗字段）都能在 Java 里随意写，还能写单元测试；XML 里只留一个 Bean 名，干净。
-
-***
-
-#### 两种方式对比（怎么选）
-
-| <br />     | 表达式 expression         | 委托表达式 delegateExpression            |
-| ---------- | ---------------------- | ----------------------------------- |
-| 要写 Java 类吗 | 不用  ，一行表达式             | 要（约 30 行）                           |
-| 结果写回变量     | 表达式里自己拼 `setVariables` | Java 里 `execution.setVariables`，最自然 |
-| 查表逻辑可单测    | 否（表达式没法单测）             | 是                                   |
-| 需要重启引擎     | 否（改 XML 部署即可）          | 是（新类要编译重启）                          |
-| Bean 实例    | --                     | Spring 单例，复用                        |
-
-选择建议：临时试一下/规则极简 -> 方式一；正式项目 -> 方式二。
-
-### 验证
-
-1. 按第 0 步装好 DMN 模块、放好 `.dmn` 文件，重启引擎
-2. 发起实例前在记事卡写入 `days=5`（比如前一个 UserTask 的输出变量是 days）
-3. 走到这个节点后查流程变量——多了一个 `level = "班主任+年级主任"`
-4. 后面的排他网关条件写 `${level == '班主任'}` / `${level == '班主任+年级主任'}` 即可分流
-
-> DMN vs 排他网关，怎么选？   规则 = 一张"输入→输出"对照表且经常变 → DMN；规则 = 沿着不同条件走不同路（每条路还要干活）→ 网关。一个管"算出什么值"，一个管"走哪条路"，常常配合使用：DMN 算出 `level`，网关按 `level` 分路。
-
-***
-
-## 7. Call Activity 调用活动 —— 复用别人的答案
-
-是什么：数学大题里写一句"解法同第 3 题"，而不是把解法重新抄一遍。它让流程程程跳去执行另一个独立流程程程，那个流程跑完后再回来继续。
-
-什么时候用：某个环节被很多流程共用。比如"家长确认"环节，请假流程要用、改选课程要用、离校手续也要用——把它做成一个独立流程，大家来调用。
-
-DEMO：请假流程走到"家长确认"时，调用名为 `parentConfirm` 的通用确认流程；家长在手机上点完确认，控制权交还，请假流程继续。
-
-```
-[班主任审批] → [调用"家长确认"流程] ──→ (parentConfirm 流程内部跑完)
-                     ↓ (返回)
-                 <通过?> → ...
-```
-
-教程（怎么操作）：
-
-1. 先把通用环节做成独立的流程定义，部署时记住它的 key（比如 `parentConfirm`）——流程 key 就是 BPMN 里 `<process id="xxx">` 的 `xxx`。在画布上点击空白处取消所有选中，右侧属性面板自动切换到流程根元素，General 组里的   ID   字段就是这个 key
-2. 在当前流程拖一个   Call Activity  （外框加粗的方块图标），起名"家长确认"
-3. 属性面板   "调用活动配置"   组：
-   - 调用流程 (calledElement)  ：填 `parentConfirm`
-   - 继承流程变量  ：勾上，子流程就能直接读到父流程记事卡上的内容（不勾则子流程从空白卡开始）
-   - 异步执行  ：按需勾选
-
-***
-
-## 7.1 深入：变量怎么传过去、怎么传回来？
-
-Call Activity 最容易糊涂的就是"记事卡"怎么流转。记住三条规则：
-
-```
-父流程记事卡 ──(默认不传!)──→ 子流程记事卡
-父流程记事卡 ──(勾选 inheritVariables)──→ 子流程记事卡(复制一份带进去)
-子流程记事卡 ──(子流程结束时自动)──→ 父流程记事卡(写回)
-```
-
-被调用的子流程长这样
-
-（`parentConfirm.bpmn20.xml`，一个极简的家长确认流程）：
-
-```xml
-<process id="parentConfirm" name="家长确认(通用)" isExecutable="true">
-  <startEvent id="start" />
-  <sequenceFlow id="f1" sourceRef="start" targetRef="parentTask" />
-  <!-- 家长在 DSH 代办中心看到的任务 -->
-  <userTask id="parentTask" name="家长确认">
-    <bpmn:extensionElements>
-      <dsh:assignmentRule candidateRoleId="role-parent" taskStrategy="single" />
-      <dsh:outputSchema>{"type":"object","properties":{"parentResult":{"type":"string"}},"required":["parentResult"]}</dsh:outputSchema>
-    </bpmn:extensionElements>
-  </userTask>
-  <sequenceFlow id="f2" sourceRef="parentTask" targetRef="end" />
-  <endEvent id="end" />
-</process>
-```
-
-调用方画布生成的 XML：
-
-```xml
-<callActivity id="Activity_callParent" name="家长确认"
-    calledElement="parentConfirm"
-    flowable:inheritVariables="true" />
-```
-
-三条规则逐条验证：
-
-1. 不勾"继承流程变量"  ：子流程里读 `studentName` 是 null——两张卡是隔离的（BPMN 规范的默认行为，防止子流程误读误写父流程数据）
-2. 勾上后  ：父流程的 `studentName`、`days` 全部可见
-3. 子流程结束自动回传  ：家长完成任务、输出校验通过后，`parentResult=approved` 自动出现在父流程记事卡上，父流程的网关直接写 `${parentResult == 'approved'}`
-
-和"复制粘贴子流程"的对比：
-
-| <br />     | 复制粘贴一份子流程 | Call Activity 调用 |
-| ---------- | --------- | ---------------- |
-| 改子流程逻辑     | 每个流程都要改一遍 | 改一处，全部生效         |
-| 子流程可以独立发起吗 | 不行，只是片段   | 可以（它本身是完整流程）     |
-| 部署数量       | 0（嵌在大流程里） | 2 个独立流程定义        |
-
-验证：跑通一遍请假流程，在引擎的执行历史里能看到两个实例——父实例 + 一个 `parentConfirm` 子实例；子实例结束后父流程继续。
-
-***
+1. 拖一个 Task，小扳手换成   Service Task，起名"决定审批层级"
+2. 务实建议  ：如果规则只有两三条，直接用排他网关 + 条件表达式更简单；规则多、变得频繁时才值得上决策表
 
 # 第二部分：网关类组件（4个菱形）—— 全是"岔路口"
 
 > 先记住总口诀：
 > 排他 = 单选题；包容 = 多选题；并行 = 全都要；事件 = 赛跑。
 
-## 8. Exclusive Gateway 排他网关（X）—— 单选题
+## 7. Exclusive Gateway 排他网关（X）—— 单选题
 
 是什么：一个只能选一条路的岔路口。流程走到这里，挨个看出线的条件，哪条满足走哪条，其余路全部放弃。
 
@@ -1116,51 +529,7 @@ DEMO：请假天数决定审批层级——少于 3 天只走班主任，3 天�
 - 两条线条件写得重叠（都写 `days >= 0`）→ 引擎选先定义的那条，结果随机
 - 所有条件都不满足又没设默认流 → 部署时能过，运行时直接报错卡死
 
-***
-
-## 8.1 深入：条件存到了哪里？引擎怎么选路？
-
-重要事实：画布上填的条件表达式，序列化为   BPMN 原生的     `<conditionExpression>`     子元素  ——Flowable 引擎只认这个形态：
-
-```xml
-<exclusiveGateway id="Gateway_1" name="天数分档?" default="Flow_default" />
-<sequenceFlow id="Flow_short" sourceRef="Gateway_1" targetRef="End_ok">
-  <conditionExpression xsi:type="bpmn:tFormalExpression">${days &lt; 3}</conditionExpression>
-</sequenceFlow>
-<sequenceFlow id="Flow_long" sourceRef="Gateway_1" targetRef="Activity_gradeApprove">
-  <conditionExpression xsi:type="bpmn:tFormalExpression">${days &gt;= 3}</conditionExpression>
-</sequenceFlow>
-<!-- 默认流:无条件,靠网关的 default 属性指认 -->
-<sequenceFlow id="Flow_default" sourceRef="Gateway_1" targetRef="End_manualCheck" />
-```
-
-看懂三个关键点：
-
-| XML 片段                               | 白话解释                                                                       |
-| ------------------------------------ | -------------------------------------------------------------------------- |
-| `<conditionExpression>` 是是是子元素是是不是属性 | 引擎解析器只找这个标签；写成 `flowable:condition="..."` 属性引擎会直接忽略——部署成功但路由永远不生效（静默坑，最危险） |
-| `xsi:type="bpmn:tFormalExpression"`  | 声明"这是一段表达式"的固定格式，照抄即可                                                      |
-| 网关的 `default="Flow_default"`         | 默认流不是线自己声明的，是网关指认的——画布上配"默认流"下拉就是在写这个属性                                    |
-
-引擎选路的完整决策过程（走到网关那一刻）：
-
-```
-1. 按出线定义顺序,逐条求值条件表达式
-        ↓ 某条为 true?
-2. 走它,其余出线全部忽略 → 结束
-        ↓ 全部 false?
-3. 网关有 default 属性吗?
-   有 → 走默认流 → 结束
-   没有 → 抛异常:没有可选的出线,流程卡死在这里
-```
-
-`条`件里引用的每一个变量，都必须能在这条链上回答"谁写的"。回答不了，运行时一定报 `Unknown property used in expression`。
-
-验证实验：发起两个实例，一个 `days=2`、一个 `days=5`，分别走完"填请假单"——观察第一个直接结束，第二个停在年级主任的待办上。排他网关工作正常。
-
-***
-
-## 9. Inclusive Gateway 包容网关（O）—— 多选题
+## 8. Inclusive Gateway 包容网关（O）—— 多选题
 
 是什么：符合条件的路都可以走，可能走 1 条，也可能同时走 3 条，但至少走 1 条。
 
@@ -1183,47 +552,11 @@ DEMO：请假时长不同，需要同时办的手续不同——请假 3 天以�
 3. 拖第二个包容网关作为汇聚点，把各分支的终点都连到它
 4. 至少保证一条条件能成立，或给网关设默认流兜底，否则运行时报错
 
-***
-
-## 9.1 深入：包容网关的"记名分身术"
-
-机制：流程走到包容网关时，引擎给每条满足条件的出线各发一个"分身"（术语叫 token，可以理解为流程的"执行权杖"）。每个分身独立走自己的分支，最后汇聚网关清点"发出去几个、回来几个"。
-
-画布生成的 XML 对照：
-
-```xml
-<inclusiveGateway id="Gateway_split" name="按天数并行办手续?" />
-
-<sequenceFlow id="Flow_needMedical" sourceRef="Gateway_split" targetRef="Activity_medical">
-  <conditionExpression xsi:type="bpmn:tFormalExpression">${days &gt;= 3}</conditionExpression>
-</sequenceFlow>
-<sequenceFlow id="Flow_needParentSign" sourceRef="Gateway_split" targetRef="Activity_parentSign">
-  <conditionExpression xsi:type="bpmn:tFormalExpression">${days &gt;= 7}</conditionExpression>
-</sequenceFlow>
-
-<!-- 汇聚:没有条件,它的职责只是"清点到齐" -->
-<inclusiveGateway id="Gateway_join" />
-```
-
-和排他网关的本质区别，用同一个学生跑一遍就懂：
-
-| 记事卡       | 排他网关（第 8 节） | 包容网关（本节）           |
-| --------- | ----------- | ------------------ |
-| `days=2`  | 只走一条线       | 一条都不满足 → 报错（必须有兜底） |
-| `days=5`  | 只走一条线       | 只走"医务室"1 条         |
-| `days=10` | 仍只走一条线      | 同时走"医务室"+"家长签字"2 条 |
-
-汇聚网关的聪明之处：它不是死等固定数量，而是按实际发出去的分身数等。`days=5` 时只发了 1 个分身，收 1 个就放行；`days=10` 发了 2 个，必须收齐 2 个。这叫"""动态汇聚"""——包容网关独有的能力。
-
-验证实验：发三个实例（days=2 / 5 / 10），数一数每次实际激活了几个任务：0 / 1 / 2。这就是多选题的评分方式。
-
-***
-
-## 10. Parallel Gateway 并行网关（+）—— 全都要
+## 9. Parallel Gateway 并行网关（+）—— 全都要
 
 是什么：分身术。走到这里，所有出线无条件全部同时激活。不用填任何条件——填了也没用，全部都走。
 
-和包容网关的区别（必考）：包容网关按条件决定走哪几条（可能只走 1 条）；并行网关不看条件，每条都走。
+和包容网关的区别：包容网关按条件决定走哪几条（可能只走 1 条）；并行网关不看条件，每条都走。
 
 DEMO：请假必须班主任和家长两个人都同意。两人同时收到任务，各自审批（谁先谁后无所谓），都完成后流程才继续。
 
@@ -1244,41 +577,11 @@ DEMO：请假必须班主任和家长两个人都同意。两人同时收到任�
 - 分了叉忘画汇聚点 → 流程永远走不完
 - 出线上填条件是无效操作，别白费劲
 
-***
-
-## 10.1 深入：并行网关的"计数器"
-
-机制：并行网关内部就是一个简单的计数器。分叉 = 发 N 个分身；汇聚 = 收满 N 个才放行，一个都不能少。
-
-画布生成的 XML：
-
-```xml
-<!-- 分叉:注意没有任何条件表达式 -->
-<parallelGateway id="Gateway_split" />
-<sequenceFlow id="Flow_a" sourceRef="Gateway_split" targetRef="Activity_teacherApprove" />
-<sequenceFlow id="Flow_b" sourceRef="Gateway_split" targetRef="Activity_parentConfirm" />
-
-<!-- 汇聚:同样干净 -->
-<parallelGateway id="Gateway_join" />
-```
-
-计数器的三种翻车现场：
-
-| 画布画法                         | 计数器状态                  | 结果                     |
-| ---------------------------- | ---------------------- | ---------------------- |
-| 分叉 2 出，汇聚 2 入（正确）            | 发 2 收 2                | 正常                     |
-| 分叉 2 出，忘了汇聚，两条线各自直连结束事件      | 流程引擎认为"两个分支都到结束"才算整体结束 | 靠运气的假正常：只有两个分支都天然结束时才行 |
-| 分叉 2 出，1 条连汇聚、1 条绕过汇聚直接去后面节点 | 汇聚永远等不齐                | 流程永久卡死  在汇聚网关          |
-
 重要：并行网关 ≠ 会签！
 
-&#x20;很多人想"5 个评委都要审批"就画 5 条并行分支——错。5 个评委是同一件事干 5 遍，标准做法是一个任务 + 多实例。并行网关是"""几件不同的事""同时干"。判断口诀：同一任务多人干 → 多实例；不同任务同时干 → 并行网关。
+很多人想"5 个评委都要审批"就画 5 条并行分支——错。5 个评委是同一件事干 5 遍，标准做法是一个任务 + 多实例。并行网关是"""几件不同的事""同时干"。判断口诀：同一任务多人干 → 多实例；不同任务同时干 → 并行网关。
 
-验证实验：发起实例后立刻查 DSH 代办中心——班主任和家长的任务同时出现（包容网关可不会这样，它按条件可能只出现一个）；完成任意一个，流程不动；两个都完成，汇聚放行。
-
-***
-
-## 11. Event-based Gateway 事件网关 —— 赛跑
+## 10. Event-based Gateway 事件网关 —— 赛跑
 
 是什么：几条出线各派一名选手起跑，谁先冲线走谁的路，其余选手全部退场。
 
@@ -1300,34 +603,7 @@ DEMO：请假单发给家长后——要么 24 小时内家长回复同意（消
    - 另一条连一个空白中间事件，小扳手换成   Message   类型，填消息名如 `parentReply`
 3. 谁先触发，流程走谁的分支，另一条自动作废
 
-***
-
-## 11.1 深入：怎么"枪响"？消息怎么发？
-
 机制：流程走到事件网关时，引擎给每条出线建一个"等待席"（事件订阅）：Timer 席由引擎的定时器线程盯着表，Message 席等着外部点名。任何一个先被触发，引擎立刻注销其余所有等待席——这就是"其余选手退场"的实现。
-
-画布生成的 XML：
-
-```xml
-<!-- 消息的名字先在"全局通讯录"注册 -->
-<bpmn:message id="Msg_parentReply" name="parentReply" />
-
-<eventBasedGateway id="Gateway_race" />
-
-<sequenceFlow id="Flow_waitReply" sourceRef="Gateway_race" targetRef="Event_parentReply" />
-<!-- 选手1:等家长回复的信 -->
-<intermediateCatchEvent id="Event_parentReply" name="等家长回复">
-  <messageEventDefinition messageRef="Msg_parentReply" />
-</intermediateCatchEvent>
-
-<sequenceFlow id="Flow_timeout" sourceRef="Gateway_race" targetRef="Event_24h" />
-<!-- 选手2:24小时闹钟 -->
-<intermediateCatchEvent id="Event_24h" name="24小时超时">
-  <timerEventDefinition>
-    <timeDuration>PT24H</timeDuration>
-  </timerEventDefinition>
-</intermediateCatchEvent>
-```
 
 "家长回复"这封信谁投递？家长在手机上点"同意"后，你的系统要替TA发消息。代码只需要两步（可以放进任意 Controller，比如家长回调接口里）：
 
@@ -1359,71 +635,104 @@ Timer 选手那边什么都不用做——引擎的定时器线程自己盯着�
 
 验证实验：发起实例后故意不做任何操作，把 Timer 的 `PT24H` 临时改成 `PT1M`（1 分钟）——一分钟后流程自动走"自动驳回"线；再发起一个实例并立刻调上面的投递代码——走"家长回复"线，且定时器等待席被注销（等再久也不会驳回）。
 
-***
+## 11 多实例（一）ServiceTask：按数组元素复制，批量处理
 
-## 12 用"多实例"实现"5 个评委 3 票通过"
+多实例 = 让同一个任务自动复制 N 份，再用完成条件提前收工（达到条件，剩余份数作废）。DSH 三种任务节点共用这一套机制，本教程拆成三节、一种节点一节，差别只在**份数（N）从哪来**：
 
-多实例 = 让同一个任务自动复制 N 份（每位评委一份），再用完成条件提前收工。
+- **普通 ServiceTask（定制 delegate）**（本节）：N = 集合变量的数组长度——批量处理（如 100 张发票各识别一遍）。
+- **人工节点（UserTask）**（第 12 节）：N = 候选角色的成员数，每人一条待办——单人 / 会签 / 串签 / 计票。
+- **DSH backend task**（第 13 节）：N = profile 列表行数——多 AI 并行（如 3 个不同 LLM 配置各评审一遍、2 票通过即走）。
 
-画布操作：
+本节先讲三种节点共用的部分（画布操作、份数总表、内置数数变量、组合速查、红线），中间讲 ServiceTask 自己的集合形式。
 
-1. 拖一个 UserTask，起名"评委评分"
-2. 点节点旁的的的小扳手。注意：Multi-instance 在弹出菜单最顶上横排的三个小图标里（图标本身没有文字，鼠标悬停会显示英文提示）：
-   | 位置                                        | 图标       | 悬停提示                      | 作用                 |
-   | ----------------------------------------- | -------- | ------------------------- | ------------------ |
-   | 最左                                        | 三条竖线 ▮▮▮ | Parallel multi-instance   | 点这个  （并行多实例，评委同时评） |
-   | 中间                                        | 三条横线 ≡   | Sequential multi-instance | 顺序多实例（一个个来）        |
-   | 最右                                        | 循环箭头 ↻   | Loop                      | 标准循环（重做直到成功，不是多实例） |
-   | 点最左边的的的三条竖线的的，任务右上角出现三条小竖线——变身成功（再点一次可取消） | <br />   | <br />                    | <br />             |
-3. 属性面板出现内置的   Multi-instance 组  ，只有有有两个字段：
+### 画布操作：三种节点完全一样
 
-| 字段（面板英文标签）           | 填什么                              | 白话解释           |
-| -------------------- | -------------------------------- | -------------- |
-| Loop cardinality     | `5`                              | 复制 5 份         |
-| Completion condition | `${nrOfCompletedInstances >= 3}` | 完成 3 份就收工，剩下作废 |
+1. 拖一个任务节点。
+2. 点节点旁的小扳手。注意：Multi-instance 在弹出菜单最顶上横排的三个小图标里（图标本身没有文字，鼠标悬停会显示英文提示）：
+   | 位置 | 图标       | 悬停提示                      | 作用                                                                                  |
+   | -- | -------- | ------------------------- | ----------------------------------------------------------------------------------- |
+   | 最左 | 三条竖线 ▮▮▮ | Parallel multi-instance   | 并行多实例：N 份同时开始（人工节点=成员同时收到待办；自动节点=N 份同时执行）                                           |
+   | 中间 | 三条横线 ≡   | Sequential multi-instance | 顺序多实例：一份做完再做下一份（自动节点逐份执行，对限流的外部接口友好）                                                |
+   | 最右 | 循环箭头 ↻   | Loop                      | 标准循环：**不是多实例**——同一份任务反复执行直到条件不满足；**任务节点（人工与自动）均已隐藏此图标**，DSH 不支持循环重做，手改 XML 会被发布校验拒绝 |
+   点图标后任务右上角出现小竖线——变身成功（再点一次可取消）。
+3. 切成多实例后，DSH 面板出现对应的多实例配置（各节点可填什么见下文）。
 
-生成的 XML：
+### 份数总表：三种任务节点
+
+| 节点类型                     | 份数怎么定                                         | Loop cardinality                                            | 完成条件                                                                      |
+| ------------------------ | --------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------- |
+| UserTask（人工）             | 候选角色成员数（引擎运行时查角色注入）                           | **不允许**（面板隐藏；手改 XML 发布校验直接拒绝——计数形式会让引擎放弃自动派发，任务无人办理）        | 可选：单人填 `${nrOfCompletedInstances >= 1}`，会签留空，配 votingRule 时自动生成           |
+| DSH backend task         | **profile 列表行数**（属性面板增删行自动同步 loopCardinality） | 由列表行数维护（面板不直接编辑数字）                                          | 可选，如 3 个 AI 里 2 个完成即走 `${nrOfCompletedInstances >= 2}`；配 votingRule 时自动生成 |
+| ServiceTask（定制 delegate） | **集合变量**的数组长度（collection 选已声明的 array 变量）      | **不允许**（集合形式专用；手改 XML 发布校验拒绝——计数形式绕开元素注入，delegate 读不到逐实例数据） | 可选，如 5 张发票收齐任意 3 份报告即走 `${nrOfCompletedInstances >= 3}`                   |
+
+### ServiceTask：按数组元素复制（集合形式）
+
+ServiceTask 的多实例是**集合形式**：份数 = 已声明的 array 上下文变量的长度，引擎把数组元素逐份注入每个实例。典型场景是批量处理——数组里有 100 张发票就跑 100 份，每份识别一张。
+
+画布操作：拖一个 ServiceTask → 扳手选并行 ▮▮▮（要一份做完再做下一份就选串行 ≡）→ DSH 面板 Multi-instance 组里把 collection 下拉选成已声明的 array 变量、elementVariable 填元素变量名。选好后的 XML 形态：
 
 ```xml
-<userTask id="Activity_judge" name="评委评分">
-  <multiInstanceLoopCharacteristics isSequential="false">
-    <loopCardinality>5</loopCardinality>
+<serviceTask id="ocrInvoices" name="逐张识别发票" flowable:delegateExpression="${ocrDelegate}">
+  <multiInstanceLoopCharacteristics isSequential="false"
+      flowable:collection="invoiceList" flowable:elementVariable="invoice">
     <completionCondition xsi:type="bpmn:tFormalExpression">
       ${nrOfCompletedInstances &gt;= 3}
     </completionCondition>
   </multiInstanceLoopCharacteristics>
-</userTask>
+</serviceTask>
 ```
 
-引擎内置的"数数变量"供完成条件使用（引擎创建每个多实例节点时就把它们 `setVariable` 写进执行上下文，完成条件表达式里直接用）：
+- `flowable:collection="invoiceList"`：已声明的 array 上下文变量（面板下拉只能选它），实例数=数组长度，运行时数组里有几个元素就跑几份。
+- `flowable:elementVariable="invoice"`：引擎把当前元素注入每个实例——**Java delegate 里** **`execution.getVariable("invoice")`** **读到的就是当前这一份**。这个名字必须和 Java 代码里读取的变量名一致（教程约定），且不能与已声明的上下文变量重名（实例内会遮蔽流程变量，发布校验拒绝）。
+- 收齐任意 3 份即放行（早收后剩余实例自动跳过）。注意这里的语义是"**完成数量**"——如果 5 份是"同意/拒绝"的**表决**，数完成数不够（3 人里可能 1 同意 2 拒绝），请用会签计票 votingRule（三种任务节点通用：userTask 详见第 12 节，backend task 详见第 13 节）。
+- ServiceTask 的计票票源是 **delegate 代码** **`setVariable`** **写入的表决变量**：普通 ServiceTask 没有输出映射，面板的表决变量下拉改为列**已声明的上下文变量**——代码写什么静态查不了，只能要求先声明（计票机制详见第 12 节）。
 
-| 变量                       | 含义                                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `nrOfInstances`          | 一共几份（这里是 5）                                                                                 |
-| `nrOfActiveInstances`    | 还在进行中的几份（并行模式 = 还没交卷的评委数；顺序模式恒为 1）                                                          |
-| `nrOfCompletedInstances` | 已经完成的几份                                                                                     |
-| `loopCounter`            | 当前这份的序号，从 0 开始（第 1 份评委的 `loopCounter=0`）——给它派活时常用，如 `${judges[loopCounter]}` 把评委名单数组按序号一人一个 |
+### 引擎内置的"数数变量"
 
-常用组合举例：全部通过才放行 `${nrOfCompletedInstances == nrOfInstances}`；有 1 票否决就收工 `${rejected}`（rejected 是每份任务写回的普通流程变量）；任意 3 票 `${nrOfCompletedInstances >= 3}`。
+引擎创建每个多实例节点时就把这些计数变量 `setVariable` 写进执行上下文，完成条件表达式里直接用：
 
-验证：发起实例，5 个评委任务同时出现在代办中心；任意 3 个完成后，剩下 2 个自动消失，流程继续。这就是"复杂网关"想干的事，但用的是 BPMN 标准做法——能用多实例完成的，就别碰复杂网关。
+| 变量                       | 含义                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `nrOfInstances`          | 一共几份                                                                                    |
+| `nrOfActiveInstances`    | 还在进行中的几份（并行模式 = 还没交卷的份数；顺序模式恒为 1）                                                       |
+| `nrOfCompletedInstances` | 已经完成的几份                                                                                 |
+| `loopCounter`            | 当前这份的序号，从 0 开始（第 1 份的 `loopCounter=0`）——给它派活时常用，如 `${judges[loopCounter]}` 把名单数组按序号一人一个 |
 
-***
+常用完成条件：全部完成才放行 `${nrOfCompletedInstances == nrOfInstances}`；任意 N 份 `${nrOfCompletedInstances >= N}`。
 
-## 12.5 用多实例实现"单人 / 会签 / 串签"
+### 组合速查:多实例形态 × 计票字段 × 完成条件
 
-DSH 人工节点的责任规则只在属性面板里选"候选角色";任务到底是一个人干、所有人一起干、还是按顺序干,由 BPMN 原生多实例表达。你不需要手动写 collection、element variable 和 assignee,引擎部署时会根据候选角色自动补齐。
+votingRule 的四个字段与完成条件的分工:**表决变量 + 通过值**定义"一张票怎么读"(值=通过值→同意票;非空且不等→否决票);**通过票数 / 否决票数**是收票阈值,引擎把它们编译成自动完成条件;**完成条件**配了 votingRule 就不归你管(面板隐藏、手写被发布校验拒绝),不配 votingRule 时才手写(字段含义见第 12 节「会签计票」)。与扳手菜单三种形态的组合:
+
+| 扳手选择   | votingRule | 完成条件                                                     | 行为                                                            | 典型场景                            |
+| ------ | ---------- | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------- |
+| 并行 ▮▮▮ | 不配         | 留空                                                       | 全员/全部实例完成才放行                                                  | 会签(全员核实登记表)、全量批处理               |
+| 并行 ▮▮▮ | 不配         | `${nrOfCompletedInstances >= 1}`                         | 任一完成即收,其余待办/实例自动删除                                            | 单人(值班员处理工单)、镜像源任一成功             |
+| 并行 ▮▮▮ | 配          | 自动生成(`${dsh_passCount_x >= P[或]dsh_rejectCount_x >= R}`) | 同意票/否决票达阈值提前收,剩余待办/实例自动删除                                     | **5 人中 3 人同意 / 3 个 AI 中 2 个通过** |
+| 串行 ≡   | 不配         | 留空                                                       | 逐份办理(前一份完成后下一份才收到/执行)                                         | 串签(层级递审)、限流接口逐张调                |
+| 串行 ≡   | 配          | 自动生成(同上)                                                 | 按顺序逐份投票,投够阈值即收,后面的份不再收到/执行                                    | 逐级投票、够票即走                       |
+| 循环 ↻   | —(无关)      | 循环条件(loop condition)                                     | **不是多实例**:同一份任务反复执行直到条件不满足;任务节点(人工与自动)均已隐藏循环图标,手改 XML 被发布校验拒绝 | DSH 任务节点不支持                     |
+
+上面五行对三种任务节点都成立(并行/串行、留空/完成条件/计票是共同机制),差别只在"份数从哪来"(见本章开头的三种任务节点表)。**backend task 多实例的典型组合就是"并行 + votingRule"——多 AI 会诊(示例见第 13 节)**;ServiceTask 批处理则常配"并行 + `${nrOfCompletedInstances >= N}`"(收够 N 份即走)。
+
+四条组合红线(发布校验直接拒绝):**votingRule 与手写 completionCondition 并存**(完成条件由计票规则生成);**UserTask / ServiceTask 配 loopCardinality**(DSH 派发只认"按角色成员/按数组元素复制",计数形式绕开注入机制);**backend task 多实例的 profile 列表行数 ≠ 实例数**(增删列表行会自动同步);**任何任务节点配标准循环(standardLoopCharacteristics)**(不支持循环重做)。另外 votingRule 只对多实例任务成立——没配多实例的节点配了 votingRule 也会被发布校验拦下;多实例完成条件里的引用也会做存在性检查(引擎内置 `nrOf*`/`loopCounter` 变量豁免)。
+
+串行 + votingRule 的一个细节:完成条件在每份完成后求值,串行下即"每投一票检查一次",所以语义是"按名单顺序投票,任意时刻凑够阈值即收"——名单靠前的人投票权实际更大,选串行还是并行是业务决策。
+
+## 12 多实例（二）UserTask：按角色成员复制，多人协作
+
+人工节点（UserTask）的多实例份数 = 候选角色的成员数：引擎运行时查角色成员，一人一份待办。责任规则只在属性面板里选"候选角色";任务到底是一个人干、所有人一起干、还是按顺序干,由 BPMN 原生多实例表达。你不需要手动写 collection、element variable 和 assignee,引擎部署时会根据候选角色自动补齐。多实例的共用机制（画布操作、数数变量、组合速查、红线）见第 11 节。
 
 ### 画布操作
 
 1. 拖一个 UserTask,在右侧 DSH 面板里填"候选角色"(例如 `role-approver`)。
 2. 点节点旁的小扳手,选择多实例类型:
-   | 业务语义 | 扳手选择 | Multi-instance 组填写 |
-   | --- | --- | --- |
+   | 业务语义                           | 扳手选择         | Multi-instance 组填写                                     |
+   | ------------------------------ | ------------ | ------------------------------------------------------ |
    | **单人**(角色里任意一人完成即可,其他人的待办自动消失) | 三条竖线 ▮▮▮(并行) | Completion condition: `${nrOfCompletedInstances >= 1}` |
-   | **会签**(角色里所有人都要完成) | 三条竖线 ▮▮▮(并行) | Completion condition: 留空 |
-   | **串签**(角色里的人依次完成) | 三条横线 ≡(串行) | Completion condition: 留空 |
-3. Loop cardinality 不用填,因为实例数由候选角色成员数决定。
+   | **会签**(角色里所有人都要完成)             | 三条竖线 ▮▮▮(并行) | Completion condition: 留空                               |
+   | **串签**(角色里的人依次完成)              | 三条横线 ≡(串行)   | Completion condition: 留空                               |
+3. Loop cardinality 不用填,实例数由候选角色成员数决定——DSH 属性面板的多实例组对人工节点已隐藏该输入框;手改 XML 写了 loopCardinality 会被发布校验直接拒绝(计数形式会让引擎放弃自动补齐 collection,任务将无人办理)。
 
 ### 引擎帮你做了什么
 
@@ -1446,8 +755,6 @@ DSH 人工节点的责任规则只在属性面板里选"候选角色";任务到�
 
 三个字段的白话对照:`flowable:collection` 告诉引擎"照着哪个变量复制任务"(必须是带 `${}` 的表达式);`flowable:elementVariable` 是"每个实例里当前成员存到哪个变量"(引擎逐份把成员 user.id 放进 `dshCandidateUserId`);`flowable:assignee` 用这个变量直接指定办理人。
 
-注意别照抄网上老教程的标准 BPMN 写法 `<loopDataInputRef>` + `<inputDataItem>`:Flowable 7 解析时 `<inputDataItem>` 的文本内容被**忽略**(只有它的 `name` 属性才被认作 elementVariable),`<loopDataInputRef>` 也不会自动包 `${}`——照抄会导致部署成功但运行时任务派发失败,排查起来非常隐蔽。
-
 运行时,进入该节点前 `DshMultiInstanceSetupListener` 会:
 
 1. 查 `public.app_memberships` 拿到 `role-approver` 下的成员 user.id 列表;
@@ -1458,11 +765,94 @@ Flowable 再按这个变量为每个成员生成一个任务实例,并直接把 
 
 ### 常见误区
 
-- **Loop cardinality 不用填**:角色有几个人就生成几份,手动写数字会写死,成员变动时还得改流程图。
-- **单人不是"不设置多实例"**:不设置多实例只会产生一条任务,并且默认要走认领;单人必须设置并行多实例 + 完成条件,才能实现"一人完成、其余自动作废"。
+- **Loop cardinality 不用填**:角色有几个人就生成几份,手动写数字会写死,成员变动时还得改流程图。发布校验会拒绝人工节点配 loopCardinality。
+- **单人不是"不设置多实例"**:不设置多实例只会产生一条任务,并且默认要走认领;单人必须设置并行多实例 + 完成条件,才能实现"一人完成、其余自动作废"。发布校验会拒绝"配了候选角色但没有多实例"的人工节点。
 - **会签和串签的区别只在并行/串行**:两者都是所有人完成才放行,前者同时收到待办,后者按顺序收到。
 
-***
+### 会签计票 (votingRule):按表决结果收工,而不是按完成数量
+
+上面的会签语义是"所有人都投完才放行"。但真实业务常是"**5 个人里 3 个人同意才能往下走**"——只数"完成了几份"(`nrOfCompletedInstances >= 3`)不够:1 人同意 2 人拒绝也算 3 份完成,照样收工,与业务需求不符。每份提交写同一个结果变量还会互相覆盖,网关只能看到"最后一个人"的结果。
+
+`dsh:votingRule` 解决这个问题,配置在会签节点的 DSH 面板「会签计票」:
+
+| 配置       | 业务含义                          | 例          |
+| -------- | ----------------------------- | ---------- |
+| 表决变量     | 每人提交时"表达意见"写在哪个输出映射 target 变量 | `approved` |
+| 通过值      | 变量取该值记一票**同意**;非空且不等记一票**否决** | `true`     |
+| 通过票数     | 同意票凑够几票**提前放行**,剩余待办自动删除      | `3`        |
+| 否决票数(可选) | 否决票凑够几票**提前毙掉**;留空=投满后由网关判    | `2`        |
+
+引擎行为:每份提交时按值累加 `dsh_passCount_<节点id>` / `dsh_rejectCount_<节点id>`;完成条件由引擎部署时自动生成(配了 votingRule 的节点,多实例组的完成条件输入框被隐藏,手写会被发布校验拒绝):
+
+```xml
+<userTask id="approve" flowable:assignee="${dshCandidateUserId}">
+  <extensionElements>
+    <dsh:assignmentRule candidateRoleId="..."/>
+    <dsh:votingRule variable="approved" passValue="true" passCount="3" rejectCount="2"/>
+    <dsh:outputMappings>
+      <dsh:mapping source="approved" target="approved"/>
+    </dsh:outputMappings>
+  </extensionElements>
+  <multiInstanceLoopCharacteristics isSequential="false"/>
+  <!-- 无需手写 completionCondition:引擎生成
+       ${dsh_passCount_approve >= 3 || dsh_rejectCount_approve >= 2} -->
+</userTask>
+```
+
+走查(5 人角色,passCount=3, rejectCount=2):同意、拒绝、同意 → passCount=2 未达标,继续等;再一份同意 → passCount=3 提前收,第 5 人待办自动删除;两份拒绝 → rejectCount=2 提前收。多人投满仍未达 3 票同意 → 自然结束,由后续**排他网关**按票数路由:
+
+```xml
+<sequenceFlow id="pass" sourceRef="decide" targetRef="...">
+  <conditionExpression xsi:type="bpmn:tFormalExpression">${dsh_passCount_approve >= 3}</conditionExpression>
+</sequenceFlow>
+<sequenceFlow id="reject" sourceRef="decide" targetRef="...">
+  <conditionExpression xsi:type="bpmn:tFormalExpression">${dsh_passCount_approve < 3}</conditionExpression>
+</sequenceFlow>
+```
+
+约束(发布校验保证)：表决变量必须是本节点输出映射 target 之一（保证计票读的变量一定在提交里，先声明为上下文变量）；votingRule 节点必须配多实例；员工在提交对话框清空表决映射 → 该份不计票、不阻断提交。
+
+**三种任务节点通用**：计票机制与完成条件的生成本节讲的是 userTask 形态（票来自员工提交映射）；DSH backend task 的票来自 delegate 输出映射写入的表决变量（第 13 节），普通 ServiceTask 的票来自 delegate 代码 `setVariable` 写入的已声明上下文变量（第 11 节）。"5 人里 3 人同意"与"3 个 AI 里 2 个通过"是同一个语义。
+
+## 13 多实例（三）DSH backend task：按 profile 列表复制，多 AI 并行
+
+单实例的 DSH backend task 是"一个节点调一个 backend profile 跑一次 AI 会话"（基础用法见第 2 节）。多实例把它变成**多 AI 并行**：N 个 backend profile 各跑一遍，典型场景是"多 AI 会诊"——3 个不同 LLM 配置各评审一遍、2 票通过即走。
+
+与 user task 一样用并行/串行多实例表达，唯一区别是份数不来自候选角色成员数，而来自设计时显式配置的 profile 列表。
+
+### 画布操作
+
+1. 拖一个 DSH backend task（基础配置见第 2 节：profile 下拉、userPrompt、skillRefs、输出映射）。
+2. 点节点旁的小扳手选多实例形态（并行 ▮▮▮ / 串行 ≡，共用操作见第 11 节）。
+3. 切成多实例后，属性面板的 profile 下拉自动变为 **profile 列表编辑**：一行一个 profile URL，第 i 行对应第 i 个实例；增删行时实例数自动同步（loopCardinality 由列表行数维护，面板不直接编辑数字）。单实例的 profile 下拉与多实例列表互斥，两者并存会被发布校验拒绝。
+
+多 AI 会诊示例（3 个 profile 各评审一遍，2 票通过即走）：
+
+```xml
+<serviceTask id="aiReview" name="多 AI 会诊" flowable:delegateExpression="${dshBackendTaskDelegate}"
+             flowable:async="true" flowable:failedJobRetryTimeCycle="R3/PT1M">
+  <extensionElements>
+    <dsh:backendTask>
+      <dsh:backendProfile url="http://backend-1:3081"/>
+      <dsh:backendProfile url="http://backend-2:3081"/>
+      <dsh:backendProfile url="http://backend-3:3081"/>
+    </dsh:backendTask>
+    <dsh:votingRule variable="approved" passValue="true" passCount="2"/>
+    <dsh:outputMappings>
+      <dsh:mapping source="approved" target="approved"/>
+    </dsh:outputMappings>
+  </extensionElements>
+  <multiInstanceLoopCharacteristics isSequential="false">
+    <loopCardinality>3</loopCardinality>
+  </multiInstanceLoopCharacteristics>
+</serviceTask>
+```
+
+运行时走查：第 1/2/3 个实例（`loopCounter` = 0/1/2）分别绑定第 1/2/3 个 profile URL（想多个实例绑同一个 profile 就重复选同一行）；每个实例提交同一个 userPrompt（各自插值）、各自产出 JSON 并按 outputMappings 写入流程变量；async 任务逐实例重试互不影响。
+
+计票：backend task 的票来自 **delegate 输出映射写入的表决变量**——每个实例的 result JSON 各自映射一次，表决变量下拉同样只列输出映射 target；计数与完成条件生成与 user task 完全一致（机制见第 12 节「会签计票」）。上面的示例就是"3 个 AI 中 2 个通过"的完整形态。
+
+发布校验要点（backend task 多实例专属）：profile 列表非空且行数 = 实例数（增删行自动同步，手改 XML 改崩会被拒绝）；列表每个 URL 必须已注册且活跃（逐行查注册表）；单实例 profile 属性与多实例列表互斥；标准循环拒绝。另外 backend profile 的 skill 归属聚合会把列表逐行展开——每个 URL 各自同步列表所在节点的 skillRefs。
 
 # 第三部分：事件类组件
 
@@ -1478,7 +868,7 @@ Flowable 再按这个变量为每个成员生成一个任务实例,并直接把 
 
 ***
 
-## 13. Start Event 开始事件 —— 流程的起点
+## 14. Start Event 开始事件 —— 流程的起点
 
 是什么：流程图最前面的细线圆圈，表示"流程从这里开始"。像跑步比赛的起跑线——枪一响，选手出发。
 
@@ -1520,7 +910,7 @@ DEMO：学生点"提交请假单"按钮，流程开始。
 
 操作：选中 Start Event -> 点小扳手 -> 选具体类型 -> 属性面板出现对应配置组（如 Timer 组填定时规则）。
 
-### 13.1 Timer Start Event -- 定时启动
+### 14.1 Timer Start Event -- 定时启动
 
 DEMO：每天早上 8 点自动生成"日报汇总"待办，不需要人手动触发。
 
@@ -1542,7 +932,7 @@ XML 形态：
 
 触发方式：引擎后台 JobExecutor 自动计时，到点自动创建新实例。不需要任何代码调用。
 
-### 13.2 Message Start Event -- 收到消息启动
+### 14.2 Message Start Event -- 收到消息启动
 
 DEMO：企业微信收到"入职审批"消息后自动启动入职流程。
 
@@ -1567,7 +957,7 @@ XML 形态：
 runtimeService.startProcessInstanceByMessage("onboardRequest");
 ```
 
-### 13.3 Signal Start Event -- 收到信号启动
+### 14.3 Signal Start Event -- 收到信号启动
 
 DEMO：全校广播"放假通知"信号后，监听该信号的流程自动启动。
 
@@ -1594,7 +984,7 @@ runtimeService.signalEventReceived("holidayNotice");
 
 > Signal 和 Message 的区别：Signal 是广播，一个信号能同时启动所有监听它的流程定义（含多个）；Message 是点对点，一条消息只匹配一个流程定义的 Message Start Event。
 
-### 13.4 Conditional Start Event -- 条件为真启动
+### 14.4 Conditional Start Event -- 条件为真启动
 
 > 注意：Conditional Start Event 只能用在事件子流程（triggeredByEvent="true"）里，不能作为流程定义的顶级开始事件。条件里的变量来自外层流程实例的流程变量--流程还没启动的话，变量无从谈起。
 
@@ -1634,7 +1024,7 @@ runtimeService.setVariable(executionId, "stock", 80);
 
 ***
 
-## 14. End Event 结束事件 —— 流程的终点
+## 15. End Event 结束事件 —— 流程的终点
 
 是什么：流程图最后面的粗线圆圈，表示"到这里流程就彻底结束了"。像跑步比赛的终点线——冲线后比赛结束，所有人散场。
 
@@ -1674,7 +1064,7 @@ DEMO：请假审批完成，流程结束。
 
 ***
 
-## 15. Timer Intermediate Catch Event 定时中间捕获事件 —— 等闹钟到点
+## 16. Timer Intermediate Catch Event 定时中间捕获事件 —— 等闹钟到点
 
 是什么：流程走到这里停下来等一个时间点，到了才继续。像设了一个闹钟——铃响之前什么都不做，铃响后立刻起床。
 
@@ -1718,7 +1108,7 @@ XML 形态：
 
 ***
 
-## 16. Message Intermediate Catch Event 消息中间捕获事件 —— 等别人递信
+## 17. Message Intermediate Catch Event 消息中间捕获事件 —— 等别人递信
 
 是什么：流程走到这里停下来等一封特定的信（消息），信到了才继续。像站在传达室等快递——快递没来就等着，来了签收后才能走。
 
@@ -1768,7 +1158,7 @@ XML 形态：
 
 ***
 
-## 17. Message Intermediate Throw Event 消息中间抛出事件 —— 主动寄信
+## 18. Message Intermediate Throw Event 消息中间抛出事件 —— 主动寄信
 
 是什么：流程走到这里主动发一封信（消息），发完立刻继续，不等回信。像把信投进邮筒——投进去就走了，不站在邮筒旁等回信。
 
@@ -1846,7 +1236,7 @@ XML 形态：
 
 ***
 
-## 18. Signal Intermediate Catch Event 信号中间捕获事件 —— 等全校广播
+## 19. Signal Intermediate Catch Event 信号中间捕获事件 —— 等全校广播
 
 是什么：流程走到这里停下来等一个广播信号，信号到了才继续。像教室里等广播体操音乐——音乐响之前自由活动，音乐一响立刻集合。
 
@@ -1901,7 +1291,7 @@ XML 形态：
 
 ***
 
-## 19. Signal Intermediate Throw Event 信号中间抛出事件 —— 主动发广播
+## 20. Signal Intermediate Throw Event 信号中间抛出事件 —— 主动发广播
 
 是什么：流程走到这里主动发一个广播信号，发完立刻继续。像校长在在在广播室按下话筒在在喊"全校注意"，喊完该干嘛干嘛。
 
@@ -1941,7 +1331,7 @@ XML 形态：
 
 ***
 
-## 20. Escalation Intermediate Throw Event 升级中间抛出事件 —— 向上告状
+## 21. Escalation Intermediate Throw Event 升级中间抛出事件 —— 向上告状
 
 是什么：流程走到这里主动触发一个升级事件，通常是为了把问题向上汇报。像学生觉得班主任处理不公，写了一份申诉书递到年级主任那里。
 
@@ -1985,7 +1375,7 @@ XML 形态：
 
 ***
 
-## 21. Conditional Intermediate Catch Event 条件中间捕获事件 —— 等条件变真
+## 22. Conditional Intermediate Catch Event 条件中间捕获事件 —— 等条件变真
 
 是什么：流程走到这里停下来等一个条件表达式变成 true，条件满足才继续。像在玩\*\*"木头人"游戏\*\*——你背对大家喊"一二三木头人"，转身后看到谁动了就抓谁；条件就是"有人动了"。
 
@@ -2030,7 +1420,7 @@ XML 形态：
 
 ***
 
-## 22. Link Intermediate Catch/Throw Event 链接事件 —— 流程图内的"跨页跳转"
+## 23. Link Intermediate Catch/Throw Event 链接事件 —— 流程图内的"跨页跳转"
 
 是什么：一对配套的圆圈，Throw（抛出）跳到 Catch（捕获），像看书时的\*\*"见第 35 页"\*\*——流程从 Throw 瞬间跳转到 Catch，中间不走任何箭头。专门用来解决"流程图太大、线条到处交叉"的问题。
 
@@ -2078,7 +1468,7 @@ XML 形态：
 
 ***
 
-## 23. Compensation Intermediate Throw Event 补偿中间抛出事件 —— 撤销刚才的操作
+## 24. Compensation Intermediate Throw Event 补偿中间抛出事件 —— 撤销刚才的操作
 
 是什么：流程走到这里触发补偿机制，把之前已经执行过的操作撤销掉。像网购时点了"取消订单"，系统不仅要停止发货，还要把扣掉的钱退回来。
 
@@ -2125,7 +1515,7 @@ XML 形态：
 
 ***
 
-## 24. Boundary Event 边界事件 —— 贴在任务身上的闹钟
+## 25. Boundary Event 边界事件 —— 贴在任务身上的闹钟
 
 是什么：贴在任务方框边缘的圆圈，表示"这个任务在执行过程中，如果被某件外部事情打断，就按这个边界事件指定的路走"。像贴在作业本上的便利贴闹钟——写着"如果 30 分钟还没写完，就跳过这题先做下一题"。
 
@@ -2179,7 +1569,7 @@ DEMO（非中断型）：班主任审批任务每 2 小时催办一次，但审�
 
 ***
 
-### 24.1 Timer 边界事件 —— 任务超时处理
+### 25.1 Timer 边界事件 —— 任务超时处理
 
 是什么：给任务设一个倒计时，时间到了触发处理。最常用的边界事件类型。
 
@@ -2187,7 +1577,7 @@ DEMO（非中断型）：班主任审批任务每 2 小时催办一次，但审�
 
 非中断型：时间到了，任务继续，同时额外做一件事。如"每 2 小时催办一次"。
 
-属性配置：和 Timer Intermediate Catch（第 15 节）完全一样——Date / Duration / Cycle 三种。
+属性配置：和 Timer Intermediate Catch（第 16 节）完全一样——Date / Duration / Cycle 三种。
 
 和 DSH 人工任务超时升级的关系：
 
@@ -2201,7 +1591,7 @@ DEMO（非中断型）：班主任审批任务每 2 小时催办一次，但审�
 
 ***
 
-### 24.2 Message 边界事件 —— 任务执行中被消息打断
+### 25.2 Message 边界事件 —— 任务执行中被消息打断
 
 是什么：任务执行过程中，如果收到特定消息，触发边界事件。像上课时被班主任叫出去谈话——课暂停，谈完回来继续（非中断）或者课不上了（中断）。
 
@@ -2219,7 +1609,7 @@ DEMO（中断型）：班主任正在审批，突然收到"学生已撤销申请
 
 ***
 
-### 24.3 Signal 边界事件 —— 任务执行中被广播打断
+### 25.3 Signal 边界事件 —— 任务执行中被广播打断
 
 是什么：任务执行过程中，如果收到广播信号，触发边界事件。像全校广播"紧急疏散"——不管你在上什么课，都要响应。
 
@@ -2237,7 +1627,7 @@ DEMO（中断型）：学校广播"台风放假"信号，所有正在执行的�
 
 ***
 
-### 24.4 Error 边界事件 —— 任务出错时兜底
+### 25.4 Error 边界事件 —— 任务出错时兜底
 
 是什么：任务执行过程中抛出错误时触发。像代码里的 `try-catch`——出错了不走正常路径，走错误处理路径。
 
@@ -2261,9 +1651,9 @@ throw new BpmnError("API_TIMEOUT", "调用外部 API 超时");
 
 ***
 
-### 24.5 Escalation 边界事件 —— 任务触发升级时响应
+### 25.5 Escalation 边界事件 —— 任务触发升级时响应
 
-是什么：任务执行过程中触发 Escalation（如权限不足）时响应。和第 20 节的 Escalation Throw 配合使用。
+是什么：任务执行过程中触发 Escalation（如权限不足）时响应。和第 21 节的 Escalation Throw 配合使用。
 
 DEMO：Service Task 发现请假天数超过自己的审批权限，抛出 Escalation，边界事件捕获后转给更高权限的审批人。
 
@@ -2277,7 +1667,7 @@ DEMO：Service Task 发现请假天数超过自己的审批权限，抛出 Escal
 
 ***
 
-### 24.6 Conditional 边界事件 —— 条件满足时触发
+### 25.6 Conditional 边界事件 —— 条件满足时触发
 
 是什么：任务执行过程中，某个条件表达式变成 true 时触发。和 Conditional Intermediate Catch类似，但贴在任务上。
 
@@ -2293,7 +1683,7 @@ DEMO：班主任审批任务执行期间，如果学生点击"撤销申请"（�
 
 ***
 
-### 24.7 Compensation 边界事件 —— 任务的补偿处理器
+### 25.7 Compensation 边界事件 —— 任务的补偿处理器
 
 是什么：贴在任务上的补偿执行器。当 Compensation Throw Event 触发时，所有带有 Compensation 边界事件的任务会按相反顺序执行补偿。
 

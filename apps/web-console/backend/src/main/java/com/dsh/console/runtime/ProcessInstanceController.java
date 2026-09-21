@@ -7,6 +7,7 @@ import com.dsh.console.runtime.dto.ProcessInstanceDto;
 import com.dsh.console.runtime.dto.ProcessVariableDto;
 import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
+import com.dsh.console.runtime.dto.StartableWorkflowDto;
 import com.dsh.console.runtime.dto.TaskDto;
 import com.dsh.console.security.AuthContext;
 import jakarta.validation.Valid;
@@ -30,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <ul>
  *   <li>启动实例:校验 workflow_definition 已发布 + 应用访问权限;注入应用隔离三变量。</li>
  *   <li>列实例:appId 必填(app_admin);system_admin 可不传 appId 查全部;
- *       finished 过滤运行中/已完成/全部(历史实例对齐主流 BPM 平台审计视图)。</li>
+ *       state 过滤运行中/正常完成/已终止/全部(历史实例对齐主流 BPM 平台审计视图)。</li>
  *   <li>查实例/任务/终止:按 procdefId 反查应用归属校验访问权限;
  *       已结束实例的详情/任务回退历史查询。</li>
  *   <li>查变量/活动/BPMN XML:实例执行审计(上下文变量终值 + 活动路径图渲染)。</li>
@@ -49,9 +50,12 @@ public class ProcessInstanceController {
 
     /**
      * 启动表单变量清单(已部署 BPMN 的 start-param 声明,design 2026-09-01 §4)。
+     *
+     * <p>权限与发起一致(isAuthenticated + Service 层 checkCanStartProcess):
+     * 员工发起前需要读取启动参数声明,不再是管理台专属。
      */
     @GetMapping("/start-form")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<StartFormVariableDto>> startForm(
         @RequestParam UUID workflowDefinitionId,
         @AuthenticationPrincipal AuthContext auth) {
@@ -59,23 +63,39 @@ public class ProcessInstanceController {
     }
 
     /**
+     * 当前用户可发起的 published 流程清单(员工端 AI 对话发起与管理台发起共用)。
+     *
+     * <p>system_admin 全部;其余用户限定为自己管理或 active 成员资格的应用。
+     */
+    @GetMapping("/startable")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<List<StartableWorkflowDto>> startable(
+        @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(instanceService.listStartable(auth));
+    }
+
+    /**
      * 启动流程实例。
+     *
+     * <p>组织维度审批路由(design 2026-09-19 §5.1):system_admin/应用管理员之外,
+     * active 应用成员亦可发起(员工端 AI 对话发起的前提);应用归属与发起身份
+     * 校验在 Service 层(checkCanStartProcess + resolveApplicantOrgUnit)。
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<ProcessInstanceDto> start(@Valid @RequestBody StartProcessInstanceRequest body,
                                                   @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.start(body, auth));
     }
 
     /**
-     * 列实例(运行中/已完成/全部)。
+     * 列实例(运行中/正常完成/已终止/全部)。
      *
      * <p>{@code appId} 给定时只列该应用下 published workflow_definitions 的实例;
      * 不给时 system_admin 查全部,app_admin 自动汇总自己管理的所有应用下的实例。
      * {@code procdefId} 单独过滤时也校验应用访问权限。
-     * {@code finished} 不传查全部(运行中 + 已结束);{@code true} 只看已完成;
-     * {@code false} 只看运行中。
+     * {@code state} 不传查全部;{@code running} 只看运行中;{@code completed} 只看正常完成;
+     * {@code terminated} 只看已终止。
      */
     @GetMapping
     @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
@@ -83,10 +103,10 @@ public class ProcessInstanceController {
         @AuthenticationPrincipal AuthContext auth,
         @RequestParam(required = false) UUID appId,
         @RequestParam(required = false) String procdefId,
-        @RequestParam(required = false) Boolean finished,
+        @RequestParam(required = false) String state,
         @RequestParam(defaultValue = "0") int start,
         @RequestParam(defaultValue = "50") int size) {
-        return ApiResponse.ok(instanceService.list(appId, procdefId, finished, start, size, auth));
+        return ApiResponse.ok(instanceService.list(appId, procdefId, state, start, size, auth));
     }
 
     /**

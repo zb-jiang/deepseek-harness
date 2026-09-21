@@ -89,6 +89,9 @@ export const kbApi = {
     if (!resp.ok || !body.success) {
       throw new Error(body.error?.message ?? `上传失败(${resp.status})`)
     }
+    if (body.data === null || body.data === undefined) {
+      throw new Error('上传响应缺少文档数据')
+    }
     return body.data
   },
 

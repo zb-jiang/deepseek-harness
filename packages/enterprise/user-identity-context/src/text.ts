@@ -16,6 +16,20 @@ export const IDENTITY_DISCIPLINE =
   '此身份由系统注入并保持最新，仅供称呼与表单填写展示。'
   + '鉴权由系统在调用层自动完成，不要在工具参数中传递或虚构身份。'
 
+/** 组织身份段标题行(与 invariant.ts 的 BLOCK 正则同步修改)。 */
+export const ORG_POSITIONS_HEADER =
+  '组织身份（发起流程时按此选择发起身份；存在多个身份时必须先与员工确认用哪个）：'
+
+/** 当前登录人的一条组织身份(对齐 web-console OrgPositionDto)。 */
+export interface OrgPosition {
+  /** 部门 id(org_units.id,发起流程时作为 orgUnitId 传入)。 */
+  orgUnitId: string
+  /** 部门名。 */
+  orgUnitName: string
+  /** 到根路径的部门名列表(根在前)。 */
+  pathToRoot: string[]
+}
+
 /** Collapse line breaks so one identity field can never forge the next line of the block. */
 function singleLine(value: string): string {
   return value.replace(/\r?\n/g, ' ')
@@ -24,9 +38,19 @@ function singleLine(value: string): string {
 /**
  * Render the durable identity block for one platform user.
  * @param user - verified platform user record.
+ * @param orgPositions - 当前登录人的组织身份清单(组织维度未启用或拉取失败为空,
+ *   块中不渲染该段)。
  * @returns the exact text carried by the injected message and its source section.
  */
-export function renderIdentityText(user: PlatformUser): string {
+export function renderIdentityText(
+  user: PlatformUser,
+  orgPositions: readonly OrgPosition[] = [],
+): string {
+  const orgSection = orgPositions.length === 0
+    ? ''
+    : `${ORG_POSITIONS_HEADER}\n${orgPositions.map(position =>
+      `- ${singleLine(position.pathToRoot.join(' / '))}（orgUnitId: ${singleLine(position.orgUnitId)}）`,
+    ).join('\n')}\n`
   return `<user_identity>\n当前登录人：${singleLine(user.displayName)}（${singleLine(user.email)}）\n`
-    + `userId: ${singleLine(user.authSubject)}\n${IDENTITY_DISCIPLINE}\n</user_identity>`
+    + `userId: ${singleLine(user.authSubject)}\n${orgSection}${IDENTITY_DISCIPLINE}\n</user_identity>`
 }

@@ -15,6 +15,10 @@ import java.util.UUID;
  * @param draftBpmnXml             草稿 BPMN XML(可空,首次创建时无)
  * @param publishedDeploymentId    发布后 Flowable deployment ID
  * @param publishedProcdefId        发布后 Flowable procdef ID
+ * @param publishedBpmnXml          发布版 BPMN XML 快照(setup guide §13.2;发布时写入,
+ *                                 skill 归属聚合只认这份。加列之前已发布的流程为 null)
+ * @param bpmnProcessKey            BPMN process id(发布时从 XML 解析写入;跨发布版本稳定,
+ *                                 历史实例按 procdefId 反查 miss 时用它回退解析应用归属)
  * @param createdAt                创建时间
  * @param createdBy                创建人
  * @param updatedAt                更新时间
@@ -30,6 +34,8 @@ public record WorkflowDefinitionDto(
     String draftBpmnXml,
     String publishedDeploymentId,
     String publishedProcdefId,
+    String publishedBpmnXml,
+    String bpmnProcessKey,
     OffsetDateTime createdAt,
     UUID createdBy,
     OffsetDateTime updatedAt,

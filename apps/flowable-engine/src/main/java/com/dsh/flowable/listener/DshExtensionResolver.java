@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.Process;
+import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.RepositoryService;
 import org.springframework.stereotype.Component;
@@ -13,9 +14,11 @@ import org.springframework.stereotype.Component;
  * dsh 扩展元数据解析门面:cache miss 时查 BpmnModel 解析并回填,供
  * {@link DshTaskListener}(task create)与 {@code DshTaskController}(提交端点)共用。
  *
- * <p>两个解析入口:
+ * <p>三个解析入口:
  * <ul>
  *   <li>{@link #resolveTaskProperties}:userTask 的 dsh 元数据,键 (procdefId, taskDefKey);</li>
+ *   <li>{@link #resolveServiceTaskProperties}:serviceTask 的 dsh 元数据(DSH backend task
+ *       完整元数据 / 普通自动节点的 votingRule),键 (procdefId, taskDefKey);</li>
  *   <li>{@link #resolveContextVariables}:process 级上下文变量声明,键 procdefId。</li>
  * </ul>
  */
@@ -56,11 +59,58 @@ public class DshExtensionResolver {
             List<DshContextVariable> contextVariables = parser.parseContextVariables(findProcess(bpmnModel));
             props = new DshExtensionProperties(
                 props.assignmentRule(),
+                props.votingRule(),
                 props.userPrompt(),
                 props.skillRefs(),
                 props.actionPolicy(),
                 props.outputMappings(),
-                contextVariables
+                contextVariables,
+                props.backendTask()
+            );
+        }
+        cache.put(procdefId, taskDefKey, props);
+        return props;
+    }
+
+    /**
+     * 解析 ServiceTask 的 dsh 元数据(design 2026-09-14 §6.1;2026-09-15 三种 task
+     * 统一计票后覆盖普通自动节点);cache miss 时查 BpmnModel 解析并回填。
+     *
+     * <p>DSH backend task(含 {@code dsh:backendTask})返回完整元数据并按 process
+     * 级声明合并 contextVariables;普通 ServiceTask 只解析 {@code dsh:votingRule}
+     * (计票 end listener 用,无 backendTask/prompt 等概念),无 votingRule 时返回
+     * {@code null}。
+     *
+     * @return 元数据;{@code null} 表示节点无 dsh 元素(普通自动节点未配计票,
+     *         或 BpmnModel/节点不可用)
+     */
+    public DshExtensionProperties resolveServiceTaskProperties(String procdefId, String taskDefKey) {
+        Optional<DshExtensionProperties> cached = cache.get(procdefId, taskDefKey);
+        if (cached != null) {
+            return cached.orElse(null);
+        }
+        BpmnModel bpmnModel = repositoryService.getBpmnModel(procdefId);
+        if (bpmnModel == null) {
+            cache.put(procdefId, taskDefKey, null);
+            return null;
+        }
+        ServiceTask serviceTask = findServiceTask(bpmnModel, taskDefKey);
+        DshExtensionProperties props = serviceTask == null
+            ? null : parser.parseBackendTask(serviceTask);
+        if (props == null && serviceTask != null) {
+            props = parser.parsePlainServiceTask(serviceTask);
+        }
+        if (props != null && props.backendTask() != null) {
+            List<DshContextVariable> contextVariables = parser.parseContextVariables(findProcess(bpmnModel));
+            props = new DshExtensionProperties(
+                props.assignmentRule(),
+                props.votingRule(),
+                props.userPrompt(),
+                props.skillRefs(),
+                props.actionPolicy(),
+                props.outputMappings(),
+                contextVariables,
+                props.backendTask()
             );
         }
         cache.put(procdefId, taskDefKey, props);
@@ -105,6 +155,18 @@ public class DshExtensionResolver {
         for (Process process : bpmnModel.getProcesses()) {
             Collection<UserTask> tasks = process.findFlowElementsOfType(UserTask.class);
             for (UserTask t : tasks) {
+                if (taskDefKey.equals(t.getId())) {
+                    return t;
+                }
+            }
+        }
+        return null;
+    }
+
+    private ServiceTask findServiceTask(BpmnModel bpmnModel, String taskDefKey) {
+        for (Process process : bpmnModel.getProcesses()) {
+            Collection<ServiceTask> tasks = process.findFlowElementsOfType(ServiceTask.class);
+            for (ServiceTask t : tasks) {
                 if (taskDefKey.equals(t.getId())) {
                     return t;
                 }

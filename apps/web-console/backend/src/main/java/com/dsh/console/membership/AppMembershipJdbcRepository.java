@@ -53,6 +53,18 @@ public class AppMembershipJdbcRepository {
             .optional();
     }
 
+    /**
+     * 用户全部 active 成员资格对应的应用 id 集合(员工端"可发起流程"聚合用)。
+     */
+    public List<UUID> listActiveAppIdsByUser(UUID userId) {
+        return jdbcClient.sql(
+            "SELECT app_id FROM public.app_memberships "
+                + "WHERE user_id = :userId AND status = 'active'")
+            .param("userId", userId)
+            .query((rs, rowNum) -> rs.getObject("app_id", UUID.class))
+            .list();
+    }
+
     public UUID create(UUID appId, UUID userId, UUID[] roleIds, UUID grantedBy) {
         return jdbcClient.sql("""
             INSERT INTO public.app_memberships (app_id, user_id, role_ids, status, granted_by)

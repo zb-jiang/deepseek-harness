@@ -11,11 +11,18 @@
  *       JSON 输出骨架插入 / 默认输出映射 / 实时预览)、skillRefs 多选
  *       (checkbox 列表,选项来自所属应用绑定的 SkillHub 命名空间)、动作策略
  *       (超时升级 + SoD)。单人/会签/串签语义由 BPMN 原生多实例表达
- *       (扳手菜单头部图标设置,不在本面板配置处理策略)。</li>
- *   <li>{@code bpmn:ServiceTask}(自动节点) → "Flowable 实现方式"组:
- *       delegateExpression / expression(定制 delegate:代码中 execution.getVariable()
- *       读上下文、setVariable() 写结果变量) + async 异步开关
- *       + failedJobRetryTimeCycle 失败重试策略。</li>
+ *       (扳手菜单头部图标设置,不在本面板配置处理策略);多实例组隐藏
+ *       loopCardinality 输入框(DSH 派发只认集合形式,计数形式会被发布校验拒绝)。</li>
+ *   <li>{@code bpmn:ServiceTask}(自动节点) → 按是否含 {@code dsh:backendTask}
+ *       扩展分流:含 → "DSH 后端任务配置"组(backend profile:单实例下拉 /
+ *       多实例逐实例列表 + 失败重试 + User Prompt 弹窗 + skillRefs + 会签计票,
+ *       delegate/async 固定绑定不可改,design 2026-09-14 §3.3;多实例扩展
+ *       2026-09-15);不含 → "Flowable 实现方式"组:delegateExpression /
+ *       expression(定制 delegate:代码中 execution.getVariable() 读上下文、
+ *       setVariable() 写结果变量) + async 异步开关 + failedJobRetryTimeCycle
+ *       失败重试策略;多实例时加挂"多实例(集合)"组(collection 下拉选已声明
+ *       array 变量 / elementVariable / 完成条件)与"会签计票"组(三种 task
+ *       统一,表决变量=已声明上下文变量)。</li>
  *   <li>{@code bpmn:SequenceFlow}(连线) → "Flowable 条件表达式"组:
  *       conditionExpression 条件表达式(BPMN 原生子元素,排他/包容网关出线路由)。</li>
  *   <li>{@code bpmn:ExclusiveGateway / InclusiveGateway}(排他/包容网关) →
@@ -80,6 +87,7 @@ import {
 } from '@bpmn-io/properties-panel'
 import { h, type ComponentChild } from 'preact'
 import type { AppRoleDto } from '../api/roles'
+import type { BackendProfileDto } from '../api/backend-profiles'
 import { userPromptModalEntry } from './UserPromptModal'
 
 /** bpmn-js 图元素的最小结构(provider 只用 businessObject)。 */
@@ -139,11 +147,68 @@ export function getDshSkillOptions(): Array<{ value: string; label: string }> {
   return currentSkills
 }
 
+/**
+ * 模块级 backend profile 实例容器。
+ *
+ * <p>页面加载设计器后调 {@link setDshBackendProfileOptions} 注入 web-console
+ * 注册表(心跳 5 分钟内)的活跃实例;DSH backend task 属性面板的 profile 下拉
+ * entry 渲染时读取。拉取失败或无实例时为空数组(设计器仍可用,发布校验拦截
+ * 空值)。
+ */
+let currentBackendProfiles: BackendProfileDto[] = []
+
+export function setDshBackendProfileOptions(profiles: BackendProfileDto[]): void {
+  currentBackendProfiles = profiles
+}
+
+/**
+ * 模块级部门树选项容器。
+ *
+ * <p>页面加载设计器后调 {@link setDshOrgUnitOptions} 注入组织树扁平化清单
+ * (value=org_units.id,label=到根路径);userTask 属性面板"指定部门"下拉
+ * 渲染时读取。拉取失败或组织未启用时为空数组(发布校验兜底拦截空值)。
+ */
+let currentOrgUnits: Array<{ value: string; label: string }> = []
+
+export function setDshOrgUnitOptions(units: Array<{ value: string; label: string }>): void {
+  currentOrgUnits = units
+}
+
 /** SoD 规则类型,引擎 DshExtensionProperties.SodRule 的三个合法值。 */
 const SOD_RULE_TYPES = [
   { value: 'not-applicant', label: '审批人不得为申请人 (not-applicant)' },
   { value: 'mutex-node', label: '同实例互斥节点 (mutex-node)' },
   { value: 'countersign-distinct', label: '会签人不重复 (countersign-distinct)' },
+] as const
+
+/**
+ * 组织维度审批路由(design 2026-09-19 §2.2 组合矩阵):目标角色类型 ×
+ * 审批范围。orgScope 缺省(global)=存量全公司行为,XML 不写该属性。
+ */
+const ASSIGNMENT_TARGET_TYPES = [
+  { value: 'entity', label: '实体角色' },
+  { value: 'virtual', label: '虚拟角色' },
+] as const
+
+/** 审批范围(引擎 DshExtensionProperties.AssignmentRule.orgScope 合法值)。 */
+const ORG_SCOPE_OPTIONS = [
+  { value: 'global', label: '全公司' },
+  { value: 'sameLine', label: '同行政线(申请人所在线,从本人部门向上找)' },
+  { value: 'fixedUnit', label: '指定部门' },
+] as const
+
+/** 虚拟角色(引擎 virtualRole 合法值;隐含同行政线,范围锁定不可改)。 */
+const VIRTUAL_ROLE_OPTIONS = [
+  { value: 'parent', label: '上一级负责人(申请人部门的负责人)' },
+  { value: 'grandparent', label: '上两级负责人' },
+  { value: 'child', label: '下一级扇出(直接子部门负责人)' },
+  { value: 'grandchild', label: '下两级扇出' },
+] as const
+
+/** 超时升级目标虚拟角色(引擎 escalateToVirtualRole,锚定当前审批人)。 */
+const ESCALATE_VIRTUAL_ROLE_OPTIONS = [
+  { value: 'parent', label: '上一级负责人(审批人部门的负责人)' },
+  { value: 'grandparent', label: '上两级负责人' },
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -239,7 +304,7 @@ function ensureActionPolicy(element: BpmnElement, injector: Injector): BpmnModdl
   return upsertDshElement(element, injector, 'dsh:ActionPolicy', {})
 }
 
-/** timeoutPolicy 属性读:duration/escalateToRoleId/escalateToUserId。 */
+/** timeoutPolicy 属性读:duration/escalateToRoleId/escalateToUserId/escalateToVirtualRole。 */
 function getTimeoutAttr(element: BpmnElement, attr: string): string {
   const policy = findDshElement(element, 'dsh:ActionPolicy')
   if (!policy) return ''
@@ -248,7 +313,7 @@ function getTimeoutAttr(element: BpmnElement, attr: string): string {
   return (timeout.get(attr) as string) ?? ''
 }
 
-/** timeoutPolicy 属性写:无容器逐层创建;duration 置空时移除 timeoutPolicy。 */
+/** timeoutPolicy 属性写:无容器逐层创建;全部属性清空时移除 timeoutPolicy。 */
 function setTimeoutAttr(
   element: BpmnElement,
   injector: Injector,
@@ -261,7 +326,7 @@ function setTimeoutAttr(
   let timeout = policy.get('timeoutPolicy') as BpmnModdleElement | null
   if (!value || !value.trim()) {
     // 只在当前清空的属性是最后一个有效属性时移除整个 timeoutPolicy
-    const attrs = ['duration', 'escalateToRoleId', 'escalateToUserId'].filter(
+    const attrs = ['duration', 'escalateToRoleId', 'escalateToUserId', 'escalateToVirtualRole'].filter(
       a => a !== attr && getTimeoutAttr(element, a),
     )
     if (attrs.length === 0 && timeout) {
@@ -585,7 +650,7 @@ function skillRefsEntry(
         )
       }
       const children: ComponentChild[] = [
-        h('label', { className: 'bio-properties-panel-label' }, 'Skill 引用 (skillRefs)'),
+        h('label', { className: 'bio-properties-panel-label' }, 'Skill 引用'),
         h('div', { className: 'bio-properties-panel-description' },
           '多选;选项来自所属应用绑定的 SkillHub 命名空间'),
       ]
@@ -664,7 +729,7 @@ function ContextVariableListItem(props: {
       id: `ctx-var-${idx}-name`,
       element,
       label: '名称',
-      description: '流程内唯一;prompt {{}}、网关 ${}、映射 target 都用它引用',
+      description: '',
       getValue: () => name,
       setValue: v => setAttr('name', v.trim() || undefined),
     }, injector),
@@ -672,7 +737,7 @@ function ContextVariableListItem(props: {
       id: `ctx-var-${idx}-type`,
       element,
       label: '类型',
-      description: 'object 挂字段清单;array 声明元素类型;date/datetime 以严格格式字符串存储',
+      description: '',
       getOptions: () => [...VARIABLE_TYPES],
       getValue: () => type,
       setValue: v => setAttr('type', v),
@@ -681,7 +746,7 @@ function ContextVariableListItem(props: {
       id: `ctx-var-${idx}-description`,
       element,
       label: '说明',
-      description: '展示文本;string 枚举值可在此标注(如 approved / rejected)',
+      description: '',
       getValue: () => (variable.get('description') as string) ?? '',
       setValue: v => setAttr('description', v.trim() || undefined),
     }, injector),
@@ -690,7 +755,7 @@ function ContextVariableListItem(props: {
       id: `ctx-var-${idx}-source`,
       element,
       label: '来源',
-      description: 'start-param=实例启动可传入(严格声明制);system=系统注入(initiator,启动时按登录人写入 userId/name/email);空=节点产出或仅初始值',
+      description: '',
       getOptions: () => [
         { value: '', label: '节点产出 / 初始值' },
         { value: 'start-param', label: '启动传入 (start-param)' },
@@ -973,59 +1038,193 @@ function fieldListEntry(
   })
 }
 
+/**
+ * skillRefs 读写访问器(user task 与 DSH backend task 共用)。
+ *
+ * <p>读:extensionElements 中全部 {@code dsh:SkillRef} 正文(非空、去空白);
+ * 写:整组重建走命令栈(可撤销)。
+ */
+function skillRefsAccessors(
+  element: BpmnElement,
+  injector: Injector,
+): {
+  getSkillRefs: () => string[]
+  setSkillRefs: (names: string[]) => void
+} {
+  return {
+    getSkillRefs: () =>
+      ((getExtensionElements(element)?.get('values') as BpmnModdleElement[] | undefined) ?? [])
+        .filter(v => v.$type === 'dsh:SkillRef')
+        .map(v => ((v.get('text') as string) ?? '').trim())
+        .filter(Boolean),
+    setSkillRefs: (names: string[]) => {
+      const modeling = injector.get<ModelingService>('modeling')
+      const moddle = injector.get<ModdleService>('moddle')
+      const ext = ensureExtensionElements(element, injector)
+      const values = (ext.get('values') as BpmnModdleElement[]) ?? []
+      const kept = values.filter(v => v.$type !== 'dsh:SkillRef')
+      const newRefs = names.map(name => moddle.create('dsh:SkillRef', { text: name }))
+      modeling.updateModdleProperties(element, ext, { values: [...kept, ...newRefs] })
+    },
+  }
+}
+
 /** UserTask 的 DSH 配置组 entries。 */
 function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
   const entries: Entry[] = []
-  // --- 责任规则:候选角色下拉(单人/会签/串签由 BPMN 原生多实例表达) ---
+  // --- 责任规则(design 2026-09-19 §6.3:目标角色类型 × 审批范围组合矩阵) ---
+  // virtualRole 非空 = 虚拟角色(隐含同行政线,orgScope/fixedUnitId 必须为空);
+  // 否则实体角色,orgScope 缺省 = 全公司(存量行为,XML 不写属性)
   const assignment = findDshElement(element, 'dsh:AssignmentRule')
   const candidateRoleId = assignment ? ((assignment.get('candidateRoleId') as string) ?? '') : ''
+  const virtualRole = assignment ? ((assignment.get('virtualRole') as string) ?? '') : ''
+  const orgScope = assignment ? ((assignment.get('orgScope') as string) ?? '') : ''
+  const fixedUnitId = assignment ? ((assignment.get('fixedUnitId') as string) ?? '') : ''
+  const isVirtual = !!virtualRole
+
+  // 目标角色类型:实体/虚拟切换(切换写法保持互斥,引擎解析按 virtualRole 优先)
   entries.push(
     selectEntry({
-      id: 'dsh-assignment-candidateRole',
+      id: 'dsh-assignment-targetType',
       element,
-      label: '候选角色',
-      description: '任务派给该角色的成员(角色继承由 task-api 展开)',
-      getOptions: () => roleOptions(),
-      getValue: () => candidateRoleId,
+      label: '目标角色类型',
+      description: '虚拟角色=按组织行政线取部门负责人;实体角色=按应用内角色成员解析',
+      getOptions: () => [...ASSIGNMENT_TARGET_TYPES],
+      getValue: () => (isVirtual ? 'virtual' : 'entity'),
       setValue: (value) => {
-        if (!value) {
+        if (value === 'virtual') {
+          upsertDshElement(element, injector, 'dsh:AssignmentRule', {
+            virtualRole: 'parent',
+            candidateRoleId: undefined,
+            orgScope: undefined,
+            fixedUnitId: undefined,
+          })
+        } else {
+          // 切回实体:清掉虚拟角色的同时不再有任何有效属性 → 移除整条规则,
+          // 等用户重新选候选角色(发布校验兜底拦截无角色的范围配置)
           removeDshElement(element, injector, 'dsh:AssignmentRule')
-          return
         }
-        upsertDshElement(element, injector, 'dsh:AssignmentRule', { candidateRoleId: value })
       },
     }, injector),
   )
+
+  if (isVirtual) {
+    // 虚拟角色:范围锁定同行政线(置灰),只选虚拟角色
+    entries.push(
+      selectEntry({
+        id: 'dsh-assignment-virtualRole',
+        element,
+        label: '虚拟角色',
+        description: '',
+        getOptions: () => [{ value: '', label: '(未指定)' }, ...VIRTUAL_ROLE_OPTIONS],
+        getValue: () => virtualRole,
+        setValue: (value) => {
+          if (!value) {
+            removeDshElement(element, injector, 'dsh:AssignmentRule')
+            return
+          }
+          upsertDshElement(element, injector, 'dsh:AssignmentRule', { virtualRole: value })
+        },
+      }, injector),
+      selectEntry({
+        id: 'dsh-assignment-lockedScope',
+        element,
+        label: '审批范围',
+        description: '虚拟角色沿行政线解析,范围固定为同行政线',
+        disabled: true,
+        getOptions: () => [{ value: 'sameLine', label: '同行政线' }],
+        getValue: () => 'sameLine',
+        setValue: () => {},
+      }, injector),
+    )
+  } else {
+    // 实体角色:候选角色 + 审批范围(全公司缺省/同行政线/指定部门)
+    entries.push(
+      selectEntry({
+        id: 'dsh-assignment-candidateRole',
+        element,
+        label: '候选角色',
+        description: '',
+        getOptions: () => roleOptions(),
+        getValue: () => candidateRoleId,
+        setValue: (value) => {
+          if (!value) {
+            removeDshElement(element, injector, 'dsh:AssignmentRule')
+            return
+          }
+          upsertDshElement(element, injector, 'dsh:AssignmentRule', { candidateRoleId: value })
+        },
+      }, injector),
+      selectEntry({
+        id: 'dsh-assignment-orgScope',
+        element,
+        label: '审批范围',
+        description: '缺省全公司=存量行为',
+        getOptions: () => [...ORG_SCOPE_OPTIONS],
+        getValue: () => orgScope || 'global',
+        setValue: (value) => {
+          if (value === 'global') {
+            upsertDshElement(element, injector, 'dsh:AssignmentRule', {
+              orgScope: undefined,
+              fixedUnitId: undefined,
+            })
+          } else if (value === 'sameLine') {
+            upsertDshElement(element, injector, 'dsh:AssignmentRule', {
+              orgScope: 'sameLine',
+              fixedUnitId: undefined,
+            })
+          } else {
+            upsertDshElement(element, injector, 'dsh:AssignmentRule', {
+              orgScope: 'fixedUnit',
+            })
+          }
+        },
+      }, injector),
+    )
+    if (orgScope === 'fixedUnit') {
+      entries.push(
+        selectEntry({
+          id: 'dsh-assignment-fixedUnit',
+          element,
+          label: '指定部门',
+          description: '该部门及其子树内的候选角色成员收到待办',
+          getOptions: () => [{ value: '', label: '(未指定,发布校验会拦截)' }, ...currentOrgUnits],
+          getValue: () => fixedUnitId,
+          setValue: (value) => {
+            upsertDshElement(element, injector, 'dsh:AssignmentRule', {
+              fixedUnitId: value || undefined,
+            })
+          },
+        }, injector),
+      )
+    }
+  }
 
   // --- User Prompt:统一弹窗内编辑(含变量插入 / JSON 骨架 / 输出映射 / 预览) ---
   entries.push(userPromptModalEntry(element, injector))
 
   // --- skillRefs:多选 checkbox 列表;选项来自所属应用绑定的 SkillHub 命名空间 ---
-  const getSkillRefs = (): string[] =>
-    ((getExtensionElements(element)?.get('values') as BpmnModdleElement[] | undefined) ?? [])
-      .filter(v => v.$type === 'dsh:SkillRef')
-      .map(v => ((v.get('text') as string) ?? '').trim())
-      .filter(Boolean)
-  const setSkillRefs = (names: string[]) => {
-    const modeling = injector.get<ModelingService>('modeling')
-    const moddle = injector.get<ModdleService>('moddle')
-    const ext = ensureExtensionElements(element, injector)
-    const values = (ext.get('values') as BpmnModdleElement[]) ?? []
-    const kept = values.filter(v => v.$type !== 'dsh:SkillRef')
-    const newRefs = names.map(name => moddle.create('dsh:SkillRef', { text: name }))
-    modeling.updateModdleProperties(element, ext, { values: [...kept, ...newRefs] })
-  }
+  const { getSkillRefs, setSkillRefs } = skillRefsAccessors(element, injector)
   entries.push(skillRefsEntry(getSkillRefs, setSkillRefs))
 
-  // --- 超时升级策略 ---
+  // --- 超时升级策略(目标优先级:虚拟角色 > 用户 > 实体角色,引擎对齐) ---
   entries.push(
     textFieldEntry({
       id: 'dsh-timeout-duration',
       element,
-      label: '超时时长 (duration)',
+      label: '超时时长',
       description: 'ISO-8601 时长,如 PT24H;留空表示不超时',
       getValue: () => getTimeoutAttr(element, 'duration'),
       setValue: value => setTimeoutAttr(element, injector, 'duration', value),
+    }, injector),
+    selectEntry({
+      id: 'dsh-timeout-escalateVirtualRole',
+      element,
+      label: '升级目标虚拟角色',
+      description: '锚定当前审批人(其部门的上级负责人接管);配置后优先于用户/角色',
+      getOptions: () => [{ value: '', label: '(未指定)' }, ...ESCALATE_VIRTUAL_ROLE_OPTIONS],
+      getValue: () => getTimeoutAttr(element, 'escalateToVirtualRole'),
+      setValue: value => setTimeoutAttr(element, injector, 'escalateToVirtualRole', value),
     }, injector),
     selectEntry({
       id: 'dsh-timeout-escalateRole',
@@ -1040,7 +1239,7 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
       id: 'dsh-timeout-escalateUser',
       element,
       label: '升级目标用户 ID',
-      description: '可选;指定用户优先于角色',
+      description: '可选;优先于实体角色,低于虚拟角色',
       getValue: () => getTimeoutAttr(element, 'escalateToUserId'),
       setValue: value => setTimeoutAttr(element, injector, 'escalateToUserId', value),
     }, injector),
@@ -1053,14 +1252,105 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
         id: `dsh-sod-${rule.value}`,
         element,
         label: rule.label,
-        description: 'SoD 职责分离规则',
+        description: '',
         getValue: () => hasSodRule(element, rule.value),
         setValue: value => toggleSodRule(element, injector, rule.value, value),
       }),
     )
   }
 
+  // --- 会签计票(design 2026-09-15;三种 task 统一):完成条件由引擎按计票规则生成 ---
+  entries.push(...votingRuleEntries(element, injector, readMappingTargetRoots(element),
+    ''))
+
   return entries
+}
+
+/** 本节点输出映射的 target 根变量去重清单(votingRule 表决变量下拉用)。 */
+function readMappingTargetRoots(element: BpmnElement): () => string[] {
+  return () => {
+    const container = findDshElement(element, 'dsh:OutputMappings')
+    if (!container) return []
+    const items = (container.get('mapping') as BpmnModdleElement[]) ?? []
+    const roots = items
+      .map(m => ((m.get('target') as string) ?? '').split('.')[0].trim())
+      .filter(Boolean)
+    return [...new Set(roots)]
+  }
+}
+
+/**
+ * 会签计票 entries(design 2026-09-15 §4.2;三种 task 统一)。
+ *
+ * <p>配置 {@code dsh:votingRule}:表决变量下拉、通过值/通过票数/否决票数(可空)
+ * 文本项。配置后引擎按值聚合 {@code dsh_passCount_<taskId>} /
+ * {@code dsh_rejectCount_<taskId>}(userTask 在提交端点,ServiceTask 在多实例
+ * end listener),parse 时自动生成完成条件,完成条件输入框随之隐藏。
+ *
+ * @param readVariableOptions 表决变量下拉选项(userTask / DSH backend task =
+ *                            本节点输出映射 target 根变量;普通 ServiceTask =
+ *                            已声明的上下文变量——delegate 代码 setVariable 写入)
+ * @param variableDescription 表决变量输入框的说明文案(按变量来源差异描述)
+ */
+function votingRuleEntries(
+  element: BpmnElement,
+  injector: Injector,
+  readVariableOptions: () => string[],
+  variableDescription: string,
+): Entry[] {
+  const getVotingAttr = (attr: string): string => {
+    const rule = findDshElement(element, 'dsh:VotingRule')
+    return rule ? ((rule.get(attr) as string) ?? '') : ''
+  }
+  const setVotingAttr = (attr: string, value: string): void => {
+    const trimmed = value.trim()
+    if (attr === 'variable' && !trimmed) {
+      // 表决变量清空 = 整条计票规则移除(其余属性随之失效)
+      removeDshElement(element, injector, 'dsh:VotingRule')
+      return
+    }
+    upsertDshElement(element, injector, 'dsh:VotingRule', {
+      [attr]: trimmed || undefined,
+    })
+  }
+  return [
+    selectEntry({
+      id: 'dsh-voting-variable',
+      element,
+      label: '表决变量',
+      description: variableDescription,
+      getOptions: () => [
+        { value: '', label: '(不启用计票)' },
+        ...readVariableOptions().map(t => ({ value: t, label: t })),
+      ],
+      getValue: () => getVotingAttr('variable'),
+      setValue: value => setVotingAttr('variable', value ?? ''),
+    }, injector),
+    textFieldEntry({
+      id: 'dsh-voting-passValue',
+      element,
+      label: '通过值',
+      description: '',
+      getValue: () => getVotingAttr('passValue'),
+      setValue: value => setVotingAttr('passValue', value),
+    }, injector),
+    textFieldEntry({
+      id: 'dsh-voting-passCount',
+      element,
+      label: '通过票数',
+      description: '',
+      getValue: () => getVotingAttr('passCount'),
+      setValue: value => setVotingAttr('passCount', value),
+    }, injector),
+    textFieldEntry({
+      id: 'dsh-voting-rejectCount',
+      element,
+      label: '否决票数',
+      description: '',
+      getValue: () => getVotingAttr('rejectCount'),
+      setValue: value => setVotingAttr('rejectCount', value),
+    }, injector),
+  ]
 }
 
 /**
@@ -1084,16 +1374,16 @@ function asyncAndRetryEntries(element: BpmnElement, injector: Injector): Entry[]
       id: 'flowable-async',
       element,
       label: '异步执行 (async)',
-      description: '勾选后由 async-executor 线程池执行,不阻塞主流程;失败重试策略依赖此开关',
+      description: '',
       getValue: () => Boolean(bo.get('async')),
       setValue: value => modeling.updateProperties(element, { async: value }),
     }),
     textFieldEntry({
       id: 'flowable-retry-cycle',
       element,
-      label: '失败重试策略 (failedJobRetryTimeCycle)',
+      label: '失败重试策略',
       description:
-        'ISO-8601 循环,如 R5/PT1M = 最多 5 次、每次隔 1 分钟;需先勾选异步执行(引擎仅对异步 Job 应用重试)',
+        'ISO-8601 循环,如 R5/PT1M = 最多 5 次、每次隔 1 分钟;需先勾选异步执行',
       // 联动:未勾选异步时禁用;勾选切换走命令栈,面板重建 entries 后本值重新求值
       disabled: !Boolean(bo.get('async')),
       getValue: () => getDshText(element, 'flowable:FailedJobRetryTimeCycle'),
@@ -1110,7 +1400,7 @@ function asyncAndRetryEntries(element: BpmnElement, injector: Injector): Entry[]
   ]
 }
 
-/** ServiceTask 的 Flowable 实现方式配置组 entries(delegateExpression / expression + async + 失败重试)。 */
+/** ServiceTask 的 Flowable 实现方式配置组 entries(delegateExpression + async + 失败重试;expression 不提供画布入口,定制 delegate 或 DSH backend task 二选一)。 */
 function serviceTaskFlowableEntries(element: BpmnElement, injector: Injector): Entry[] {
   const modeling = injector.get<ModelingService>('modeling')
   const bo = element.businessObject
@@ -1120,27 +1410,335 @@ function serviceTaskFlowableEntries(element: BpmnElement, injector: Injector): E
       element,
       label: '委托表达式 (delegateExpression)',
       description:
-        '${定制 delegate 的 Spring Bean 名}:delegate 代码中 execution.getVariable() 读上下文、setVariable() 写结果变量;需 LLM 智能服务时在 delegate 里注入 DshHeadlessClient 调用',
+        '',
       getValue: () => ((bo.get('delegateExpression') as string) ?? ''),
       setValue: value =>
         modeling.updateProperties(element, {
           delegateExpression: value && value.trim() ? value : undefined,
         }),
     }, injector),
-    textFieldEntry({
-      id: 'flowable-expression',
-      element,
-      label: '表达式 (expression)',
-      description:
-        'UEL 方法调用,如 ${smsSender.send(execution, phone)};Bean 与方法需自行注册',
-      getValue: () => ((bo.get('expression') as string) ?? ''),
-      setValue: value =>
-        modeling.updateProperties(element, {
-          expression: value && value.trim() ? value : undefined,
-        }),
-    }, injector),
     ...asyncAndRetryEntries(element, injector),
   ]
+}
+
+// ---------------------------------------------------------------------------
+// ServiceTask 多实例与三种 task 统一计票(2026-09-15)
+// ---------------------------------------------------------------------------
+
+/** 该元素的多实例是否为 BPMN 多实例(非标准循环)。 */
+function hasMultiInstance(element: BpmnElement): boolean {
+  const loop = element.businessObject.get('loopCharacteristics') as BpmnModdleElement | undefined
+  return !!loop && loop.$type === 'bpmn:MultiInstanceLoopCharacteristics'
+}
+
+/**
+ * 普通 ServiceTask(定制 delegate)的多实例配置组 entries(集合形式)。
+ *
+ * <p>只在该节点已是多实例(扳手菜单选了并行/串行)时由 getGroups 挂载:
+ * <ul>
+ *   <li>集合变量 (collection):下拉选择已声明的 array 上下文变量,实例数=数组
+ *       长度,写 flowable:collection(纯变量名,引擎编译为 JUEL 表达式)。</li>
+ *   <li>元素变量 (elementVariable):引擎逐实例注入的元素变量名,须与 Java 代码
+ *       {@code execution.getVariable(...)} 读取的变量名一致(教程约定,
+ *       发布校验查非空与重名)。</li>
+ *   <li>完成条件 (completionCondition):JUEL,如 ${nrOfCompletedInstances >= 1}
+ *       (任一完成即收,其余实例自动跳过);留空=全部完成;配了 votingRule 时隐藏
+ *       (引擎按计票规则生成,手写被发布校验拒绝)。</li>
+ * </ul>
+ */
+function serviceTaskMultiInstanceEntries(element: BpmnElement, injector: Injector): Entry[] {
+  const modeling = injector.get<ModelingService>('modeling')
+  const loop = element.businessObject.get('loopCharacteristics') as BpmnModdleElement
+
+  const arrayVariableNames = (): string[] =>
+    readContextDeclarations(injector)
+      .filter(v => v.get('type') === 'array')
+      .map(v => (v.get('name') as string) ?? '')
+      .filter(Boolean)
+
+  const entries: Entry[] = [
+    selectEntry({
+      id: 'dsh-service-mi-collection',
+      element,
+      label: '集合变量 (collection)',
+      description:
+        '',
+      getOptions: () => {
+        const arrays = arrayVariableNames()
+        const current = ((loop.get('collection') as string) ?? '').trim()
+        // 现值不在 array 声明内(手改 XML/声明变更)保留为悬空选项,交发布校验拒绝
+        const dangling = current && !arrays.includes(current)
+          ? [{ value: current, label: `${current} (非 array 声明)` }] : []
+        return [
+          { value: '', label: '(未选择)' },
+          ...arrays.map(name => ({ value: name, label: name })),
+          ...dangling,
+        ]
+      },
+      getValue: () => ((loop.get('collection') as string) ?? '').trim(),
+      setValue: value =>
+        modeling.updateModdleProperties(element, loop, {
+          collection: value || undefined,
+        }),
+    }, injector),
+    textFieldEntry({
+      id: 'dsh-service-mi-elementVariable',
+      element,
+      label: '元素变量 (elementVariable)',
+      description:
+        '不得与已声明上下文变量重名(发布校验拒绝)',
+      getValue: () => ((loop.get('elementVariable') as string) ?? ''),
+      setValue: value =>
+        modeling.updateModdleProperties(element, loop, {
+          elementVariable: value && value.trim() ? value.trim() : undefined,
+        }),
+    }, injector),
+  ]
+
+  // 配了 votingRule 时完成条件由引擎生成,不提供手写入口(同 userTask)
+  if (!findDshElement(element, 'dsh:VotingRule')) {
+    entries.push(miCompletionConditionEntry(element, injector, loop))
+  }
+  return entries
+}
+
+/**
+ * 多实例完成条件 entry(userTask 由社区组提供,普通 ServiceTask 与 DSH backend
+ * task 共用):写 {@code <completionCondition>} 子元素(FormalExpression 正文)。
+ * 配了 votingRule 时不挂载(引擎按计票规则生成,手写被发布校验拒绝)。
+ */
+function miCompletionConditionEntry(
+  element: BpmnElement,
+  injector: Injector,
+  loop: BpmnModdleElement,
+): Entry {
+  const modeling = injector.get<ModelingService>('modeling')
+  const moddle = injector.get<ModdleService>('moddle')
+  return textFieldEntry({
+    id: 'dsh-mi-completionCondition',
+    element,
+    label: '完成条件',
+    description:
+      '',
+    getValue: () => {
+      const condExpr = loop.get('completionCondition') as BpmnModdleElement | undefined
+      return condExpr ? ((condExpr.get('body') as string) ?? '') : ''
+    },
+    setValue: (value) => {
+      const trimmed = value?.trim() ?? ''
+      modeling.updateModdleProperties(element, loop, {
+        completionCondition: trimmed
+          ? moddle.create('bpmn:FormalExpression', { body: trimmed })
+          : undefined,
+      })
+    },
+  }, injector)
+}
+
+/**
+ * DSH backend task 的配置组 entries(design 2026-09-14 §3.3;多实例与计票扩展
+ * 2026-09-15)。
+ *
+ * <p>元素是含 {@code dsh:backendTask} 扩展的 ServiceTask;delegateExpression
+ * 固定绑定 {@code ${dshBackendTaskDelegate}}、async 固定 true(创建时由 palette
+ * 一次性写入,不提供编辑入口)。组内:
+ * <ul>
+ *   <li>backend profile:单实例为下拉(注册表活跃实例,写 backendProfileUrl 属性);
+ *       多实例为列表(每行一个活跃实例,第 i 实例绑第 i 个,行数=loopCardinality,
+ *       写 {@code <dsh:backendProfile>} 子元素列表,增删行自动同步实例数)。</li>
+ *   <li>多实例完成条件:配了 votingRule 时隐藏(同 userTask)。</li>
+ *   <li>失败重试:编辑 {@code flowable:failedJobRetryTimeCycle}(async job 重试)。</li>
+ *   <li>User Prompt 弹窗:复用 {@code userPromptModalEntry}(与 user task 无差别,
+ *       含变量插入 / JSON 骨架 / 输出映射编辑 / 预览)。</li>
+ *   <li>skillRefs:复用 {@code skillRefsEntry}(选项同样来自应用绑定的 SkillHub)。</li>
+ *   <li>会签计票:表决变量下拉=本节点输出映射 target 根变量(delegate 映射写入)。</li>
+ * </ul>
+ */
+function backendTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
+  const entries: Entry[] = []
+  const multiInstance = hasMultiInstance(element)
+
+  // --- backend profile:单实例下拉 / 多实例逐实例列表 ---
+  if (multiInstance) {
+    entries.push(backendProfileListEntry(element, injector))
+    if (!findDshElement(element, 'dsh:VotingRule')) {
+      entries.push(miCompletionConditionEntry(
+        element, injector, element.businessObject.get('loopCharacteristics') as BpmnModdleElement))
+    }
+  } else {
+    entries.push(
+      selectEntry({
+        id: 'dsh-backend-profile',
+        element,
+        label: 'Backend Profile 实例（留空发布会拒绝）',
+        description: '',
+        getOptions: () => [
+          {
+            value: '',
+            label: currentBackendProfiles.length === 0 ? '(未配置——注册表无活跃实例)' : '(未配置)',
+          },
+          ...currentBackendProfiles.map(p => ({
+            value: p.url,
+            label: `${p.name} (${p.url}${p.llmLabel ? `, LLM: ${p.llmLabel}` : ''})`,
+          })),
+        ],
+        getValue: () => {
+          const el = findDshElement(element, 'dsh:BackendTask')
+          return el ? ((el.get('backendProfileUrl') as string) ?? '') : ''
+        },
+        setValue: (value) => {
+          upsertDshElement(element, injector, 'dsh:BackendTask', { backendProfileUrl: value })
+        },
+      }, injector),
+    )
+  }
+
+  // --- 失败重试(async 固定 true,重试周期可编辑;耗尽走异常边界事件) ---
+  entries.push(
+    textFieldEntry({
+      id: 'dsh-backend-retry-cycle',
+      element,
+      label: '失败重试策略 (耗尽走异常边界事件)',
+      description:
+        '',
+      getValue: () => getDshText(element, 'flowable:FailedJobRetryTimeCycle'),
+      setValue: (value) => {
+        if (value && value.trim()) {
+          upsertDshElement(element, injector, 'flowable:FailedJobRetryTimeCycle', {
+            text: value.trim(),
+          })
+        } else {
+          removeDshElement(element, injector, 'flowable:FailedJobRetryTimeCycle')
+        }
+      },
+    }, injector),
+  )
+
+  // --- User Prompt:统一弹窗(与 user task 复用同一对话框) ---
+  entries.push(userPromptModalEntry(element, injector))
+
+  // --- skillRefs:多选 checkbox 列表(与 user task 复用) ---
+  const { getSkillRefs, setSkillRefs } = skillRefsAccessors(element, injector)
+  entries.push(skillRefsEntry(getSkillRefs, setSkillRefs))
+
+  // --- 会签计票(三种 task 统一):表决变量=输出映射 target(delegate 映射写入) ---
+  entries.push(...votingRuleEntries(element, injector, readMappingTargetRoots(element),
+    ''))
+
+  return entries
+}
+
+/**
+ * DSH backend task 多实例的逐实例 profile 列表 entry(2026-09-15)。
+ *
+ * <p>每行一个下拉(注册表活跃实例),第 i 行绑定第 i 个实例(引擎 delegate 按
+ * {@code loopCounter} 取);「添加实例 / 删除」同步写回 {@code <dsh:backendProfile>}
+ * 子元素列表与 {@code loopCardinality}(行数=实例数,永不失配)。现值不在活跃
+ * 注册表(实例下线)渲染为悬空行,交发布校验拒绝。
+ */
+function backendProfileListEntry(element: BpmnElement, injector: Injector): Entry {
+  const modeling = injector.get<ModelingService>('modeling')
+  const moddle = injector.get<ModdleService>('moddle')
+
+  /** 读当前行 URL 序列(每次渲染重读,命令栈写回后组件重挂载)。 */
+  const readUrls = (): string[] => {
+    const backendTask = findDshElement(element, 'dsh:BackendTask')
+    if (!backendTask) return []
+    return ((backendTask.get('backendProfile') as BpmnModdleElement[]) ?? [])
+      .map(p => (p.get('url') as string) ?? '')
+  }
+
+  /** 写回行序列:backendProfile 子元素列表 + loopCardinality 同步行数。 */
+  const writeUrls = (urls: string[]): void => {
+    const backendTask = findDshElement(element, 'dsh:BackendTask')
+    const loop = element.businessObject.get('loopCharacteristics') as BpmnModdleElement
+    if (!backendTask || !loop) return
+    modeling.updateModdleProperties(element, backendTask, {
+      backendProfile: urls.map(url => moddle.create('dsh:BackendProfile', { url })),
+    })
+    modeling.updateModdleProperties(element, loop, {
+      loopCardinality: urls.length
+        ? moddle.create('bpmn:FormalExpression', { body: String(urls.length) })
+        : undefined,
+    })
+  }
+
+  return {
+    id: 'dsh-backend-profile-list',
+    component: () => {
+      const urls = readUrls()
+      const children: ComponentChild[] = [
+        h('label', { className: 'bio-properties-panel-label' },
+          `多实例 Backend Profile 列表(共 ${urls.length} 个实例)`),
+        /*h('div', { className: 'bio-properties-panel-description' },
+          '第 i 个实例绑定第 i 个 backend profile;行数=实例数(loopCardinality),'
+          + '增删行自动同步。想多个实例绑同一 profile 就选同一 URL 多行'),*/
+      ]
+      if (currentBackendProfiles.length === 0 && urls.length === 0) {
+        children.push(h('div', { className: 'bio-properties-panel-description' },
+          '注册表无活跃实例(心跳 5 分钟内),先启动 backend profile 再配置'))
+      }
+      urls.forEach((url, i) => {
+        const dangling = url && !currentBackendProfiles.some(p => p.url === url)
+        const options: ComponentChild[] = [
+          h('option', { value: '' }, '(未选择)'),
+          ...currentBackendProfiles.map(p =>
+            h('option', { value: p.url, selected: p.url === url },
+              `${p.name} (${p.url})`)),
+          ...(dangling
+            ? [h('option', { value: url, selected: true }, `${url} (不在活跃注册表)`)] : []),
+        ]
+        children.push(
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0' } },
+            h('span', { style: { minWidth: 16 } }, `${i + 1}.`),
+            h('select', {
+              className: 'bio-properties-panel-select',
+              style: { flex: 1 },
+              onChange: (e: Event) => {
+                const next = readUrls()
+                next[i] = (e.target as HTMLSelectElement).value
+                writeUrls(next)
+              },
+            }, options),
+            h('button', {
+              type: 'button',
+              title: '删除此实例行(下方行自动上移)',
+              onClick: () => writeUrls(readUrls().filter((_, j) => j !== i)),
+              // 官方 bio-properties-panel-remove-entry 默认 visibility:hidden
+              // (只为 collapsible header 设计),这里用内联样式保证常显
+              style: {
+                flexShrink: 0,
+                width: 22,
+                height: 22,
+                padding: 0,
+                border: 'none',
+                borderRadius: '50%',
+                background: 'none',
+                color: 'var(--remove-entry-fill-color, #cc2f2b)',
+                fontSize: 16,
+                lineHeight: '22px',
+                cursor: 'pointer',
+              },
+            }, '×'),
+          ),
+        )
+      })
+      children.push(
+        h('button', {
+          type: 'button',
+          className: 'bio-properties-panel-add-entry',
+          onClick: () => {
+            // 默认选第一个活跃实例;无活跃实例时给空行(发布校验拦截)
+            writeUrls([...readUrls(), currentBackendProfiles[0]?.url ?? ''])
+          },
+        }, '+ 添加实例'),
+      )
+      return h('div', null, children)
+    },
+    isEdited: (node: unknown) =>
+      (node as HTMLElement).querySelectorAll('select').length > 0
+      || (node as HTMLElement).querySelectorAll('button').length > 0,
+  }
 }
 
 /**
@@ -1384,21 +1982,46 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
     if (is(element, 'bpmn:Process')) {
       groups.push({
         id: 'dsh-context-variables',
-        label: 'DSH 上下文变量',
+        label: '流程上下文变量',
         entries: contextVariablesEntries(element, injector),
       })
     } else if (is(element, 'bpmn:UserTask')) {
       groups.push({
         id: 'dsh-user-task',
-        label: 'DSH 人工节点配置',
+        label: 'User Task 配置',
         entries: userTaskDshEntries(element, injector),
       })
     } else if (is(element, 'bpmn:ServiceTask')) {
-      groups.push({
-        id: 'dsh-service-task',
-        label: 'Flowable 实现方式',
-        entries: serviceTaskFlowableEntries(element, injector),
-      })
+      if (findDshElement(element, 'dsh:BackendTask')) {
+        // DSH backend task:渲染 backend 配置组,跳过普通 ServiceTask 的
+        // "Flowable 实现方式"组(delegateExpression/async 已固定绑定,不允许改)
+        groups.push({
+          id: 'dsh-backend-task',
+          label: 'Backend Task 配置',
+          entries: backendTaskDshEntries(element, injector),
+        })
+      } else {
+        groups.push({
+          id: 'dsh-service-task',
+          label: 'Flowable 实现方式',
+          entries: serviceTaskFlowableEntries(element, injector),
+        })
+        // 多实例(扳手菜单选了并行/串行后出现):集合形式——实例数=array 长度
+        if (hasMultiInstance(element)) {
+          groups.push({
+            id: 'dsh-service-task-mi',
+            label: '多实例',
+            entries: serviceTaskMultiInstanceEntries(element, injector),
+          })
+        }
+        groups.push({
+          id: 'dsh-service-task-voting',
+          label: '会签计票',
+          entries: votingRuleEntries(element, injector,
+            () => readContextDeclarations(injector).map(v => (v.get('name') as string) ?? ''),
+            ''),
+        })
+      }
     } else if (is(element, 'bpmn:SequenceFlow')) {
       groups.push({
         id: 'flowable-sequenceflow',
@@ -1437,12 +2060,38 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
       }
     }
 
+    let result = groups
+    // UserTask 的多实例派发只认集合形式:collection/elementVariable/assignee 由引擎
+    // 部署时按候选角色自动补齐(DshBpmnParseHandler),loopCardinality 计数形式会让
+    // 引擎放弃补齐、任务无办理人,隐藏该输入框。配了 dsh:votingRule(会签计票)时
+    // completionCondition 也隐藏——完成条件由引擎按计票规则自动生成,
+    // 手写会被发布校验拒绝(矛盾配置)。
+    if (is(element, 'bpmn:UserTask')) {
+      const hideCompletion = Boolean(findDshElement(element, 'dsh:VotingRule'))
+      result = result.map((g: any) =>
+        g.id === 'multiInstance'
+          ? {
+            ...g,
+            entries: g.entries.filter(
+              (entry: any) =>
+                entry.id !== 'loopCardinality'
+                  && !(hideCompletion && entry.id === 'completionCondition'),
+            ),
+          }
+          : g,
+      )
+    }
+    // ServiceTask 的多实例字段由 DSH 面板接管(普通节点=集合形式 collection/
+    // elementVariable/完成条件;backend task=profile 列表行数即 loopCardinality),
+    // 隐藏社区 multiInstance 组(Loop cardinality / Completion condition)
+    if (is(element, 'bpmn:ServiceTask')) {
+      result = result.filter((g: any) => g.id !== 'multiInstance')
+    }
     // Flowable 的 ReceiveTask 不消费 messageRef,隐藏误导性的 Message 组
     if (is(element, 'bpmn:ReceiveTask')) {
-      return groups.filter((g: any) => g.id !== 'message')
+      result = result.filter((g: any) => g.id !== 'message')
     }
-
-    return groups
+    return result
   }
   propertiesPanel.registerProvider(500, self)
 }

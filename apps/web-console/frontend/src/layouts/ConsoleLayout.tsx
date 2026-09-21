@@ -2,6 +2,7 @@ import {
   ApartmentOutlined,
   AuditOutlined,
   ClockCircleOutlined,
+  ClusterOutlined,
   HomeOutlined,
   LogoutOutlined,
   PartitionOutlined,
@@ -37,6 +38,7 @@ function buildMenu(roles: string[]): MenuItem[] {
     items.push({ key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' })
   }
   if (isSys) {
+    items.push({ key: '/org-units', icon: <ClusterOutlined />, label: '部门管理' })
     items.push({ key: '/users', icon: <TeamOutlined />, label: '平台用户' })
     items.push({ key: '/audit', icon: <AuditOutlined />, label: '审计' })
   }

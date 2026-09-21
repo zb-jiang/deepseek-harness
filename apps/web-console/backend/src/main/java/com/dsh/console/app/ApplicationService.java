@@ -5,6 +5,7 @@ import com.dsh.console.app.dto.CreateApplicationRequest;
 import com.dsh.console.app.dto.UpdateApplicationRequest;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.membership.AppMembershipJdbcRepository;
 import com.dsh.console.security.AuthContext;
 import com.dsh.console.skillhub.SkillHubRestClient;
 import com.dsh.console.skillhub.dto.SkillHubSkillDto;
@@ -39,6 +40,7 @@ public class ApplicationService {
     private final WorkflowDefinitionJdbcRepository workflowRepository;
     private final AuditService auditService;
     private final SkillHubRestClient skillHubRestClient;
+    private final AppMembershipJdbcRepository membershipRepository;
 
     private static final String DEFAULT_ICON_BASE64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTUiIHN0cm9rZS13aWR0aD0iMiI+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBhdGggZD0iTTIxIDE1bC01LTUtMTYgMTYiLz48L3N2Zz4=";
 
@@ -46,12 +48,14 @@ public class ApplicationService {
                               UserJdbcRepository userRepository,
                               WorkflowDefinitionJdbcRepository workflowRepository,
                               AuditService auditService,
-                              SkillHubRestClient skillHubRestClient) {
+                              SkillHubRestClient skillHubRestClient,
+                              AppMembershipJdbcRepository membershipRepository) {
         this.appRepository = appRepository;
         this.userRepository = userRepository;
         this.workflowRepository = workflowRepository;
         this.auditService = auditService;
         this.skillHubRestClient = skillHubRestClient;
+        this.membershipRepository = membershipRepository;
     }
 
     public ApplicationDto getById(UUID appId) {
@@ -242,5 +246,44 @@ public class ApplicationService {
             throw new org.springframework.security.access.AccessDeniedException(
                 "用户不是应用 " + appId + " 的管理员");
         }
+    }
+
+    /**
+     * 校验当前用户能否发起指定应用的流程实例(比 checkCanAccessApp 宽:应用成员即可)。
+     *
+     * <p>组织维度审批路由的发起入口(design 2026-09-19 §5.1):流程在 DSH 员工端
+     * 由普通员工发起,system_admin/应用管理员/active 应用成员(app_memberships)
+     * 三类放行,其余抛 AccessDenied。
+     */
+    public void checkCanStartProcess(AuthContext auth, UUID appId) {
+        if (auth.isSystemAdmin()) {
+            return;
+        }
+        ApplicationDto app = getById(appId);
+        if (app.appAdminUserIds() != null && app.appAdminUserIds().contains(auth.platformUserId())) {
+            return;
+        }
+        boolean activeMember = membershipRepository.findByAppAndUser(appId, auth.platformUserId())
+            .filter(m -> "active".equals(m.status()))
+            .isPresent();
+        if (!activeMember) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                "用户不是应用 " + appId + " 的成员,不能发起该应用的流程");
+        }
+    }
+
+    /**
+     * 当前用户可发起流程的应用 id 全集:管理的应用 ∪ active 成员资格的应用
+     * (员工端/管理台"可发起流程"清单的聚合源)。
+     *
+     * <p>system_admin 不走本方法(调用方先判 isSystemAdmin 走全量路径)。
+     */
+    public List<UUID> listStartableAppIds(AuthContext auth) {
+        java.util.Set<UUID> ids = new java.util.LinkedHashSet<>();
+        for (ApplicationDto app : appRepository.listByAdminUser(auth.platformUserId())) {
+            ids.add(app.id());
+        }
+        ids.addAll(membershipRepository.listActiveAppIdsByUser(auth.platformUserId()));
+        return List.copyOf(ids);
     }
 }

@@ -80,10 +80,96 @@ interface SkillSyncState {
 }
 
 /** SkillHub 命名空间清单的单个 skill 条目(CliNamespaceSyncItemResponse)。 */
-interface SkillHubItem {
+export interface SkillHubItem {
   slug: string
   fingerprint: string
   downloadUrl: string
+}
+
+/**
+ * 拉取 SkillHub 命名空间的已发布 skill 清单(翻页取全量)。
+ *
+ * <p>导出供 dsh-backend-task 复用(其同步源是 web-console 注册表聚合而非
+ * flowable 待办,但 SkillHub 清单/下载是同一套)。
+ *
+ * @param skillhubBaseUrl - SkillHub 后端 API 基地址(无尾斜杠)。
+ * @param skillhubToken - SkillHub 只读分发 token。
+ * @param namespace - 命名空间名。
+ * @returns slug → 清单条目的索引。
+ */
+export async function fetchSkillhubManifest(
+  skillhubBaseUrl: string,
+  skillhubToken: string,
+  namespace: string,
+): Promise<Map<string, SkillHubItem>> {
+  const index = new Map<string, SkillHubItem>()
+  let cursor: string | undefined = '0'
+  while (cursor !== undefined && cursor !== '') {
+    const response = await fetch(
+      `${skillhubBaseUrl}/api/cli/v1/namespaces/${encodeURIComponent(namespace)}/skills`
+        + `?cursor=${encodeURIComponent(cursor)}&limit=${SKILLHUB_PAGE_LIMIT}`,
+      { headers: { authorization: `Bearer ${skillhubToken}` } },
+    )
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500)
+      throw new Error(`SkillHub 命名空间清单返回 ${response.status}${detail ? `: ${detail}` : ''}`)
+    }
+    const body = await response.json() as {
+      code?: number
+      data?: { items?: SkillHubItem[]; nextCursor?: string | null }
+    }
+    if (body.code !== 0 || body.data === undefined) {
+      throw new Error(`SkillHub 响应信封异常: code=${body.code ?? 'missing'}`)
+    }
+    for (const item of body.data.items ?? []) {
+      index.set(item.slug, item)
+    }
+    cursor = body.data.nextCursor ?? undefined
+  }
+  return index
+}
+
+/**
+ * 下载并安装单个 skill 包:zip 根即 SKILL.md(SkillHub 打包已剥外层目录),
+ * 解压到临时目录后原子改名到 `<skillDir>/<name>`。导出供 dsh-backend-task 复用。
+ *
+ * @param skillhubBaseUrl - SkillHub 后端 API 基地址(无尾斜杠)。
+ * @param skillhubToken - SkillHub 只读分发 token。
+ * @param skillDir - 缓存根目录(已存在)。
+ * @param name - skill 裸名(安装目录名)。
+ * @param item - 清单条目(带 downloadUrl)。
+ */
+export async function installSkillZip(
+  skillhubBaseUrl: string,
+  skillhubToken: string,
+  skillDir: string,
+  name: string,
+  item: SkillHubItem,
+): Promise<void> {
+  const downloadUrl = new URL(item.downloadUrl, `${skillhubBaseUrl}/`)
+  const response = await fetch(downloadUrl, {
+    headers: { authorization: `Bearer ${skillhubToken}` },
+  })
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500)
+    throw new Error(`下载 skill 包返回 ${response.status}${detail ? `: ${detail}` : ''}`)
+  }
+  const entries = unzipSync(new Uint8Array(await response.arrayBuffer()))
+  const tempDir = await mkdtemp(join(skillDir, `.tmp-${name}-`))
+  try {
+    for (const [entryPath, content] of Object.entries(entries)) {
+      if (entryPath === '' || entryPath.endsWith('/')) continue
+      const target = safeJoin(tempDir, entryPath)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, content)
+    }
+    const dest = join(skillDir, name)
+    await rm(dest, { recursive: true, force: true })
+    await rename(tempDir, dest)
+  } catch (error) {
+    await rm(tempDir, { recursive: true, force: true })
+    throw error
+  }
 }
 
 /** 已解析的运行选项(apply 阶段完成校验与默认值合并)。 */
@@ -176,7 +262,7 @@ export class SkillSyncService extends Service {
       let manifest = manifests.get(skill.namespace)
       if (manifest === undefined) {
         try {
-          manifest = await this.fetchManifest(skill.namespace)
+          manifest = await fetchSkillhubManifest(this.options.skillhubBaseUrl, this.options.skillhubToken, skill.namespace)
         } catch (error) {
           this.ctx.logger.warn(`skill-sync: 拉取 SkillHub 命名空间 '${skill.namespace}' 清单失败`, error)
           manifests.set(skill.namespace, new Map())
@@ -196,7 +282,8 @@ export class SkillSyncService extends Service {
         continue
       }
       try {
-        await this.install(skill.name, item)
+        await installSkillZip(this.options.skillhubBaseUrl, this.options.skillhubToken,
+          this.options.skillDir, skill.name, item)
         state.skills[skill.name] = { namespace: skill.namespace, fingerprint: item.fingerprint }
         changed = true
         installedNames.push(skill.name)
@@ -253,69 +340,6 @@ export class SkillSyncService extends Service {
     }
     const body = await response.json() as { skills?: RequiredSkill[] }
     return body.skills ?? []
-  }
-
-  /**
-   * 拉取 SkillHub 命名空间的已发布 skill 清单(翻页取全量)。
-   * @returns slug → 清单条目的索引。
-   */
-  private async fetchManifest(namespace: string): Promise<Map<string, SkillHubItem>> {
-    const index = new Map<string, SkillHubItem>()
-    let cursor: string | undefined = '0'
-    while (cursor !== undefined && cursor !== '') {
-      const response = await fetch(
-        `${this.options.skillhubBaseUrl}/api/cli/v1/namespaces/${encodeURIComponent(namespace)}/skills`
-          + `?cursor=${encodeURIComponent(cursor)}&limit=${SKILLHUB_PAGE_LIMIT}`,
-        { headers: { authorization: `Bearer ${this.options.skillhubToken}` } },
-      )
-      if (!response.ok) {
-        const detail = (await response.text()).slice(0, 500)
-        throw new Error(`SkillHub 命名空间清单返回 ${response.status}${detail ? `: ${detail}` : ''}`)
-      }
-      const body = await response.json() as {
-        code?: number
-        data?: { items?: SkillHubItem[]; nextCursor?: string | null }
-      }
-      if (body.code !== 0 || body.data === undefined) {
-        throw new Error(`SkillHub 响应信封异常: code=${body.code ?? 'missing'}`)
-      }
-      for (const item of body.data.items ?? []) {
-        index.set(item.slug, item)
-      }
-      cursor = body.data.nextCursor ?? undefined
-    }
-    return index
-  }
-
-  /**
-   * 下载并安装单个 skill 包:zip 根即 SKILL.md(SkillHub 打包已剥外层目录),
-   * 解压到临时目录后原子改名到 `<skillDir>/<name>`。
-   */
-  private async install(name: string, item: SkillHubItem): Promise<void> {
-    const downloadUrl = new URL(item.downloadUrl, `${this.options.skillhubBaseUrl}/`)
-    const response = await fetch(downloadUrl, {
-      headers: { authorization: `Bearer ${this.options.skillhubToken}` },
-    })
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 500)
-      throw new Error(`下载 skill 包返回 ${response.status}${detail ? `: ${detail}` : ''}`)
-    }
-    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()))
-    const tempDir = await mkdtemp(join(this.options.skillDir, `.tmp-${name}-`))
-    try {
-      for (const [entryPath, content] of Object.entries(entries)) {
-        if (entryPath === '' || entryPath.endsWith('/')) continue
-        const target = safeJoin(tempDir, entryPath)
-        await mkdir(dirname(target), { recursive: true })
-        await writeFile(target, content)
-      }
-      const dest = join(this.options.skillDir, name)
-      await rm(dest, { recursive: true, force: true })
-      await rename(tempDir, dest)
-    } catch (error) {
-      await rm(tempDir, { recursive: true, force: true })
-      throw error
-    }
   }
 
   /** 读取本地安装状态;文件缺失/损坏视为空状态(全部重装)。 */

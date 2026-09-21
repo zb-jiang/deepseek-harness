@@ -1,5 +1,6 @@
 package com.dsh.console.user.dto;
 
+import com.dsh.console.orgunit.dto.UserOrgUnitDto;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -7,7 +8,8 @@ import java.util.UUID;
 /**
  * 平台用户治理记录 DTO,对应 {@code public.platform_users} 表。
  *
- * <p>字段一一对应 setup guide §4 表结构;snake_case 由 JdbcTemplate RowMapper 映射。
+ * <p>表字段由 JdbcTemplate RowMapper 映射;{@code orgUnits} 不在表上,
+ * 由 Service 批量补齐(空表由调用方按"未分配"展示)。
  *
  * @param id               主键 UUID
  * @param authSubject     Supabase Auth user.id(对应 JWT sub claim)
@@ -25,7 +27,8 @@ import java.util.UUID;
  * @param disabledReason  禁用原因
  * @param lockedAt        锁定时间
  * @param lockedBy        锁定人
- * @param lockedReason    锁定原因
+ * @param lockedReason     锁定原因
+ * @param orgUnits        所属部门列表(多对多,org_unit_members;RowMapper 置空,Service 补齐)
  */
 public record UserDto(
     UUID id,
@@ -44,6 +47,7 @@ public record UserDto(
     String disabledReason,
     OffsetDateTime lockedAt,
     UUID lockedBy,
-    String lockedReason
+    String lockedReason,
+    List<UserOrgUnitDto> orgUnits
 ) {
 }

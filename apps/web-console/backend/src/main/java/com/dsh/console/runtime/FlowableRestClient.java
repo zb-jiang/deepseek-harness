@@ -175,6 +175,23 @@ public class FlowableRestClient {
     }
 
     /**
+     * 查流程定义详情(官方 REST,响应含 {@code key})。
+     *
+     * <p>runtime 实例的官方响应没有 processDefinitionKey,归属解析回退时按旧
+     * procdefId 查定义拿 key——历史版本定义保留在 ACT_RE_PROCDEF,不会因重新发布消失。
+     *
+     * @throws NotFoundException 流程定义不存在
+     */
+    public JsonNode getProcessDefinition(String procdefId) {
+        return flowableRestClient.get()
+            .uri("/process-api/repository/process-definitions/{id}", procdefId)
+            .retrieve()
+            .onStatus(status -> status.value() == 404,
+                (req, resp) -> { throw new NotFoundException("流程定义不存在: " + procdefId); })
+            .body(JsonNode.class);
+    }
+
+    /**
      * 查单个历史实例(runtime 不存在时的详情回退)。
      *
      * <p>调引擎 {@code GET /dsh/history/process-instances?processInstanceId=},引擎按过滤
@@ -200,21 +217,52 @@ public class FlowableRestClient {
      * <p>调引擎 {@code GET /dsh/history/process-instances},返回 plain JSON 数组
      * (非 Flowable REST 的 {@code {"data":[...]}} 包装)。
      *
-     * @param processDefinitionId 可选;按 procdef id 过滤(部署版本级)
-     * @param finished            可选;{@code true} 只看已完成,{@code false} 只看运行中
-     * @param page                页码(0-based,引擎端点语义)
-     * @param size                单页条数
+     * @param processDefinitionId  可选;按 procdef id 过滤(部署版本级)
+     * @param processDefinitionKey 可选;按流程定义 key 过滤(跨部署版本收集,重新发布后旧版本实例不漏)
+     * @param state                可选;running/completed/terminated,不传看全部
+     * @param page                 页码(0-based,引擎端点语义;completed/terminated 在引擎端过滤后分页)
+     * @param size                 单页条数
      */
-    public JsonNode listHistoricProcessInstances(String processDefinitionId, Boolean finished,
-                                                 int page, int size) {
+    public JsonNode listHistoricProcessInstances(String processDefinitionId, String processDefinitionKey,
+                                                 String state, int page, int size) {
         return flowableRestClient.get()
             .uri(uriBuilder -> {
                 uriBuilder.path("/dsh/history/process-instances");
                 if (processDefinitionId != null && !processDefinitionId.isBlank()) {
                     uriBuilder.queryParam("processDefinitionId", processDefinitionId);
                 }
-                if (finished != null) {
-                    uriBuilder.queryParam("finished", finished);
+                if (processDefinitionKey != null && !processDefinitionKey.isBlank()) {
+                    uriBuilder.queryParam("processDefinitionKey", processDefinitionKey);
+                }
+                if (state != null && !state.isBlank()) {
+                    uriBuilder.queryParam("state", state);
+                }
+                uriBuilder.queryParam("page", Math.max(0, page));
+                uriBuilder.queryParam("size", Math.max(1, size));
+                return uriBuilder.build();
+            })
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
+     * 列运行中实例(引擎 DSH 端点,按流程定义 key 跨部署版本收集)。
+     *
+     * <p>调引擎 {@code GET /dsh/runtime/process-instances},返回 plain JSON 数组
+     * (非 Flowable REST 的 {@code {"data":[...]}} 包装),实例响应带官方 runtime
+     * representation 缺失的 processDefinitionKey/Name/Version。流程重新发布后运行中
+     * 实例可能仍挂在旧版本 procdef 上,按当前发布版本 procdefId 查会漏,按 key 查不漏。
+     *
+     * @param processDefinitionKey 可选;按流程定义 key 过滤,不传返回全部运行中实例
+     * @param page                 页码(0-based,引擎端点语义)
+     * @param size                 单页条数
+     */
+    public JsonNode listDshRuntimeProcessInstances(String processDefinitionKey, int page, int size) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> {
+                uriBuilder.path("/dsh/runtime/process-instances");
+                if (processDefinitionKey != null && !processDefinitionKey.isBlank()) {
+                    uriBuilder.queryParam("processDefinitionKey", processDefinitionKey);
                 }
                 uriBuilder.queryParam("page", Math.max(0, page));
                 uriBuilder.queryParam("size", Math.max(1, size));

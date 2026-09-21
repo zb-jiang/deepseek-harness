@@ -1,0 +1,37 @@
+# The dsh-enterprise-backend bundle patch: server-side unattended backend
+# task runner over dsh-base (design 2026-09-14 §7.2). It mounts the webserver
+# (REST task endpoints consumed by flowable-engine's DshBackendTaskDelegate)
+# and the backend-task plugin; no browser UI and no employee-facing plugins.
+# Each instance starts in its own working directory (the task workspace) with
+# LLM credentials from the normal settings/env plane; DSH_BACKEND_URL must be
+# the address flowable-engine and web-console can reach this instance on.
+
+- insert:
+    # stdout 日志 exporter：常驻后端进程的控制台可见 ctx.logger
+    # （cordis 内置只写内存缓冲）。levels 必须显式声明：省略时 cordis 只收
+    # error+info 并静默丢 warn。
+    - id: logger-console
+      name: '@deepseek-ai/cordis-plugin-logger-console'
+      config:
+        levels:
+          default: !!js Number(process.env.DSH_LOG_LEVEL ?? 3)
+
+    # 常驻 HTTP 服务：backend-task 在其上挂 /api/backend/tasks 前缀路由。
+    # 服务器部署需被 flowable-engine/web-console 跨主机访问，默认全接口。
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: !!js process.env.DSH_BACKEND_HOST ?? '0.0.0.0'
+        port: !!js Number(process.env.DSH_BACKEND_PORT ?? 3190)
+
+    # 后台任务运行器：REST 端点 + 注册/心跳 daemon + skill 同步 daemon。
+    - id: backend-task
+      name: '@deepseek-ai/dsh-backend-task'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
+        selfUrl: !!js process.env.DSH_BACKEND_URL ?? 'http://127.0.0.1:3190'
+        backendName: !!js process.env.DSH_BACKEND_NAME ?? 'backend-1'
+        skillhubBaseUrl: !!js process.env.SKILLHUB_URL ?? 'http://127.0.0.1:8095'
+        skillhubToken: !!js process.env.SKILLHUB_API_TOKEN ?? ''
+        syncIntervalMs: !!js Number(process.env.DSH_BACKEND_SYNC_INTERVAL_MS ?? 300000)
+        registerIntervalMs: !!js Number(process.env.DSH_BACKEND_REGISTER_INTERVAL_MS ?? 60000)

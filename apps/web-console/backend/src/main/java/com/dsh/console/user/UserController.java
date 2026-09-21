@@ -2,6 +2,7 @@ package com.dsh.console.user;
 
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.security.AuthContext;
+import com.dsh.console.user.dto.UpdateUserOrgUnitsRequest;
 import com.dsh.console.user.dto.UpdateUserRequest;
 import com.dsh.console.user.dto.UserActionRequest;
 import com.dsh.console.user.dto.UserDto;
@@ -119,5 +120,16 @@ public class UserController {
                                             @Valid @RequestBody UpdateUserRequest body,
                                             @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(userService.updateRoles(userId, body, auth.platformUserId()));
+    }
+
+    /**
+     * 覆盖写用户全部所属部门(body.orgUnitIds 全量;空=全部移出,负责人守卫后端校验)。
+     */
+    @PatchMapping("/{userId}/org-units")
+    public ApiResponse<UserDto> assignOrgUnits(@PathVariable UUID userId,
+                                               @RequestBody UpdateUserOrgUnitsRequest body,
+                                               @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(userService.assignOrgUnits(
+            userId, body.orgUnitIds(), auth.platformUserId()));
     }
 }

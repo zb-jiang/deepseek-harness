@@ -5,7 +5,9 @@ import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.RowMapper;
@@ -44,6 +46,25 @@ public class UserJdbcRepository {
             .param("authSubject", authSubject)
             .query(UserRowMapper.INSTANCE)
             .optional();
+    }
+
+    /**
+     * 批量按 auth_subject 查显示名(实例/任务列表的发起人/办理人列展示用)。
+     *
+     * <p>远端 Supabase RTT 高,列表解析逐人单查是 N+1;本方法一次查完一页涉及的
+     * 全部用户。auth_subject 唯一,重复行理论不存在。缺失的 subject 不出现在返回 Map。
+     */
+    public Map<String, String> findDisplayNamesByAuthSubjects(Collection<String> authSubjects) {
+        if (authSubjects == null || authSubjects.isEmpty()) {
+            return Map.of();
+        }
+        return jdbcClient.sql(
+                "SELECT auth_subject, display_name FROM public.platform_users WHERE auth_subject = ANY(:subjects)")
+            .param("subjects", authSubjects.toArray(new String[0]))
+            .query((rs, rowNum) -> Map.entry(rs.getString("auth_subject"), rs.getString("display_name")))
+            .list()
+            .stream()
+            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     /**
@@ -158,6 +179,24 @@ public class UserJdbcRepository {
     }
 
     /**
+     * 批量按主键查显示名(部门树负责人列展示用,一次查齐避免逐节点回查)。
+     *
+     * <p>缺失的 id 不出现在返回 Map。
+     */
+    public Map<UUID, String> findNamesByIds(Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        return jdbcClient.sql(
+                "SELECT id, display_name FROM public.platform_users WHERE id = ANY(:ids)")
+            .param("ids", ids.toArray(new UUID[0]))
+            .query((rs, rowNum) -> Map.entry(rs.getObject("id", UUID.class), rs.getString("display_name")))
+            .list()
+            .stream()
+            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    /**
      * 统计给定 ID 集合中状态为 active 的用户数(应用唯一活跃管理员守卫)。
      */
     public int countActiveIn(List<UUID> ids) {
@@ -198,7 +237,8 @@ public class UserJdbcRepository {
                 rs.getString("disabled_reason"),
                 rs.getObject("locked_at", java.time.OffsetDateTime.class),
                 rs.getObject("locked_by", UUID.class),
-                rs.getString("locked_reason")
+                rs.getString("locked_reason"),
+                List.of()
             );
         }
 
