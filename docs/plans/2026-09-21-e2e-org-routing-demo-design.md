@@ -1,16 +1,5 @@
 # 端到端 DEMO v2：组织维度审批路由 + BPMN 组件全覆盖
 
-> 目的：一份 DEMO 同时验证三件事——
-> 1. **组织维度审批路由**八场景端到端（[2026-09-19-org-unit-routing-tasks.md](2026-09-19-org-unit-routing-tasks.md) 阶段 8，8.1–8.8）；
-> 2. **BPMN 组件教程主流组件**（[2026-08-24-bpmn-components-tutorial.md](2026-08-24-bpmn-components-tutorial.md)），重点是多实例三种形态（UserTask 按角色成员 / ServiceTask 按数组元素 / DSH backend task 按 profile 列表）；
-> 3. **DSH 员工端 AI 发起链路**（process-start 三工具：列可发起流程 → 读启动参数 → 发起）。
->
-> 与 v1（[2026-09-05-e2e-demo-design.md](2026-09-05-e2e-demo-design.md)）的关系：v1 的差旅报销流程**不废弃**——它无 `orgScope`，正是 8.7 存量回归的载体；v2 在其上新增统一组织布景 + 两个新流程。**两份文档并存，v1 不改动。**
->
-> 本文档自包含：BPMN / DMN / Java / SKILL.md 全部给出，复制即可用（角色与部门 UUID 占位符替换后可用）。
-
-***
-
 ## 0. 总览：八场景与组件分别在哪验证
 
 ### 0.1 八场景 → 测试点映射

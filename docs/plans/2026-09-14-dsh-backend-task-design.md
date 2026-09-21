@@ -220,7 +220,7 @@ skill 同步 daemon：周期 `GET {webConsoleBaseUrl}/api/backend-profiles/skill
 
 ### 7.3 profile 模板
 
-`packages/boot/app-boot/src/profile.ts` 的 `PROFILE_TEMPLATES` 增加 `enterprise-backend`：`bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-enterprise-backend']`、`patchReload: 'live'`。沿用 enterprise 模板的既有先例，一处 insert，不动机制与默认行为。启动：`cd <工作空间> && dsh --profile enterprise-backend`。
+`packages/boot/app-boot/src/profile.ts` 的 `PROFILE_TEMPLATES` 增加 `enterprise-backend`：`bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-enterprise-backend']`。沿用 enterprise 模板的既有先例，一处 insert，不动机制与默认行为。启动：`cd <工作空间> && dsh --profile enterprise-backend`。
 
 ### 7.4 服务账号（可选项，第二期）
 

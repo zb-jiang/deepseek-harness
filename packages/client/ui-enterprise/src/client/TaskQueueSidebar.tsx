@@ -33,7 +33,8 @@ export function TaskQueueSidebar({ wide, workbench, useSessions }: TaskQueueSide
   const { currentUser, loading: authLoading, switchAccount } = useAuth()
   const tasks = useSnapshot(workbench.tasks)
   const bindings = useSnapshot(workbench.bindings)
-  const currentSession = useSessions(s => s.current)
+  // 当前主区会话:官方重构后 navigation 归 ui-workspace,经 mainView 保留计数暴露。
+  const currentSession = useSessions(s => Object.values(s.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id)
   const authed = !authLoading && currentUser !== null && currentUser.status === 'active'
 
   useEffect(() => {

@@ -57,6 +57,7 @@ export function apply(ctx: ClientContext): void {
   const workbench = new EnterpriseWorkbench({
     sessions: ctx.sessions,
     workspaces: ctx.workspaces,
+    uiWorkspace: ctx.uiWorkspace,
     layout: ctx.layout,
     conversation: ctx.conversation,
     sidebarRight: ctx.sidebarRight,

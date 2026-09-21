@@ -23,11 +23,12 @@
  */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ISidebarRight } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { completeTask, ensureSkills, getCompletedTasks, getMyTasks } from './task-api.ts'
 import type { CompletedTask, Task } from './task-api.ts'
@@ -110,13 +111,24 @@ function saveCompletedSessions(map: Record<string, SessionId>): void {
   }
 }
 
-/** 控制器依赖的五个跨插件服务面。 */
+/** 控制器依赖的六个跨插件服务面。 */
 export interface WorkbenchDeps {
   readonly sessions: ISessions
   readonly workspaces: IWorkspaces
+  /** 会话导航面(官方 ui-workspace):openSession/startSession 是官方重构后主区切换的唯一入口。 */
+  readonly uiWorkspace: UiWorkspace
   readonly layout: ILayout
   readonly conversation: IConversation
   readonly sidebarRight: ISidebarRight
+}
+
+/**
+ * 主区当前打开的会话 id。官方 0.1.6 重构把"当前会话"从 SessionListState.current
+ * 移交视图层:navigation 归 ui-workspace 所有,经 mainView 保留计数暴露
+ * (ui-workspace navigation.ts replaceMain 的 retain source)。
+ */
+function currentMainSessionId(sessions: SessionListState): SessionId | undefined {
+  return Object.values(sessions.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
 }
 
 /** 任务档案标签页的类型标识(rightbar 标签页系统 openTab 的 kind)。 */
@@ -205,7 +217,7 @@ export class EnterpriseWorkbench {
       const workspaces = this.deps.workspaces.list.getSnapshot()
       const sessions = this.deps.sessions.list.getSnapshot()
       // 与原生 startSession 同判据:当前会话所在工作区 → 最近活跃工作区 → 首个。
-      const currentSessionId = sessions.current
+      const currentSessionId = currentMainSessionId(sessions)
       const currentWorkspaceId = currentSessionId === undefined
         ? undefined
         : workspaces.items.find(item => item.sessionIds.includes(currentSessionId))?.workspaceId
@@ -213,7 +225,8 @@ export class EnterpriseWorkbench {
         ?? this.recentWorkspaceId(workspaces.items, sessions.byId)
         ?? workspaces.items[0]?.workspaceId
       if (workspaceId === undefined) {
-        this.deps.sessions.clear()
+        // 无任何工作区:官方 startSession 无目标时清空主区选择回到 New Session 纯视图。
+        this.deps.uiWorkspace.startSession()
         return
       }
       sessionId = await this.createTaskSession(workspaceId)
@@ -225,7 +238,7 @@ export class EnterpriseWorkbench {
     }
     const prefillNotice = this.prefillPrompt(task, sessionId)
     this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
-    this.deps.sessions.open(sessionId)
+    this.deps.uiWorkspace.openSession(sessionId)
     this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND)
   }
 
@@ -253,7 +266,7 @@ export class EnterpriseWorkbench {
         }
         draft.completedByTask[task.id] = sessionId
       })
-      this.deps.sessions.open(sessionId)
+      this.deps.uiWorkspace.openSession(sessionId)
     } else {
       this.tasks.update((draft) => { draft.selectedCompleted = task })
     }
@@ -446,7 +459,7 @@ export class EnterpriseWorkbench {
    */
   private adoptCurrentBlank(taskId: string, boundId: SessionId): SessionId | undefined {
     const sessions = this.deps.sessions.list.getSnapshot()
-    const current = sessions.current
+    const current = currentMainSessionId(sessions)
     if (current === undefined || current === boundId) return undefined
     const currentRow = sessions.byId[current]
     const boundRow = sessions.byId[boundId]
