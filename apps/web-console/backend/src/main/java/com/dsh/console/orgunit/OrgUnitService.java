@@ -53,8 +53,10 @@ public class OrgUnitService {
         List<OrgUnitDto> all = orgUnitRepository.list();
         Map<UUID, String> headNames = userRepository.findNamesByIds(
             all.stream().map(OrgUnitDto::headUserId).filter(Objects::nonNull).toList());
+        // 根/孤儿(parentId=null)不进子索引:groupingBy 拒绝 null key,它们也永远不会是任何节点的孩子
         Map<UUID, List<OrgUnitDto>> byParent = all.stream()
-            .collect(Collectors.groupingBy(d -> d.parentId()));
+            .filter(d -> d.parentId() != null)
+            .collect(Collectors.groupingBy(OrgUnitDto::parentId));
         Set<UUID> ids = all.stream().map(OrgUnitDto::id).collect(Collectors.toSet());
         // 孤儿节点(父部门不在现有集合)按根展示
         List<OrgUnitDto> roots = all.stream()

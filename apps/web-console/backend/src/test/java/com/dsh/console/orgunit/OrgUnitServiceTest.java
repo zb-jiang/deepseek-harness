@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.orgunit.dto.OrgUnitDto;
+import com.dsh.console.orgunit.dto.OrgUnitTreeNode;
 import com.dsh.console.orgunit.dto.OrgPositionDto;
 import com.dsh.console.orgunit.dto.SaveOrgUnitRequest;
 import com.dsh.console.orgunit.dto.UserOrgUnitDto;
@@ -18,6 +19,7 @@ import com.dsh.console.user.UserJdbcRepository;
 import com.dsh.console.user.dto.UserDto;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -118,6 +120,25 @@ class OrgUnitServiceTest {
         assertThat(positions.get(0).orgUnitId()).isEqualTo(deptId);
         assertThat(positions.get(0).orgUnitName()).isEqualTo("A 部门");
         assertThat(positions.get(0).pathToRoot()).containsExactly("总公司", "华东区", "A 部门");
+    }
+
+    @Test
+    void treeTreatsNullParentAsRootWithoutFailing() {
+        // 回归:根部门 parentId=null,groupingBy(null key) 曾抛 NPE(element cannot be mapped to a null key)
+        UUID rootId = UUID.randomUUID();
+        UUID deptId = UUID.randomUUID();
+        when(orgUnitRepository.list()).thenReturn(List.of(
+            unit(rootId, "总公司", null, null),
+            unit(deptId, "A 部门", rootId, null)));
+        when(userRepository.findNamesByIds(any())).thenReturn(Map.of());
+
+        List<OrgUnitTreeNode> tree = service.tree();
+
+        assertThat(tree).hasSize(1);
+        assertThat(tree.get(0).id()).isEqualTo(rootId);
+        assertThat(tree.get(0).parentId()).isNull();
+        assertThat(tree.get(0).children()).hasSize(1);
+        assertThat(tree.get(0).children().get(0).id()).isEqualTo(deptId);
     }
 
     private static OrgUnitDto unit(UUID id, String name, UUID parentId, UUID headUserId) {
