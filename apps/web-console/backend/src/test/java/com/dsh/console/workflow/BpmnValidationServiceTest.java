@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Test;
  * delegate 固定绑定 / async 强制)。
  * 组织维度审批路由校验(design 2026-09-19 §5,任务 3.3):orgScope/virtualRole
  * 枚举合法、虚拟角色互斥、fixedUnit 必填且部门存在。
+ * 超时升级策略校验(与办理人组织路由对称):升级目标三选一互斥、虚拟角色/
+ * 范围属性对齐、escalateToRoleId 应用归属。
  */
 class BpmnValidationServiceTest {
 
@@ -287,6 +289,120 @@ class BpmnValidationServiceTest {
             </definitions>""", UUID.randomUUID());
         assertThat(result.errors())
             .noneMatch(e -> e.contains("引用未声明变量"));
+    }
+
+    // ===== 超时升级策略(与办理人组织路由对称) =====
+
+    @Test
+    void timeoutEscalationTargetMustBeSingle() {
+        // 用户 ID 与虚拟角色并存 → 三选一拒绝
+        BpmnValidationResult result = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToUserId="u-1"
+                                   escalateToVirtualRole="parent"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("必须三选一"));
+    }
+
+    @Test
+    void timeoutEscalationVirtualRoleEnumAndScopeAttrs() {
+        BpmnValidationResult result = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToVirtualRole="上三级"
+                                   escalateOrgScope="sameLine"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(result.errors())
+            .anyMatch(e -> e.contains("升级目标虚拟角色不合法: 上三级"))
+            .anyMatch(e -> e.contains("不应配 escalateOrgScope/fixedUnitId"));
+    }
+
+    @Test
+    void timeoutEscalationUserIdRejectsScopeAttrs() {
+        BpmnValidationResult result = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToUserId="u-1"
+                                   escalateOrgScope="global"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("升级目标用户直接指派"));
+    }
+
+    @Test
+    void timeoutEscalationWithoutTargetRejectsScopeAttrs() {
+        BpmnValidationResult result = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateFixedUnitId="unit-1"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("未配置升级目标"));
+    }
+
+    @Test
+    void timeoutEscalationRoleScopeValidation() {
+        // orgScope 枚举
+        BpmnValidationResult badScope = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToRoleId="role-1"
+                                   escalateOrgScope="宇宙"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(badScope.errors()).anyMatch(e -> e.contains("escalateOrgScope 不合法: 宇宙"));
+
+        // fixedUnitId 出现在非 fixedUnit 范围
+        BpmnValidationResult strayUnit = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToRoleId="role-1"
+                                   escalateOrgScope="global" escalateFixedUnitId="unit-1"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(strayUnit.errors()).anyMatch(e -> e.contains("仅在指定部门(fixedUnit)范围有效"));
+
+        // fixedUnit 范围缺 escalateFixedUnitId
+        BpmnValidationResult missingUnit = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToRoleId="role-1"
+                                   escalateOrgScope="fixedUnit"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(missingUnit.errors()).anyMatch(e -> e.contains("缺少 escalateFixedUnitId"));
+
+        // 指定部门不存在
+        UUID unitId = UUID.randomUUID();
+        BpmnValidationResult unknownUnit = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToRoleId="role-1"
+                                   escalateOrgScope="fixedUnit" escalateFixedUnitId="%s"/>
+              </extensionElements>
+            """.formatted(unitId)), UUID.randomUUID());
+        assertThat(unknownUnit.errors()).anyMatch(e -> e.contains("指定部门不存在"));
+
+        // 部门存在 + 角色属于本应用且 active → 通过
+        UUID roleId = UUID.randomUUID();
+        when(roleRepository.listByApp(any(UUID.class))).thenReturn(List.of(
+            new AppRoleDto(roleId, UUID.randomUUID(), "升级角色", null, "active", null, null, null)));
+        when(orgUnitRepository.findById(unitId)).thenReturn(Optional.of(
+            new com.dsh.console.orgunit.dto.OrgUnitDto(unitId, "财务部", null, null, 0, null)));
+        BpmnValidationResult ok = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToRoleId="%s"
+                                   escalateOrgScope="fixedUnit" escalateFixedUnitId="%s"/>
+              </extensionElements>
+            """.formatted(roleId, unitId)), UUID.randomUUID());
+        assertThat(ok.errors()).isEmpty();
+    }
+
+    @Test
+    void timeoutEscalationRoleIdOwnership() {
+        // escalateToRoleId 不属于本应用 → 拒绝(与 assignmentRule.candidateRoleId 同规)
+        BpmnValidationResult result = service.validate(userTaskBpmn("""
+              <extensionElements>
+                <dsh:timeoutPolicy duration="PT1H" escalateToRoleId="role-1"/>
+              </extensionElements>
+            """), UUID.randomUUID());
+        assertThat(result.errors())
+            .anyMatch(e -> e.contains("escalateToRoleId 不属于本应用: role-1"));
     }
 
     /**

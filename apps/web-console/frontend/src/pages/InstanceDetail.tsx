@@ -1,7 +1,8 @@
-import { ArrowLeftOutlined, CheckOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CheckOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import {
   Alert,
   App,
+  AutoComplete,
   Button,
   Descriptions,
   Form,
@@ -17,10 +18,11 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   instancesApi,
+  type ContextVariableDto,
   type HistoricActivityDto,
   type ProcessInstanceDto,
   type ProcessVariableDto,
@@ -28,7 +30,9 @@ import {
   type TaskDto,
 } from '../api/process-instances'
 import { type OrgPositionDto, runtimeApi } from '../api/runtime'
+import { PLATFORM_ROLE } from '../api/types'
 import { workflowsApi, type WorkflowDefinitionDto } from '../api/workflows'
+import { useAuth } from '../auth/AuthContext'
 import BpmnHistoryViewer from '../bpmn/BpmnHistoryViewer'
 
 /** 历史活动类型 → 中文名(路径图时间线展示用;未映射的类型原样显示)。 */
@@ -298,9 +302,108 @@ function renderStartParamInput(type: string) {
   }
 }
 
+/** 强制完成弹窗的变量映射行本地态。 */
+type CompleteVarRow = { key: string; name: string; value: unknown }
+
+/** 声明清单 → 平铺点路径选项(object 递归展开为 var.field;array 只出整体)。 */
+function flattenVarOptions(decls: ContextVariableDto[], prefix = ''): { path: string; type: string }[] {
+  const out: { path: string; type: string }[] = []
+  for (const d of decls ?? []) {
+    const name = (d.name ?? '').trim()
+    if (!name) continue
+    const path = prefix ? `${prefix}.${name}` : name
+    out.push({ path, type: d.type ?? 'string' })
+    if ((d.type ?? '') === 'object') {
+      out.push(...flattenVarOptions(d.fields ?? [], path))
+    }
+  }
+  return out
+}
+
+/** 在对象上按点路径设置值(自动创建中间对象);供 "a.b" 形式的映射行组装嵌套变量。 */
+function setDeepPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const parts = path.split('.')
+  let current = obj
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i]
+    if (typeof current[p] !== 'object' || current[p] === null) {
+      current[p] = {}
+    }
+    current = current[p] as Record<string, unknown>
+  }
+  current[parts[parts.length - 1]] = value
+}
+
+/** 强制完成弹窗:按声明类型渲染变量值输入控件(宽度撑满所在 flex 容器)。 */
+function renderCompleteValueInput(type: string, value: unknown, onChange: (v: unknown) => void) {
+  switch (type) {
+    case 'integer':
+      return (
+        <InputNumber
+          style={{ width: '100%' }}
+          value={value as number}
+          precision={0}
+          placeholder="整数"
+          onChange={v => onChange(v ?? undefined)}
+        />
+      )
+    case 'float':
+      return (
+        <InputNumber
+          style={{ width: '100%' }}
+          value={value as number}
+          placeholder="小数"
+          onChange={v => onChange(v ?? undefined)}
+        />
+      )
+    case 'boolean':
+      return (
+        <Select
+          style={{ width: '100%' }}
+          allowClear
+          placeholder="true / false"
+          value={(value as boolean) ?? undefined}
+          options={[
+            { value: true, label: 'true' },
+            { value: false, label: 'false' },
+          ]}
+          onChange={v => onChange(v)}
+        />
+      )
+    case 'date':
+      return (
+        <Input value={(value as string) ?? ''} placeholder="yyyy-MM-dd,如 2026-01-31" onChange={e => onChange(e.target.value)} />
+      )
+    case 'datetime':
+      return (
+        <Input value={(value as string) ?? ''} placeholder="ISO-8601,如 2026-01-31T09:30:00" onChange={e => onChange(e.target.value)} />
+      )
+    case 'object':
+    case 'array':
+      return (
+        <Input.TextArea
+          rows={2}
+          style={{ fontFamily: 'monospace' }}
+          value={(value as string) ?? ''}
+          placeholder={type === 'object' ? 'JSON,如 {"k":"v"}' : 'JSON,如 ["a","b"]'}
+          onChange={e => onChange(e.target.value)}
+        />
+      )
+    default:
+      return (
+        <Input value={(value as string) ?? ''} placeholder="字符串" onChange={e => onChange(e.target.value)} />
+      )
+  }
+}
+
 function InstanceDetailView({ instanceId }: { instanceId: string }) {
   const { message } = App.useApp()
   const navigate = useNavigate()
+  // 管理干预操作(终止/强制完成任务)仅 system_admin/app_admin 可见;
+  // 普通用户只读查看自己发起的实例
+  const { me } = useAuth()
+  const isAdmin = (me?.roles ?? []).includes(PLATFORM_ROLE.SYSTEM_ADMIN)
+    || (me?.roles ?? []).includes(PLATFORM_ROLE.APP_ADMIN)
 
   const [inst, setInst] = useState<ProcessInstanceDto | null>(null)
   const [tasks, setTasks] = useState<TaskDto[]>([])
@@ -311,7 +414,9 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
   const [terminateOpen, setTerminateOpen] = useState(false)
   const [terminateForm] = Form.useForm<{ reason?: string }>()
   const [completeTarget, setCompleteTarget] = useState<TaskDto | null>(null)
-  const [completeForm] = Form.useForm<{ variablesJson?: string }>()
+  // 强制完成弹窗的变量映射行;声明清单按实例缓存(null=未加载)
+  const [completeVars, setCompleteVars] = useState<CompleteVarRow[]>([])
+  const [decls, setDecls] = useState<ContextVariableDto[] | null>(null)
   const [completing, setCompleting] = useState(false)
 
   const load = useCallback(async () => {
@@ -355,24 +460,63 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
     }
   }
 
+  /** 打开强制完成弹窗:清空映射行,首次拉取流程上下文声明清单。 */
+  const openComplete = (task: TaskDto) => {
+    setCompleteTarget(task)
+    setCompleteVars([])
+    if (decls === null) {
+      void instancesApi.contextDeclarations(instanceId)
+        .then(setDecls)
+        .catch(() => setDecls([]))
+    }
+  }
+
+  // 平铺点路径选项(object 展开 var.field)与 path→类型映射;未在清单中的干预变量按 string 处理
+  const flatVars = useMemo(() => flattenVarOptions(decls ?? []), [decls])
+  const varTypeMap = useMemo(() => new Map(flatVars.map(v => [v.path, v.type])), [flatVars])
+  const varType = (name: string) => varTypeMap.get(name.trim()) ?? 'string'
+
+  const updateCompleteVar = (key: string, patch: Partial<CompleteVarRow>) => {
+    setCompleteVars(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)))
+  }
+
+  const addCompleteVar = () => {
+    setCompleteVars(prev => [...prev, { key: `${Date.now()}-${Math.random()}`, name: '', value: undefined }])
+  }
+
   const submitComplete = async () => {
     if (!inst || !completeTarget) return
-    const values = await completeForm.validateFields()
-    let variables: Record<string, unknown> | undefined
-    if (values.variablesJson?.trim()) {
-      try {
-        variables = JSON.parse(values.variablesJson)
-      } catch {
-        message.error('变量 JSON 解析失败')
-        return
+    // 按映射行组装变量:空行跳过;object/array 按 JSON 文本解析(与启动表单同一约定);
+    // 点路径行(a.b)组装为嵌套对象——Flowable complete 的键不会自动按点拆分
+    const variables: Record<string, unknown> = {}
+    let parseError = false
+    for (const row of completeVars) {
+      const name = row.name.trim()
+      if (!name || row.value === undefined || row.value === null || row.value === '') continue
+      const type = varType(name)
+      let value: unknown = row.value
+      if (type === 'object' || type === 'array') {
+        try {
+          value = JSON.parse(String(row.value))
+        } catch {
+          message.error(`变量 ${name} 不是合法的 JSON`)
+          parseError = true
+          continue
+        }
+      }
+      if (name.includes('.')) {
+        setDeepPath(variables, name, value)
+      } else {
+        variables[name] = value
       }
     }
+    if (parseError) return
     setCompleting(true)
     try {
       await instancesApi.completeTask(inst.id, completeTarget.id, { variables })
       message.success(`已完成任务 ${completeTarget.name ?? completeTarget.id}`)
       setCompleteTarget(null)
-      completeForm.resetFields()
+      setCompleteVars([])
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '完成任务失败')
@@ -414,15 +558,12 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
       key: 'action',
       width: 120,
       render: (_, task) =>
-        task.endTime ? null : (
+        !isAdmin || task.endTime ? null : (
           <Button
             size="small"
             type="link"
             icon={<CheckOutlined />}
-            onClick={() => {
-              completeForm.resetFields()
-              setCompleteTarget(task)
-            }}
+            onClick={() => openComplete(task)}
           >
             完成
           </Button>
@@ -513,7 +654,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
         <Typography.Title level={4} style={{ margin: 0 }}>
           实例详情
         </Typography.Title>
-        {inst && !inst.ended && (
+        {isAdmin && inst && !inst.ended && (
           <Popconfirm title="确认终止实例?" onConfirm={() => setTerminateOpen(true)}>
             <Button danger icon={<StopOutlined />}>终止</Button>
           </Popconfirm>
@@ -646,24 +787,54 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
       <Modal
         title={completeTarget ? `完成任务: ${completeTarget.name ?? completeTarget.id}` : '完成任务'}
         open={!!completeTarget}
+        width={680}
         onCancel={() => setCompleteTarget(null)}
         onOk={submitComplete}
         confirmLoading={completing}
         destroyOnClose
       >
-        <Form form={completeForm} layout="vertical">
-          <Form.Item name="variablesJson" label="完成变量(JSON)">
-            <Input.TextArea
-              rows={6}
-              placeholder='{"approved": true, "comment": "通过"}'
-              style={{ fontFamily: 'monospace' }}
+        {completeVars.map(row => (
+          <div
+            key={row.key}
+            style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}
+          >
+            <AutoComplete
+              style={{ width: 220, flexShrink: 0 }}
+              value={row.name}
+              options={flatVars.map(v => ({ value: v.path, label: `${v.path} (${v.type})` }))}
+              filterOption={(input, option) =>
+                String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              placeholder="选择或输入变量名"
+              onChange={v => updateCompleteVar(row.key, { name: v })}
             />
-          </Form.Item>
-          <Typography.Paragraph type="warning" style={{ fontSize: 12 }}>
-            管理员强制完成：不经过员工端 AI 对话与输出映射校验，直接调用引擎 complete 任务。
-            仅用于端到端联调或管理员干预，正式办理请通过 DSH 员工端「我的待办」提交。
-          </Typography.Paragraph>
-        </Form>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {renderCompleteValueInput(
+                varType(row.name),
+                row.value,
+                v => updateCompleteVar(row.key, { value: v }),
+              )}
+            </div>
+            <Button
+              size="small"
+              type="text"
+              icon={<DeleteOutlined />}
+              style={{ flexShrink: 0 }}
+              onClick={() => setCompleteVars(prev => prev.filter(r => r.key !== row.key))}
+            />
+          </div>
+        ))}
+        <Button size="small" icon={<PlusOutlined />} onClick={addCompleteVar}>
+          添加变量
+        </Button>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 12 }}>
+          变量清单来自流程上下文声明(名称后括号是类型);object 变量已展开为点路径字段,提交时自动组装为嵌套对象;object/array 顶层可整体填 JSON 文本。
+          清单外的变量可手动输入变量名写入。留空的行提交时忽略。
+        </Typography.Paragraph>
+        <Typography.Paragraph type="warning" style={{ fontSize: 12 }}>
+          管理员强制完成：不经过员工端 AI 对话与输出映射校验，直接调用引擎 complete 任务。
+          仅用于端到端联调或管理员干预，正式办理请通过 DSH 员工端「我的待办」提交。
+        </Typography.Paragraph>
       </Modal>
     </div>
   )

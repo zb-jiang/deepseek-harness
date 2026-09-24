@@ -167,6 +167,10 @@ public class BpmnValidationService {
         // 互斥(虚拟角色锁定同行政线)、fixedUnit 必填且部门存在
         validateOrgRoutingRules(doc, errors);
 
+        // 2.4b) 超时升级策略:升级目标三选一互斥、虚拟角色枚举、
+        // escalateOrgScope 枚举且 fixedUnit 必填且部门存在
+        validateTimeoutPolicies(doc, errors);
+
         // 2.5) userTask 多实例 wiring(assignmentRule 必须多实例 + 禁 loopCardinality + 禁标准循环)
         validateUserTaskMultiInstanceWiring(doc, errors);
 
@@ -245,6 +249,25 @@ public class BpmnValidationService {
                         taskId, candidateRoleId));
                 }
             }
+
+            // dsh:timeoutPolicy.escalateToRoleId 必属本应用且为 active(升级目标与办理人同规)
+            NodeList dshTimeouts = task.getElementsByTagNameNS(DSH_NS, "timeoutPolicy");
+            for (int j = 0; j < dshTimeouts.getLength(); j++) {
+                Element tp = (Element) dshTimeouts.item(j);
+                String escalateRoleId = tp.getAttribute("escalateToRoleId");
+                if (escalateRoleId == null || escalateRoleId.isBlank()) {
+                    continue;
+                }
+                if (!validRoleIds.contains(escalateRoleId)) {
+                    errors.add(String.format(
+                        "userTask[id=%s] 的 dsh:timeoutPolicy.escalateToRoleId 不属于本应用: %s",
+                        taskId, escalateRoleId));
+                } else if (!activeRoleIds.contains(escalateRoleId)) {
+                    errors.add(String.format(
+                        "userTask[id=%s] 的 dsh:timeoutPolicy.escalateToRoleId 引用了已停用的角色: %s(先启用角色再发布)",
+                        taskId, escalateRoleId));
+                }
+            }
         }
     }
 
@@ -256,6 +279,10 @@ public class BpmnValidationService {
     /** 合法虚拟角色枚举(与引擎 DshCandidateResolver、前端属性面板对齐)。 */
     private static final Set<String> VALID_VIRTUAL_ROLES =
         Set.of("parent", "grandparent", "child", "grandchild");
+
+    /** 超时升级目标合法虚拟角色(仅向上沿审批人行政线,design 2026-09-19 §5.2)。 */
+    private static final Set<String> VALID_ESCALATE_VIRTUAL_ROLES =
+        Set.of("parent", "grandparent");
 
     /**
      * 组织维度审批规则校验(design 2026-09-19 §5,任务 3.3):
@@ -319,17 +346,107 @@ public class BpmnValidationService {
 
     /** fixedUnitId 合法 UUID 且部门存在(全局组织树,发布时点验防运行期解析报错)。 */
     private void validateFixedUnitExists(AssignmentRuleInfo rule, String where, List<String> errors) {
+        validateFixedUnitExists(rule.fixedUnitId(), where, errors);
+    }
+
+    private void validateFixedUnitExists(String fixedUnitId, String where, List<String> errors) {
         UUID unitId;
         try {
-            unitId = UUID.fromString(rule.fixedUnitId());
+            unitId = UUID.fromString(fixedUnitId);
         } catch (IllegalArgumentException e) {
-            errors.add(where + " 的 fixedUnitId 不是合法的部门 id: " + rule.fixedUnitId());
+            errors.add(where + " 的 fixedUnitId 不是合法的部门 id: " + fixedUnitId);
             return;
         }
         if (orgUnitRepository.findById(unitId).isEmpty()) {
-            errors.add(where + " 的指定部门不存在: " + rule.fixedUnitId()
+            errors.add(where + " 的指定部门不存在: " + fixedUnitId
                 + "(部门可能已被删除,请重新选择)");
         }
+    }
+
+    /**
+     * 超时升级策略校验(与办理人组织路由校验对称):
+     * <ul>
+     *   <li>升级目标三选一:escalateToUserId / escalateToVirtualRole / escalateToRoleId
+     *       至多一个非空(引擎按优先级兜底,矛盾配置直接拒绝);虚拟角色仅 parent/grandparent。</li>
+     *   <li>escalateOrgScope 枚举合法且仅在实体角色目标下有效;fixedUnit 时
+     *       escalateFixedUnitId 必填且部门存在。</li>
+     *   <li>escalateToVirtualRole / escalateToUserId 与 escalateOrgScope /
+     *       escalateFixedUnitId 并存拒绝。</li>
+     * </ul>
+     */
+    private void validateTimeoutPolicies(Document doc, List<String> errors) {
+        NodeList userTasks = doc.getElementsByTagNameNS(BPMN_NS, "userTask");
+        for (int i = 0; i < userTasks.getLength(); i++) {
+            Element task = (Element) userTasks.item(i);
+            NodeList policies = task.getElementsByTagNameNS(DSH_NS, "timeoutPolicy");
+            if (policies.getLength() == 0) {
+                continue;
+            }
+            Element policy = (Element) policies.item(0);
+            String where = String.format("userTask[id=%s, name=%s] 的超时升级策略",
+                task.getAttribute("id"), task.getAttribute("name"));
+            String toUserId = trimToNull(policy.getAttribute("escalateToUserId"));
+            String toVirtualRole = trimToNull(policy.getAttribute("escalateToVirtualRole"));
+            String toRoleId = trimToNull(policy.getAttribute("escalateToRoleId"));
+            String orgScope = trimToNull(policy.getAttribute("escalateOrgScope"));
+            String fixedUnitId = trimToNull(policy.getAttribute("escalateFixedUnitId"));
+
+            int targets = (toUserId != null ? 1 : 0) + (toVirtualRole != null ? 1 : 0)
+                + (toRoleId != null ? 1 : 0);
+            if (targets > 1) {
+                errors.add(where + " 的升级目标必须三选一"
+                    + "(用户 ID / 虚拟角色 / 实体角色)");
+                continue;
+            }
+            if (targets == 0) {
+                // 未配置升级目标(仅超时时长):升级无从发生,其余属性按冗余拒绝
+                if (orgScope != null || fixedUnitId != null) {
+                    errors.add(where + " 未配置升级目标,不应出现 escalateOrgScope/fixedUnitId");
+                }
+                continue;
+            }
+            if (toVirtualRole != null) {
+                if (!VALID_ESCALATE_VIRTUAL_ROLES.contains(toVirtualRole)) {
+                    errors.add(where + " 的升级目标虚拟角色不合法: " + toVirtualRole
+                        + "(应为 parent/grandparent)");
+                }
+                if (orgScope != null || fixedUnitId != null) {
+                    errors.add(where + " 的升级目标虚拟角色沿审批人行政线解析,"
+                        + "不应配 escalateOrgScope/fixedUnitId");
+                }
+                continue;
+            }
+            if (toUserId != null) {
+                if (orgScope != null || fixedUnitId != null) {
+                    errors.add(where + " 的升级目标用户直接指派,不应配 escalateOrgScope/fixedUnitId");
+                }
+                continue;
+            }
+            // 实体角色目标:范围校验(与 AssignmentRule 对称)
+            if (orgScope != null && !VALID_ORG_SCOPES.contains(orgScope)) {
+                errors.add(where + " 的 escalateOrgScope 不合法: " + orgScope
+                    + "(应为 sameLine/fixedUnit/global)");
+            }
+            if (!"fixedUnit".equals(orgScope) && fixedUnitId != null) {
+                errors.add(where + " 的 escalateFixedUnitId 仅在指定部门(fixedUnit)范围有效");
+            }
+            if ("fixedUnit".equals(orgScope)) {
+                if (fixedUnitId == null) {
+                    errors.add(where + " 的指定部门范围缺少 escalateFixedUnitId"
+                        + "(先在属性面板选择部门)");
+                } else {
+                    validateFixedUnitExists(fixedUnitId, where, errors);
+                }
+            }
+        }
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**

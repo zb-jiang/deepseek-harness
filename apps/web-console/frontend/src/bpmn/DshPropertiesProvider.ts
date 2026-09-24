@@ -174,6 +174,25 @@ export function setDshOrgUnitOptions(units: Array<{ value: string; label: string
   currentOrgUnits = units
 }
 
+/**
+ * 模块级用户选项容器。
+ *
+ * <p>页面加载设计器后调 {@link setDshUserOptions} 注入平台用户清单
+ * (value=user id,label=显示名/登录名);userTask 属性面板"升级目标用户"
+ * 可搜索下拉渲染时读取。拉取失败或无权限时为空数组(设计器仍可用,
+ * 已选用户 ID 以裸 ID 兜底显示)。
+ */
+let currentUsers: Array<{ value: string; label: string }> = []
+
+export function setDshUserOptions(users: Array<{ value: string; label: string }>): void {
+  currentUsers = users
+}
+
+/** 读取当前注入的用户选项(升级目标用户下拉用)。 */
+function userOptions(): Array<{ value: string; label: string }> {
+  return currentUsers
+}
+
 /** SoD 规则类型,引擎 DshExtensionProperties.SodRule 的三个合法值。 */
 const SOD_RULE_TYPES = [
   { value: 'not-applicant', label: '审批人不得为申请人 (not-applicant)' },
@@ -211,6 +230,16 @@ const ESCALATE_VIRTUAL_ROLE_OPTIONS = [
   { value: 'grandparent', label: '上两级负责人' },
 ] as const
 
+/**
+ * 超时升级目标类型(与办理人目标角色类型对称,另支持直接指定用户)。
+ * 三类互斥存储于 timeoutPolicy 对应属性,引擎按 用户ID > 虚拟角色 > 实体角色 兜底。
+ */
+const ESCALATE_TARGET_TYPES = [
+  { value: 'user', label: '指定用户' },
+  { value: 'virtual', label: '虚拟角色' },
+  { value: 'entity', label: '实体角色' },
+] as const
+
 // ---------------------------------------------------------------------------
 // dsh 扩展元素读写辅助
 // ---------------------------------------------------------------------------
@@ -230,6 +259,21 @@ export function findDshElement(
   if (!ext) return undefined
   const values = (ext.get('values') as BpmnModdleElement[]) ?? []
   return values.find(v => v.$type === type)
+}
+
+/**
+ * 读取元素已勾选的 skillRefs(user task 与 DSH backend task 共用)。
+ *
+ * <p>返回 extensionElements 中全部 {@code dsh:SkillRef} 正文(非空、去空白)。
+ * UserPromptModal 的「插入 skill 名称」按它过滤,只列节点实际引用的 skill。
+ */
+export function getDshSkillRefs(element: BpmnElement): string[] {
+  const ext = getExtensionElements(element)
+  const values = (ext?.get('values') as BpmnModdleElement[] | undefined) ?? []
+  return values
+    .filter(v => v.$type === 'dsh:SkillRef')
+    .map(v => ((v.get('text') as string) ?? '').trim())
+    .filter(Boolean)
 }
 
 /** 确保 extensionElements 存在(不存在则创建,走命令栈);返回它。 */
@@ -326,7 +370,15 @@ function setTimeoutAttr(
   let timeout = policy.get('timeoutPolicy') as BpmnModdleElement | null
   if (!value || !value.trim()) {
     // 只在当前清空的属性是最后一个有效属性时移除整个 timeoutPolicy
-    const attrs = ['duration', 'escalateToRoleId', 'escalateToUserId', 'escalateToVirtualRole'].filter(
+    const attrs = [
+      'duration',
+      'escalateTargetType',
+      'escalateToRoleId',
+      'escalateToUserId',
+      'escalateToVirtualRole',
+      'escalateOrgScope',
+      'escalateFixedUnitId',
+    ].filter(
       a => a !== attr && getTimeoutAttr(element, a),
     )
     if (attrs.length === 0 && timeout) {
@@ -686,6 +738,63 @@ function roleOptions(): Array<{ value: string; label: string }> {
     { value: '', label: '(未指定)' },
     ...currentRoles.map(r => ({ value: r.id, label: r.name })),
   ]
+}
+
+/**
+ * 「升级目标用户」可搜索选择 entry(preact 原生渲染)。
+ *
+ * <p>SelectEntry 是原生 select,无法输入过滤,故用 input + datalist:输入即过滤,
+ * 选中完整用户名后按 label 反查用户 id 写回 escalateToUserId(走命令栈,可撤销);
+ * 失焦时未匹配任何 label 的非空输入视为裸用户 ID 写回(清单未加载/用户不在清单
+ * 场景),失焦为空则清除属性。
+ */
+function escalateUserSearchEntry(element: BpmnElement, injector: Injector): Entry {
+  const options = userOptions()
+  const currentId = getTimeoutAttr(element, 'escalateToUserId') ?? ''
+  const currentHit = options.find(o => o.value === currentId)
+  const inputId = `dsh-escalate-user-${element.id ?? 'x'}`
+  return {
+    id: 'dsh-timeout-escalateUser',
+    label: '升级目标用户',
+    component: () => {
+      const children: ComponentChild[] = [
+        h('label', { className: 'bio-properties-panel-label', htmlFor: inputId }, '升级目标用户'),
+        h('input', {
+          id: inputId,
+          className: 'bio-properties-panel-input',
+          type: 'text',
+          list: `${inputId}-options`,
+          value: currentHit ? currentHit.label : currentId,
+          placeholder: options.length > 0 ? '输入姓名/账号过滤后选择' : '用户清单未加载,可直接粘贴用户 ID',
+          onInput: (e: Event) => {
+            // 仅精确匹配到唯一用户时写回,部分输入不落盘
+            const raw = (e.target as HTMLInputElement).value.trim()
+            const hit = options.find(o => o.label === raw)
+            if (hit && hit.value !== currentId) {
+              setTimeoutAttr(element, injector, 'escalateToUserId', hit.value)
+            }
+          },
+          onBlur: (e: Event) => {
+            // 失焦兜底:非空且不匹配任何 label → 视为裸用户 ID;空 → 清除属性
+            const raw = (e.target as HTMLInputElement).value.trim()
+            const hit = options.find(o => o.label === raw)
+            const nextId = hit ? hit.value : raw
+            if (nextId !== currentId) {
+              setTimeoutAttr(element, injector, 'escalateToUserId', nextId)
+            }
+          },
+        }),
+        h('datalist', { id: `${inputId}-options` },
+          options.map(o => h('option', { key: o.value, value: o.label }))),
+      ]
+      if (options.length === 0) {
+        children.push(h('div', { className: 'bio-properties-panel-description' },
+          '用户清单未加载(查看全部用户需系统管理员权限);可直接粘贴用户 ID'))
+      }
+      return h('div', null, children)
+    },
+    isEdited: () => !!currentId,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1207,7 +1316,38 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
   const { getSkillRefs, setSkillRefs } = skillRefsAccessors(element, injector)
   entries.push(skillRefsEntry(getSkillRefs, setSkillRefs))
 
-  // --- 超时升级策略(目标优先级:虚拟角色 > 用户 > 实体角色,引擎对齐) ---
+  // --- 超时升级策略(与办理人设置对称:先选目标类型,再按类型显示具体选项;另支持直接指定用户) ---
+  // 引擎优先级:用户 ID > 虚拟角色 > 实体角色(DshTaskEscalationDelegate 对齐)
+  // 类型显式存 escalateTargetType;存量 XML 无该属性时按 escalateTo* 属性推导兜底
+  const escalateType = (getTimeoutAttr(element, 'escalateTargetType')
+    || (getTimeoutAttr(element, 'escalateToUserId')
+      ? 'user'
+      : getTimeoutAttr(element, 'escalateToVirtualRole')
+        ? 'virtual'
+        : getTimeoutAttr(element, 'escalateToRoleId')
+          ? 'entity'
+          : 'none')) as 'none' | 'user' | 'virtual' | 'entity'
+  const escalateOrgScopeAttr = getTimeoutAttr(element, 'escalateOrgScope')
+
+  /** 清空升级目标属性(保留 duration 与类型标记),一条命令写回;duration 与类型标记也为空时移除整个 timeoutPolicy。 */
+  const clearEscalateTarget = () => {
+    const policy = findDshElement(element, 'dsh:ActionPolicy')
+    const timeout = policy ? (policy.get('timeoutPolicy') as BpmnModdleElement | null) : null
+    if (!timeout) return
+    const modeling = injector.get<ModelingService>('modeling')
+    if (!getTimeoutAttr(element, 'duration') && !getTimeoutAttr(element, 'escalateTargetType')) {
+      modeling.updateModdleProperties(element, policy, { timeoutPolicy: undefined })
+      return
+    }
+    modeling.updateModdleProperties(element, timeout, {
+      escalateToRoleId: undefined,
+      escalateToUserId: undefined,
+      escalateToVirtualRole: undefined,
+      escalateOrgScope: undefined,
+      escalateFixedUnitId: undefined,
+    })
+  }
+
   entries.push(
     textFieldEntry({
       id: 'dsh-timeout-duration',
@@ -1218,32 +1358,93 @@ function userTaskDshEntries(element: BpmnElement, injector: Injector): Entry[] {
       setValue: value => setTimeoutAttr(element, injector, 'duration', value),
     }, injector),
     selectEntry({
-      id: 'dsh-timeout-escalateVirtualRole',
+      id: 'dsh-timeout-escalateType',
       element,
-      label: '升级目标虚拟角色',
-      description: '锚定当前审批人(其部门的上级负责人接管);配置后优先于用户/角色',
-      getOptions: () => [{ value: '', label: '(未指定)' }, ...ESCALATE_VIRTUAL_ROLE_OPTIONS],
-      getValue: () => getTimeoutAttr(element, 'escalateToVirtualRole'),
-      setValue: value => setTimeoutAttr(element, injector, 'escalateToVirtualRole', value),
-    }, injector),
-    selectEntry({
-      id: 'dsh-timeout-escalateRole',
-      element,
-      label: '升级目标角色',
-      description: '超时后任务升级到的角色',
-      getOptions: () => roleOptions(),
-      getValue: () => getTimeoutAttr(element, 'escalateToRoleId'),
-      setValue: value => setTimeoutAttr(element, injector, 'escalateToRoleId', value),
-    }, injector),
-    textFieldEntry({
-      id: 'dsh-timeout-escalateUser',
-      element,
-      label: '升级目标用户 ID',
-      description: '可选;优先于实体角色,低于虚拟角色',
-      getValue: () => getTimeoutAttr(element, 'escalateToUserId'),
-      setValue: value => setTimeoutAttr(element, injector, 'escalateToUserId', value),
+      label: '升级目标类型',
+      description: '超时后任务转给谁;(不升级)=不配置超时升级',
+      getOptions: () => [{ value: 'none', label: '(不升级)' }, ...ESCALATE_TARGET_TYPES],
+      getValue: () => escalateType,
+      setValue: (value) => {
+        // 先落类型标记再清旧目标属性,保证切换后面板停留在所选类型
+        setTimeoutAttr(element, injector, 'escalateTargetType', value === 'none' ? '' : value)
+        clearEscalateTarget()
+        if (value === 'virtual') {
+          // 虚拟角色给默认值,用户可在下一条目改选
+          setTimeoutAttr(element, injector, 'escalateToVirtualRole', 'parent')
+        }
+        // user/entity:具体目标由后续条目填写;未填齐时引擎视为未配置升级目标
+      },
     }, injector),
   )
+  if (escalateType === 'user') {
+    entries.push(escalateUserSearchEntry(element, injector))
+  } else if (escalateType === 'virtual') {
+    entries.push(
+      selectEntry({
+        id: 'dsh-timeout-escalateVirtualRole',
+        element,
+        label: '升级目标虚拟角色',
+        description: '锚定当前审批人,其部门的上级负责人接管',
+        getOptions: () => [...ESCALATE_VIRTUAL_ROLE_OPTIONS],
+        getValue: () => getTimeoutAttr(element, 'escalateToVirtualRole'),
+        setValue: value => setTimeoutAttr(element, injector, 'escalateToVirtualRole', value),
+      }, injector),
+      selectEntry({
+        id: 'dsh-timeout-escalateLockedScope',
+        element,
+        label: '审批范围',
+        description: '虚拟角色沿审批人行政线解析,范围固定',
+        disabled: true,
+        getOptions: () => [{ value: 'sameLine', label: '同行政线' }],
+        getValue: () => 'sameLine',
+        setValue: () => {},
+      }, injector),
+    )
+  } else if (escalateType === 'entity') {
+    entries.push(
+      selectEntry({
+        id: 'dsh-timeout-escalateRole',
+        element,
+        label: '升级目标角色',
+        description: '超时后任务升级到该角色的成员',
+        getOptions: () => roleOptions(),
+        getValue: () => getTimeoutAttr(element, 'escalateToRoleId'),
+        setValue: value => setTimeoutAttr(element, injector, 'escalateToRoleId', value ?? ''),
+      }, injector),
+      selectEntry({
+        id: 'dsh-timeout-escalateOrgScope',
+        element,
+        label: '审批范围',
+        description: '缺省全公司=存量行为;sameLine 锚定申请人行政线',
+        getOptions: () => [...ORG_SCOPE_OPTIONS],
+        getValue: () => escalateOrgScopeAttr || 'global',
+        setValue: (value) => {
+          if (value === 'sameLine') {
+            setTimeoutAttr(element, injector, 'escalateOrgScope', 'sameLine')
+            setTimeoutAttr(element, injector, 'escalateFixedUnitId', '')
+          } else if (value === 'fixedUnit') {
+            setTimeoutAttr(element, injector, 'escalateOrgScope', 'fixedUnit')
+          } else {
+            setTimeoutAttr(element, injector, 'escalateOrgScope', '')
+            setTimeoutAttr(element, injector, 'escalateFixedUnitId', '')
+          }
+        },
+      }, injector),
+    )
+    if (escalateOrgScopeAttr === 'fixedUnit') {
+      entries.push(
+        selectEntry({
+          id: 'dsh-timeout-escalateFixedUnit',
+          element,
+          label: '指定部门',
+          description: '超时后该部门及其子树内的目标角色成员接管',
+          getOptions: () => [{ value: '', label: '(未指定)' }, ...currentOrgUnits],
+          getValue: () => getTimeoutAttr(element, 'escalateFixedUnitId'),
+          setValue: value => setTimeoutAttr(element, injector, 'escalateFixedUnitId', value ?? ''),
+        }, injector),
+      )
+    }
+  }
 
   // --- SoD 职责分离(三个固定规则勾选) ---
   for (const rule of SOD_RULE_TYPES) {
@@ -1400,7 +1601,7 @@ function asyncAndRetryEntries(element: BpmnElement, injector: Injector): Entry[]
   ]
 }
 
-/** ServiceTask 的 Flowable 实现方式配置组 entries(delegateExpression + async + 失败重试;expression 不提供画布入口,定制 delegate 或 DSH backend task 二选一)。 */
+/** ServiceTask 的 Flowable 实现方式配置组 entries(delegateExpression / expression + async + 失败重试;DMN 决策表走 expression 调 dmnRuleService,见教程 6.1)。 */
 function serviceTaskFlowableEntries(element: BpmnElement, injector: Injector): Entry[] {
   const modeling = injector.get<ModelingService>('modeling')
   const bo = element.businessObject
@@ -1415,6 +1616,18 @@ function serviceTaskFlowableEntries(element: BpmnElement, injector: Injector): E
       setValue: value =>
         modeling.updateProperties(element, {
           delegateExpression: value && value.trim() ? value : undefined,
+        }),
+    }, injector),
+    textFieldEntry({
+      id: 'flowable-expression',
+      element,
+      label: '表达式 (expression)',
+      description:
+        'UEL 方法调用,专用于 DMN 决策',
+      getValue: () => ((bo.get('expression') as string) ?? ''),
+      setValue: value =>
+        modeling.updateProperties(element, {
+          expression: value && value.trim() ? value : undefined,
         }),
     }, injector),
     ...asyncAndRetryEntries(element, injector),
@@ -2003,7 +2216,7 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
       } else {
         groups.push({
           id: 'dsh-service-task',
-          label: 'Flowable 实现方式',
+          label: '实现方式',
           entries: serviceTaskFlowableEntries(element, injector),
         })
         // 多实例(扳手菜单选了并行/串行后出现):集合形式——实例数=array 长度
@@ -2025,7 +2238,7 @@ function DshPropertiesProvider(this: unknown, propertiesPanel: {
     } else if (is(element, 'bpmn:SequenceFlow')) {
       groups.push({
         id: 'flowable-sequenceflow',
-        label: 'Flowable 条件表达式',
+        label: '条件表达式',
         entries: sequenceFlowConditionEntries(element, injector),
       })
     } else if (isAny(element, ['bpmn:ExclusiveGateway', 'bpmn:InclusiveGateway'])) {

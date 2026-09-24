@@ -4,6 +4,7 @@ import com.dsh.console.app.ApplicationService;
 import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.runtime.dto.ContextVariableDto;
 import com.dsh.console.runtime.dto.HistoricActivityDto;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
 import com.dsh.console.runtime.dto.ProcessVariableDto;
@@ -11,7 +12,9 @@ import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
 import com.dsh.console.runtime.dto.TaskDto;
 import com.dsh.console.security.AuthContext;
+import com.dsh.console.security.PlatformRole;
 import com.dsh.console.user.UserService;
+import com.dsh.console.workflow.BpmnContextParser;
 import com.dsh.console.workflow.WorkflowDefinitionJdbcRepository;
 import com.dsh.console.workflow.dto.WorkflowDefinitionDto;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -101,6 +104,29 @@ public class ProcessInstanceService {
         applicationService.checkCanStartProcess(auth, wf.appId());
         return startValidation.startForm(
             startValidation.loadDeclarations(wf.publishedProcdefId()));
+    }
+
+    /**
+     * 实例流程定义的全部上下文声明(管理员强制完成弹窗的变量清单)。
+     *
+     * <p>声明取自已部署 BPMN 的 {@code dsh:contextVariables},与启动校验同一解析源。
+     * 访问权限与查详情一致(requireAccessibleInstance)。
+     */
+    public List<ContextVariableDto> listContextDeclarations(String instanceId, AuthContext auth) {
+        JsonNode instance = requireAccessibleInstance(instanceId, auth);
+        String procdefId = textOrNull(instance, "processDefinitionId");
+        if (procdefId == null) {
+            throw new NotFoundException("实例缺少 processDefinitionId,无法取上下文声明: " + instanceId);
+        }
+        return startValidation.loadDeclarations(procdefId).stream()
+            .map(ProcessInstanceService::toContextVariableDto)
+            .toList();
+    }
+
+    /** 声明树 → DTO 递归映射(object 字段清单随行带出,供弹窗展开点路径)。 */
+    private static ContextVariableDto toContextVariableDto(BpmnContextParser.ContextVariable v) {
+        return new ContextVariableDto(v.name(), v.type(), v.description(),
+            v.fields().stream().map(ProcessInstanceService::toContextVariableDto).toList());
     }
 
     /**
@@ -196,20 +222,25 @@ public class ProcessInstanceService {
     private List<ProcessInstanceDto> listRuntime(UUID appIdFilter, String procdefIdFilter,
                                                  int start, int size, AuthContext auth) {
         int page = toPage(start, size);
+        boolean seeAll = canSeeAllInstances(auth);
         // procdefIdFilter 非空:反查 workflow_definition 校验应用权限,按 bpmnProcessKey
         // 跨版本收集(运行中实例可能挂在重新发布前的旧版本 procdef 上)
         if (procdefIdFilter != null) {
             WorkflowDefinitionDto wf = workflowRepository.findByProcdefId(procdefIdFilter)
                 .orElseThrow(() -> new NotFoundException(
                     "procdefId 未对应任何 published workflow_definition: " + procdefIdFilter));
-            applicationService.checkCanAccessApp(auth, wf.appId());
-            return listRuntimeByWorkflow(wf, page, size);
+            if (seeAll) {
+                applicationService.checkCanAccessApp(auth, wf.appId());
+            }
+            return filterOwnInstances(listRuntimeByWorkflow(wf, page, size), auth);
         }
 
         // appIdFilter 非空:按单个应用过滤
         if (appIdFilter != null) {
-            applicationService.checkCanAccessApp(auth, appIdFilter);
-            return listInstancesByApp(appIdFilter, page, size);
+            if (seeAll) {
+                applicationService.checkCanAccessApp(auth, appIdFilter);
+            }
+            return filterOwnInstances(listInstancesByApp(appIdFilter, page, size), auth);
         }
 
         // appIdFilter 和 procdefIdFilter 都为空
@@ -219,13 +250,28 @@ public class ProcessInstanceService {
             return parseHistoricInstanceList(resp, null);
         }
 
-        // app_admin: 自动汇总自己管理的所有应用下的实例
-        List<ApplicationDto> apps = applicationService.listManagedApps(auth.platformUserId());
-        List<ProcessInstanceDto> all = new ArrayList<>();
-        for (ApplicationDto app : apps) {
-            all.addAll(listInstancesByApp(app.id(), page, size));
+        if (seeAll) {
+            // app_admin:名下应用实例 ∪ 自己发起的运行中实例(以成员身份在其他应用发起)
+            List<ApplicationDto> apps = applicationService.listManagedApps(auth.platformUserId());
+            Map<String, ProcessInstanceDto> merged = new LinkedHashMap<>();
+            for (ApplicationDto app : apps) {
+                for (ProcessInstanceDto dto : listInstancesByApp(app.id(), page, size)) {
+                    merged.put(dto.id(), dto);
+                }
+            }
+            String ownSubject = auth.authSubject();
+            JsonNode resp = flowableRestClient.listDshRuntimeProcessInstances(null, page, size);
+            for (ProcessInstanceDto dto : parseHistoricInstanceList(resp, null)) {
+                if (ownSubject != null && ownSubject.equals(dto.startUserId())) {
+                    merged.put(dto.id(), dto);
+                }
+            }
+            return new ArrayList<>(merged.values());
         }
-        return all;
+
+        // 普通用户:全量页拉回后仅保留自己发起的实例
+        JsonNode resp = flowableRestClient.listDshRuntimeProcessInstances(null, page, size);
+        return filterOwnInstances(parseHistoricInstanceList(resp, null), auth);
     }
 
     /**
@@ -250,26 +296,29 @@ public class ProcessInstanceService {
      * <p>引擎历史查询按发起时间倒序。procdefId 可解析时优先按 bpmnProcessKey 过滤
      * (跨版本收集,重新发布后旧版本实例不漏);按应用聚合时拉全量后本地过滤——逐实例
      * 反查(procdefId 精确 + process key 回退)后仍无法归属的实例 appId 为 null:
-     * system_admin 可见(流程名/定义信息由引擎补齐),app_admin 不可见。
+     * system_admin 可见(流程名/定义信息由引擎补齐),其余用户仅发起人自己可见。
      */
     private List<ProcessInstanceDto> listHistoric(UUID appIdFilter, String procdefIdFilter,
                                                   String state, int start, int size,
                                                   AuthContext auth) {
         int page = toPage(start, size);
+        boolean seeAll = canSeeAllInstances(auth);
         if (procdefIdFilter != null) {
             WorkflowDefinitionDto wf = workflowRepository.findByProcdefId(procdefIdFilter)
                 .orElseThrow(() -> new NotFoundException(
                     "procdefId 未对应任何 published workflow_definition: " + procdefIdFilter));
-            applicationService.checkCanAccessApp(auth, wf.appId());
+            if (seeAll) {
+                applicationService.checkCanAccessApp(auth, wf.appId());
+            }
             // 按 bpmnProcessKey 过滤(跨版本收集);key 为空的迁移旧行退回 procdefId 精确过滤
             String key = wf.bpmnProcessKey();
             JsonNode resp = (key == null || key.isBlank())
                 ? flowableRestClient.listHistoricProcessInstances(procdefIdFilter, null, state, page, size)
                 : flowableRestClient.listHistoricProcessInstances(null, key, state, page, size);
-            return parseHistoricInstanceList(resp, wf);
+            return filterOwnInstances(parseHistoricInstanceList(resp, wf), auth);
         }
 
-        if (appIdFilter != null) {
+        if (appIdFilter != null && seeAll) {
             applicationService.checkCanAccessApp(auth, appIdFilter);
         }
         JsonNode resp = flowableRestClient.listHistoricProcessInstances(
@@ -277,22 +326,55 @@ public class ProcessInstanceService {
         List<ProcessInstanceDto> all = parseHistoricInstanceList(resp, null);
 
         Set<UUID> visibleAppIds = null;
-        if (!auth.isSystemAdmin()) {
+        if (auth.hasRole(PlatformRole.APP_ADMIN)) {
             visibleAppIds = new HashSet<>();
             for (ApplicationDto app : applicationService.listManagedApps(auth.platformUserId())) {
                 visibleAppIds.add(app.id());
             }
         }
+        String ownSubject = auth.isSystemAdmin() ? null : auth.authSubject();
         List<ProcessInstanceDto> result = new ArrayList<>();
         for (ProcessInstanceDto dto : all) {
-            if (visibleAppIds != null
-                    && (dto.appId() == null || !visibleAppIds.contains(dto.appId()))) {
+            if (visibleAppIds != null) {
+                // app_admin:名下应用的实例 ∪ 自己发起的实例(以成员身份在其他应用发起)
+                boolean appVisible = dto.appId() != null && visibleAppIds.contains(dto.appId());
+                boolean ownVisible = ownSubject != null && ownSubject.equals(dto.startUserId());
+                if (!appVisible && !ownVisible) {
+                    continue;
+                }
+            } else if (ownSubject != null && !ownSubject.equals(dto.startUserId())) {
+                // 普通用户:仅自己发起的实例
                 continue;
             }
             if (appIdFilter != null && !appIdFilter.equals(dto.appId())) {
                 continue;
             }
             result.add(dto);
+        }
+        return result;
+    }
+
+    /**
+     * 是否跳出"仅自己发起"过滤:system_admin 看全部;app_admin 看名下应用实例
+     * (∪ 自己发起的实例,列表方法内合并);普通用户仅看自己发起的实例。
+     * 带 appId/procdefId 过滤的路径用它决定是否做应用管理权校验(非名下应用维持拒绝)。
+     */
+    private boolean canSeeAllInstances(AuthContext auth) {
+        return auth.isSystemAdmin() || auth.hasRole(PlatformRole.APP_ADMIN);
+    }
+
+    /** 普通用户仅保留自己发起的实例(startUserId=JWT sub);管理员原样返回。 */
+    private List<ProcessInstanceDto> filterOwnInstances(List<ProcessInstanceDto> instances,
+                                                        AuthContext auth) {
+        if (canSeeAllInstances(auth)) {
+            return instances;
+        }
+        String subject = auth.authSubject();
+        List<ProcessInstanceDto> result = new ArrayList<>();
+        for (ProcessInstanceDto dto : instances) {
+            if (subject != null && subject.equals(dto.startUserId())) {
+                result.add(dto);
+            }
         }
         return result;
     }
@@ -312,7 +394,11 @@ public class ProcessInstanceService {
     public ProcessInstanceDto getById(String instanceId, AuthContext auth) {
         JsonNode instance = requireAccessibleInstance(instanceId, auth);
         WorkflowDefinitionDto wf = resolveWorkflow(instance);
-        return toDto(instance, wf, new java.util.HashMap<>());
+        // 发起人显示名单独解析(toDto 只查预取缓存,空 Map 会退回裸 ID)
+        String startUserId = textOrNull(instance, "startUserId");
+        Map<String, String> displayNames = startUserId == null
+            ? Map.of() : userService.findDisplayNames(Set.of(startUserId));
+        return toDto(instance, wf, new java.util.HashMap<>(displayNames));
     }
 
     /**
@@ -358,7 +444,15 @@ public class ProcessInstanceService {
         if (resp == null || !resp.isArray()) {
             return result;
         }
-        Map<String, String> nameCache = new java.util.HashMap<>();
+        // 处理人显示名:先收集全部 assignee 批量查,避免逐人单查
+        Set<String> assignees = new HashSet<>();
+        for (JsonNode node : resp) {
+            String assignee = textOrNull(node, "assignee");
+            if (assignee != null) {
+                assignees.add(assignee);
+            }
+        }
+        Map<String, String> nameCache = userService.findDisplayNames(assignees);
         for (JsonNode node : resp) {
             String assignee = textOrNull(node, "assignee");
             result.add(new HistoricActivityDto(
@@ -460,12 +554,14 @@ public class ProcessInstanceService {
     }
 
     /**
-     * 查实例(runtime 优先,已结束回退历史)并校验应用访问权限。
+     * 查实例(runtime 优先,已结束回退历史)并校验访问权限。
      *
-     * <p>procdefId 无法反查 workflow_definition(旧版本部署已被新发布覆盖)时,
-     * 应用归属无法判定,仅 system_admin 可见。
+     * <p>可见性:system_admin 全部;名下应用(app_admin_user_ids 含自己)的实例对
+     * app_admin 开放;任何人可访问自己发起的实例。procdefId 无法反查
+     * workflow_definition(旧版本部署已被新发布覆盖)时应用归属无法判定,
+     * 除 system_admin 外仅发起人自己可见。
      *
-     * @throws NotFoundException 实例不存在(运行中与历史都查不到),或 app_admin 访问不可归属实例
+     * @throws NotFoundException 实例不存在(运行中与历史都查不到),或当前用户无权访问
      */
     private JsonNode requireAccessibleInstance(String instanceId, AuthContext auth) {
         JsonNode instance;
@@ -478,10 +574,16 @@ public class ProcessInstanceService {
             throw new NotFoundException("流程实例不存在(runtime/history): " + instanceId);
         }
         WorkflowDefinitionDto wf = resolveWorkflow(instance);
-        if (wf != null) {
+        if (auth.isSystemAdmin()) {
+            // 全部可见
+        } else if (java.util.Objects.equals(auth.authSubject(), textOrNull(instance, "startUserId"))) {
+            // 自己发起的实例:任意应用可访问(app_admin 以成员身份在其他应用发起的也在内)
+        } else if (wf != null && auth.hasRole(PlatformRole.APP_ADMIN)) {
+            // 名下应用的实例
             applicationService.checkCanAccessApp(auth, wf.appId());
-        } else if (!auth.isSystemAdmin()) {
-            throw new NotFoundException("流程实例不可访问(procdef 无法归属应用): " + instanceId);
+        } else {
+            // 不可访问一律 NotFound,不泄露存在性
+            throw new NotFoundException("流程实例不存在或不可访问: " + instanceId);
         }
         return instance;
     }

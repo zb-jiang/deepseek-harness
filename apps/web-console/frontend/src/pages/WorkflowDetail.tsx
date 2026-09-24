@@ -32,12 +32,15 @@ import { rolesApi } from '../api/roles'
 import { appsApi, type ApplicationDto } from '../api/apps'
 import { backendProfilesApi } from '../api/backend-profiles'
 import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
+import { usersApi } from '../api/users'
+import { membershipsApi } from '../api/memberships'
 import BpmnModeler from '../bpmn/BpmnModeler'
 import {
   setDshRoleOptions,
   setDshSkillOptions,
   setDshBackendProfileOptions,
   setDshOrgUnitOptions,
+  setDshUserOptions,
 } from '../bpmn/DshPropertiesProvider'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -182,6 +185,29 @@ export default function WorkflowDetailPage() {
         setDshOrgUnitOptions(flattenOrgUnitTree(tree ?? []))
       } catch {
         setDshOrgUnitOptions([])
+      }
+      // 升级目标用户下拉:仅列本应用 active 成员(成员表 × 平台用户联表取显示名)。
+      // 成员清单拉取失败保持空集合(不回退全量用户,避免绕过应用过滤);
+      // 用户清单拉取失败(app_admin 无权)降级为空选项,输入框仍可粘贴裸用户 ID
+      const memberUserIds = new Set<string>()
+      try {
+        const mems = await membershipsApi.listByApp(data.appId)
+        for (const m of mems ?? []) {
+          if (m.status === 'active') memberUserIds.add(m.userId)
+        }
+      } catch {
+        // 保持空集合
+      }
+      try {
+        const users = await usersApi.list({ status: 'active', limit: 500 })
+        setDshUserOptions((users ?? [])
+          .filter(u => memberUserIds.has(u.id))
+          .map(u => ({
+            value: u.id,
+            label: `${u.displayName || u.loginName} (${u.loginName})`,
+          })))
+      } catch {
+        setDshUserOptions([])
       }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载流程失败')

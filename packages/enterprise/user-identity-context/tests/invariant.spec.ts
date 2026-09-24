@@ -88,6 +88,22 @@ describe('user-identity-context invariants', () => {
     expect(() => { ctx.emit('session/event', preparing(1, 1), event(withPositions)) }).not.toThrow()
   })
 
+  it('accepts a block carrying the optional auth-token section', async () => {
+    const ctx = await setup()
+    const withToken = renderIdentityText(platformUser(), [], 'jwt-a')
+    expect(withToken).toContain('认证令牌（调用企业内部系统时放入 Authorization: Bearer 请求头）：\njwt-a\n')
+    expect(() => { ctx.emit('session/event', preparing(1, 1), event(withToken)) }).not.toThrow()
+  })
+
+  it('accepts a block carrying both the auth-token and org-positions sections', async () => {
+    const ctx = await setup()
+    const withBoth = renderIdentityText(platformUser(), [
+      { orgUnitId: 'unit-a', orgUnitName: 'A 部门', pathToRoot: ['总公司', 'A 部门'] },
+    ], 'jwt-a')
+    expect(withBoth.indexOf('认证令牌')).toBeLessThan(withBoth.indexOf('组织身份'))
+    expect(() => { ctx.emit('session/event', preparing(1, 1), event(withBoth)) }).not.toThrow()
+  })
+
   it('accepts a well-formed block at a later step of an open turn', async () => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', preparing(2, 3), event(BLOCK_TEXT)) }).not.toThrow()

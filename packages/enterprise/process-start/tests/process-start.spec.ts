@@ -54,9 +54,27 @@ const CONFIG = {
   webConsoleBaseUrl: 'http://console:8080/',
 }
 
+/** 合法 UUID 形态(既有用例走「UUID 透传」路径,不触发名称解析)。 */
+const W1_ID = '11111111-1111-4111-8111-111111111111'
+const W2_ID = '22222222-2222-4222-8222-222222222222'
+
 const STARTABLE = [
-  { id: 'w1', name: '报销流程', description: '员工差旅报销', appId: 'app1', appName: '财务应用' },
-  { id: 'w2', name: '采购流程', description: null, appId: 'app1', appName: '财务应用' },
+  {
+    id: W1_ID,
+    name: '报销流程',
+    description: '员工差旅报销',
+    bpmnProcessKey: 'expenseOrgRouting',
+    appId: 'app1',
+    appName: '财务应用',
+  },
+  {
+    id: W2_ID,
+    name: '采购流程',
+    description: null,
+    bpmnProcessKey: 'purchaseOrgRouting',
+    appId: 'app1',
+    appName: '财务应用',
+  },
 ]
 
 describe('process-start', () => {
@@ -115,13 +133,13 @@ describe('process-start', () => {
       workflows: { id: string; name: string; appName: string; description?: string }[]
     }
     expect(result.workflows).toEqual([
-      { id: 'w1', name: '报销流程', appName: '财务应用', description: '员工差旅报销' },
-      { id: 'w2', name: '采购流程', appName: '财务应用' },
+      { id: W1_ID, name: '报销流程', appName: '财务应用', description: '员工差旅报销' },
+      { id: W2_ID, name: '采购流程', appName: '财务应用' },
     ])
     expect(list.output.render(undefined as never, result as never)).toEqual([
       {
         type: 'text',
-        text: '可发起流程 2 个:\n- 报销流程 (id: w1, 应用: 财务应用)\n  说明: 员工差旅报销\n- 采购流程 (id: w2, 应用: 财务应用)',
+        text: `可发起流程 2 个:\n- 报销流程 (id: ${W1_ID}, 应用: 财务应用)\n  说明: 员工差旅报销\n- 采购流程 (id: ${W2_ID}, 应用: 财务应用)`,
       },
     ])
     expect(list.presentCall({} as never)).toEqual({ card: 'generic', title: '列可发起流程', kind: 'fetch' })
@@ -143,7 +161,7 @@ describe('process-start', () => {
 
   it('dsh_process_start_form:按 workflowDefinitionId 查询并映射声明,render/presentCall 可用', async () => {
     const fetchMock = stubFetch([{
-      match: url => url === 'http://console:8080/api/process-instances/start-form?workflowDefinitionId=w1',
+      match: url => url === `http://console:8080/api/process-instances/start-form?workflowDefinitionId=${W1_ID}`,
       response: () => jsonResponse(200, {
         success: true,
         data: [
@@ -154,7 +172,7 @@ describe('process-start', () => {
     }])
     const { tools, fetchMock: fetchRef } = mount('jwt', fetchMock)
     const form = toolOf(tools, 'dsh_process_start_form')
-    const result = await execute(form, { workflowDefinitionId: 'w1' }) as {
+    const result = await execute(form, { workflowDefinitionId: W1_ID }) as {
       variables: { name: string; type: string; required: boolean; description?: string }[]
     }
     expect(result.variables).toEqual([
@@ -167,8 +185,8 @@ describe('process-start', () => {
         text: '流程启动参数 2 个:\n- amount(float,必填) 报销金额\n- reason(string)',
       },
     ])
-    expect(form.presentCall({ workflowDefinitionId: 'w1' } as never)).toEqual({
-      card: 'generic', title: '读流程启动参数', kind: 'read', rawInput: 'w1',
+    expect(form.presentCall({ workflowDefinitionId: W1_ID } as never)).toEqual({
+      card: 'generic', title: '读流程启动参数', kind: 'read', rawInput: W1_ID,
     })
     expect(fetchRef).toHaveBeenCalledTimes(1)
   })
@@ -180,7 +198,7 @@ describe('process-start', () => {
     }])
     const { tools } = mount('jwt', fetchMock)
     const form = toolOf(tools, 'dsh_process_start_form')
-    const result = await execute(form, { workflowDefinitionId: 'w1' }) as { variables: unknown[] }
+    const result = await execute(form, { workflowDefinitionId: W1_ID }) as { variables: unknown[] }
     expect(result.variables).toEqual([])
     expect(form.output.render(undefined as never, result as never)).toEqual([
       { type: 'text', text: '该流程没有启动参数声明,可直接发起。' },
@@ -203,7 +221,7 @@ describe('process-start', () => {
     const { tools, fetchMock: fetchRef } = mount('jwt', fetchMock)
     const start = toolOf(tools, 'dsh_process_start')
     const result = await execute(start, {
-      workflowDefinitionId: 'w1',
+      workflowDefinitionId: W1_ID,
       orgUnitId: 'unit-a',
       variables: { amount: 1200.5 },
       name: '张三的报销',
@@ -222,7 +240,7 @@ describe('process-start', () => {
       'content-type': 'application/json',
     })
     expect(JSON.parse(String(init?.body))).toEqual({
-      workflowDefinitionId: 'w1',
+      workflowDefinitionId: W1_ID,
       orgUnitId: 'unit-a',
       variables: { amount: 1200.5 },
       name: '张三的报销',
@@ -230,7 +248,7 @@ describe('process-start', () => {
     expect(start.output.render(undefined as never, result as never)).toEqual([
       { type: 'text', text: '流程实例已发起(实例 id: inst-1,实例名: 张三的报销,流程: 报销流程)。' },
     ])
-    expect(start.presentCall({ workflowDefinitionId: 'w1', name: '张三的报销' } as never)).toEqual({
+    expect(start.presentCall({ workflowDefinitionId: W1_ID, name: '张三的报销' } as never)).toEqual({
       card: 'generic', title: '发起流程', kind: 'execute', rawInput: '张三的报销',
     })
   })
@@ -245,21 +263,89 @@ describe('process-start', () => {
     }])
     const { tools, fetchMock: fetchRef } = mount('jwt', fetchMock)
     const start = toolOf(tools, 'dsh_process_start')
-    const result = await execute(start, { workflowDefinitionId: 'w2' }) as Record<string, unknown>
+    const result = await execute(start, { workflowDefinitionId: W2_ID }) as Record<string, unknown>
     expect(result).toEqual({ instanceId: 'inst-2', startTime: '2026-09-20T10:00:00+08:00' })
-    expect(JSON.parse(String(fetchRef.mock.calls[0]![1]?.body))).toEqual({ workflowDefinitionId: 'w2' })
+    expect(JSON.parse(String(fetchRef.mock.calls[0]![1]?.body))).toEqual({ workflowDefinitionId: W2_ID })
     expect(start.output.render(undefined as never, result as never)).toEqual([
       { type: 'text', text: '流程实例已发起(实例 id: inst-2)。' },
     ])
-    expect(start.presentCall({ workflowDefinitionId: 'w2' } as never)).toEqual({
-      card: 'generic', title: '发起流程', kind: 'execute', rawInput: 'w2',
+    expect(start.presentCall({ workflowDefinitionId: W2_ID } as never)).toEqual({
+      card: 'generic', title: '发起流程', kind: 'execute', rawInput: W2_ID,
     })
+  })
+
+  it('dsh_process_start_form:传流程名称时自动解析为 UUID(唯一命中)', async () => {
+    const fetchMock = stubFetch([
+      {
+        match: url => url === 'http://console:8080/api/process-instances/startable',
+        response: () => jsonResponse(200, { success: true, data: STARTABLE }),
+      },
+      {
+        match: url => url === `http://console:8080/api/process-instances/start-form?workflowDefinitionId=${W1_ID}`,
+        response: () => jsonResponse(200, {
+          success: true,
+          data: [{ name: 'expenseId', type: 'string', description: null, required: true }],
+        }),
+      },
+    ])
+    const { tools, fetchMock: fetchRef } = mount('jwt', fetchMock)
+    const form = toolOf(tools, 'dsh_process_start_form')
+    const result = await execute(form, { workflowDefinitionId: '报销流程' }) as { variables: unknown[] }
+    expect(result.variables).toEqual([{ name: 'expenseId', type: 'string', required: true }])
+    // 第 1 次:startable 解析;第 2 次:用解析出的 UUID 查启动参数
+    expect(fetchRef).toHaveBeenCalledTimes(2)
+  })
+
+  it('dsh_process_start:传 BPMN key 时自动解析为 UUID 后发起', async () => {
+    const fetchMock = stubFetch([
+      {
+        match: url => url === 'http://console:8080/api/process-instances/startable',
+        response: () => jsonResponse(200, { success: true, data: STARTABLE }),
+      },
+      {
+        match: url => url === 'http://console:8080/api/process-instances',
+        response: () => jsonResponse(200, {
+          success: true,
+          data: { id: 'inst-3', name: null, workflowName: '报销流程', startTime: '2026-09-24T10:00:00+08:00' },
+        }),
+      },
+    ])
+    const { tools, fetchMock: fetchRef } = mount('jwt', fetchMock)
+    const start = toolOf(tools, 'dsh_process_start')
+    const result = await execute(start, { workflowDefinitionId: 'expenseOrgRouting' }) as Record<string, unknown>
+    expect(result).toEqual({
+      instanceId: 'inst-3',
+      startTime: '2026-09-24T10:00:00+08:00',
+      workflowName: '报销流程',
+    })
+    // POST 请求体里是解析后的 UUID,不是原始 key
+    expect(JSON.parse(String(fetchRef.mock.calls[1]![1]?.body))).toEqual({ workflowDefinitionId: W1_ID })
+  })
+
+  it('解析:模糊匹配到多个流程时报错并列出候选', async () => {
+    const fetchMock = stubFetch([{
+      match: url => url === 'http://console:8080/api/process-instances/startable',
+      response: () => jsonResponse(200, { success: true, data: STARTABLE }),
+    }])
+    const { tools } = mount('jwt', fetchMock)
+    await expect(execute(toolOf(tools, 'dsh_process_start'), { workflowDefinitionId: '流程' }))
+      .rejects.toThrow('匹配到 2 个流程')
+  })
+
+  it('解析:无匹配时报错并附可发起清单', async () => {
+    const fetchMock = stubFetch([{
+      match: url => url === 'http://console:8080/api/process-instances/startable',
+      response: () => jsonResponse(200, { success: true, data: STARTABLE }),
+    }])
+    const { tools } = mount('jwt', fetchMock)
+    await expect(execute(toolOf(tools, 'dsh_process_start'), { workflowDefinitionId: '不存在' }))
+      .rejects.toThrow('没有找到匹配 "不存在" 的可发起流程')
   })
 
   it('未登录时抛错', async () => {
     const { tools } = mount(undefined)
     await expect(execute(toolOf(tools, 'dsh_process_list'), {})).rejects.toThrow('未登录')
-    await expect(execute(toolOf(tools, 'dsh_process_start'), { workflowDefinitionId: 'w1' })).rejects.toThrow('未登录')
+    await expect(execute(toolOf(tools, 'dsh_process_start'), { workflowDefinitionId: W1_ID })).rejects.toThrow('未登录')
   })
 
   it('web-console 不可达时抛 502 消息', async () => {
@@ -271,7 +357,7 @@ describe('process-start', () => {
   it('fetch 抛非 Error 值时同样抛 502 消息', async () => {
     const fetchMock = stubFetch([{ match: () => true, response: () => { throw 'boom' } }])
     const { tools } = mount('jwt', fetchMock)
-    await expect(execute(toolOf(tools, 'dsh_process_start'), { workflowDefinitionId: 'w1' })).rejects.toThrow('boom')
+    await expect(execute(toolOf(tools, 'dsh_process_start'), { workflowDefinitionId: W1_ID })).rejects.toThrow('boom')
   })
 
   it('响应非 JSON 时抛错', async () => {
@@ -280,7 +366,7 @@ describe('process-start', () => {
       response: () => new Response('<html>oops</html>', { headers: { 'content-type': 'text/html' } }),
     }])
     const { tools } = mount('jwt', fetchMock)
-    await expect(execute(toolOf(tools, 'dsh_process_start_form'), { workflowDefinitionId: 'w1' })).rejects.toThrow('不是 JSON')
+    await expect(execute(toolOf(tools, 'dsh_process_start_form'), { workflowDefinitionId: W1_ID })).rejects.toThrow('不是 JSON')
   })
 
   it('信封失败时透出上游错误消息', async () => {

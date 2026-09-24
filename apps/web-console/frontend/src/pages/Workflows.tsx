@@ -1,5 +1,5 @@
-import { PartitionOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons'
-import { App, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd'
+import { PartitionOutlined, PlusOutlined } from '@ant-design/icons'
+import { App, Button, Form, Input, Modal, Select, Space, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -10,20 +10,7 @@ import {
   type WorkflowDefinitionDto,
   workflowsApi,
 } from '../api/workflows'
-
-const STATUS_COLOR: Record<string, string> = {
-  draft: 'default',
-  published: 'green',
-  disabled: 'orange',
-  archived: 'red',
-}
-
-const STATUS_TEXT: Record<string, string> = {
-  draft: '草稿',
-  published: '已发布',
-  disabled: '已停用',
-  archived: '已归档',
-}
+import WorkflowRowActions, { STATUS_TEXT, WorkflowStatusTag } from './WorkflowRowActions'
 
 export default function WorkflowsPage() {
   const { message } = App.useApp()
@@ -92,62 +79,6 @@ export default function WorkflowsPage() {
     }
   }
 
-  const handleValidate = async (wf: WorkflowDefinitionDto) => {
-    try {
-      const result = await workflowsApi.validate(wf.id)
-      if (result.valid) {
-        message.success('BPMN 校验通过')
-      } else {
-        Modal.error({
-          title: 'BPMN 校验失败',
-          content: (
-            <ul style={{ paddingLeft: 20, maxHeight: 300, overflow: 'auto' }}>
-              {result.errors.map((err, idx) => (
-                <li key={idx}>{err}</li>
-              ))}
-            </ul>
-          ),
-        })
-      }
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '校验失败')
-    }
-  }
-
-  const handlePublish = async (wf: WorkflowDefinitionDto) => {
-    try {
-      const result = await workflowsApi.publish(wf.id)
-      message.success(`已发布 (deployment=${result.deploymentId}, procdef=${result.procdefId})`)
-      void load()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '发布失败')
-    }
-  }
-
-  const handleDisable = async (wf: WorkflowDefinitionDto) => {
-    try {
-      await workflowsApi.disable(wf.id)
-      message.success(`已停用 ${wf.name}`)
-      void load()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '停用失败')
-    }
-  }
-
-  const handleArchive = async (wf: WorkflowDefinitionDto) => {
-    try {
-      await workflowsApi.archive(wf.id)
-      message.success(`已归档 ${wf.name}`)
-      void load()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '归档失败')
-    }
-  }
-
-  const handleStartInstance = (wf: WorkflowDefinitionDto) => {
-    navigate(`/instances/new?workflowId=${wf.id}`)
-  }
-
   const appOptions = apps.map(a => ({ label: a.name, value: a.id }))
 
   const columns: ColumnsType<WorkflowDefinitionDto> = [
@@ -172,7 +103,7 @@ export default function WorkflowsPage() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (v: string) => <Tag color={STATUS_COLOR[v] ?? 'default'}>{STATUS_TEXT[v] ?? v}</Tag>,
+      render: (v: string) => <WorkflowStatusTag status={v} />,
     },
     {
       title: 'procdefId',
@@ -191,43 +122,7 @@ export default function WorkflowsPage() {
       title: '操作',
       key: 'action',
       width: 280,
-      render: (_, wf) => (
-        <Space size="small" wrap>
-          <Button size="small" type="link" onClick={() => navigate(`/workflows/${wf.id}`)}>
-            编辑
-          </Button>
-          {wf.status === 'draft' && (
-            <Button size="small" type="link" onClick={() => handleValidate(wf)}>
-              校验
-            </Button>
-          )}
-          {(wf.status === 'draft' || wf.status === 'disabled') && (
-            <Popconfirm title={`发布 ${wf.name}?`} onConfirm={() => handlePublish(wf)}>
-              <Button size="small" type="link">发布</Button>
-            </Popconfirm>
-          )}
-          {wf.status === 'published' && (
-            <>
-              <Button
-                size="small"
-                type="link"
-                icon={<PlayCircleOutlined />}
-                onClick={() => handleStartInstance(wf)}
-              >
-                发起
-              </Button>
-              <Popconfirm title={`停用 ${wf.name}?`} onConfirm={() => handleDisable(wf)}>
-                <Button size="small" type="link" danger>停用</Button>
-              </Popconfirm>
-            </>
-          )}
-          {wf.status !== 'archived' && (
-            <Popconfirm title={`归档 ${wf.name}?此操作不可撤销`} onConfirm={() => handleArchive(wf)}>
-              <Button size="small" type="link" danger>归档</Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      render: (_, wf) => <WorkflowRowActions wf={wf} onChanged={() => void load()} />,
     },
   ]
 

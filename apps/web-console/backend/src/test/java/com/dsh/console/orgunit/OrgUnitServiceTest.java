@@ -10,6 +10,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dsh.console.audit.AuditService;
+import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.orgunit.dto.AddOrgUnitMembersRequest;
 import com.dsh.console.orgunit.dto.OrgUnitDto;
 import com.dsh.console.orgunit.dto.OrgUnitTreeNode;
 import com.dsh.console.orgunit.dto.OrgPositionDto;
@@ -99,6 +101,62 @@ class OrgUnitServiceTest {
         assertThatThrownBy(() -> service.delete(deptId, UUID.randomUUID()))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("仍有 2 名成员");
+    }
+
+    @Test
+    void addMembersDeduplicatesAndReturnsFullList() {
+        UUID deptId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(orgUnitRepository.findById(deptId)).thenReturn(
+            Optional.of(unit(deptId, "A 部门", null, null)));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(mock(UserDto.class)));
+        when(memberRepository.listMembersByOrgUnit(deptId)).thenReturn(List.of());
+
+        service.addMembers(deptId, new AddOrgUnitMembersRequest(List.of(userId, userId)), UUID.randomUUID());
+
+        // 同一 id 重复传入只入一次(幂等)
+        verify(memberRepository).insert(deptId, userId);
+    }
+
+    @Test
+    void addMembersRejectsUnknownUser() {
+        UUID deptId = UUID.randomUUID();
+        when(orgUnitRepository.findById(deptId)).thenReturn(
+            Optional.of(unit(deptId, "A 部门", null, null)));
+        when(userRepository.findById(any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addMembers(
+                deptId, new AddOrgUnitMembersRequest(List.of(UUID.randomUUID())), UUID.randomUUID()))
+            .isInstanceOf(NotFoundException.class)
+            .hasMessageContaining("用户不存在");
+    }
+
+    @Test
+    void removeMemberRejectsHead() {
+        // 决策 12:负责人必然有本部门归属,先更换负责人再移出
+        UUID deptId = UUID.randomUUID();
+        UUID headUserId = UUID.randomUUID();
+        when(orgUnitRepository.findById(deptId)).thenReturn(
+            Optional.of(unit(deptId, "A 部门", null, headUserId)));
+
+        assertThatThrownBy(() -> service.removeMember(deptId, headUserId, UUID.randomUUID()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("负责人")
+            .hasMessageContaining("先更换");
+        verify(memberRepository, never()).deleteMember(any(), any());
+    }
+
+    @Test
+    void removeMemberDeletesAndReturnsRemainingList() {
+        UUID deptId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(orgUnitRepository.findById(deptId)).thenReturn(
+            Optional.of(unit(deptId, "A 部门", null, null)));
+        when(memberRepository.listMembersByOrgUnit(deptId)).thenReturn(List.of());
+
+        service.removeMember(deptId, userId, UUID.randomUUID());
+
+        verify(memberRepository).deleteMember(deptId, userId);
     }
 
     @Test

@@ -17,8 +17,8 @@ import org.springframework.stereotype.Repository;
 /**
  * {@code public.platform_users} 表数据访问。
  *
- * <p>读操作为主,写操作集中在 V1 的审批/禁用/锁定/平台角色更新。
- * 与 setup guide §4 表结构对齐。
+ * <p>读操作为主,写操作集中在 JIT 建档({@link #insertPending})与
+ * 审批/禁用/锁定/平台角色更新。
  */
 @Repository
 public class UserJdbcRepository {
@@ -46,6 +46,32 @@ public class UserJdbcRepository {
             .param("authSubject", authSubject)
             .query(UserRowMapper.INSTANCE)
             .optional();
+    }
+
+    /**
+     * JIT 建档:JWT 验证通过但 platform_users 无记录时插入 pending_approval 行。
+     *
+     * <p>替代原 Supabase auth.users 注册 trigger(表迁本地 PG 后 trigger 不再存在)。
+     * login_name/display_name 由调用方决定兜底值;id 由 gen_random_uuid() 默认生成;
+     * 并发重复插入由 auth_subject 唯一约束 + ON CONFLICT DO NOTHING 兜底,返回 0 表示记录已存在。
+     *
+     * @param authSubject 认证主体(JWT sub)
+     * @param loginName   登录名(非空)
+     * @param displayName 显示名(非空)
+     * @param email       邮箱(非空,表 NOT NULL + 唯一)
+     * @return 插入行数;0 表示 auth_subject 已有记录
+     */
+    public int insertPending(String authSubject, String loginName, String displayName, String email) {
+        return jdbcClient.sql("""
+            INSERT INTO public.platform_users (auth_subject, login_name, display_name, email, status)
+            VALUES (:authSubject, :loginName, :displayName, :email, 'pending_approval')
+            ON CONFLICT (auth_subject) DO NOTHING
+            """)
+            .param("authSubject", authSubject)
+            .param("loginName", loginName)
+            .param("displayName", displayName)
+            .param("email", email)
+            .update();
     }
 
     /**

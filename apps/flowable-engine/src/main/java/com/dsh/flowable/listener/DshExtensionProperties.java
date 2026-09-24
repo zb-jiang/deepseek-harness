@@ -64,14 +64,24 @@ public record DshExtensionProperties(
     /**
      * 超时升级策略。
      *
+     * <p>升级目标优先级(引擎 {@link com.dsh.flowable.delegate.DshTaskEscalationDelegate}
+     * 对齐):用户 ID &gt; 虚拟角色 &gt; 实体角色;三选一,其余属性不写。</p>
+     *
      * @param duration                ISO-8601 持续时长(如 PT24H)
      * @param escalateToRoleId         升级目标实体角色 id
-     * @param escalateToUserId        升级目标用户 id;nullable 表示升级到角色
+     * @param escalateToUserId        升级目标用户 id
      * @param escalateToVirtualRole   升级目标虚拟角色(parent/grandparent);锚定当前审批人
      *                                 (design 2026-09-19 §5.2 双锚点:升级=审批人的上级接管);
      *                                 审批人已是组织顶点时保持原审批人并记审计变量
+     * @param escalateOrgScope        实体角色的审批范围:global(缺省全公司,null 同)/
+     *                                 sameLine(申请人行政线内)/fixedUnit(指定部门);
+     *                                 仅 escalateToRoleId 非空时有意义
+     * @param escalateFixedUnitId     指定部门 id(org_units.id);
+     *                                 仅 escalateOrgScope=fixedUnit 时必填
      */
-    public record TimeoutPolicy(String duration, String escalateToRoleId, String escalateToUserId, String escalateToVirtualRole) {}
+    public record TimeoutPolicy(String duration, String escalateToRoleId, String escalateToUserId,
+                                String escalateToVirtualRole, String escalateOrgScope,
+                                String escalateFixedUnitId) {}
 
     /**
      * 职责分离规则。

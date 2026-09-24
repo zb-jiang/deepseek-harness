@@ -32,7 +32,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   const roles = me.roles ?? []
   const isAdmin = roles.includes(PLATFORM_ROLE.SYSTEM_ADMIN) || roles.includes(PLATFORM_ROLE.APP_ADMIN)
-  if (!isAdmin && location.pathname !== '/') {
+  // normal_user 可访问首页、流程实例(仅自己发起的,后端按 JWT sub 过滤)与部门管理(只读)
+  const readOnlyAllowed =
+    location.pathname === '/org-units' || location.pathname.startsWith('/instances')
+  if (!isAdmin && location.pathname !== '/' && !readOnlyAllowed) {
     return <Navigate to="/" replace />
   }
 

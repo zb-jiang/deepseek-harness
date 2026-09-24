@@ -6,10 +6,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { type ApplicationDto, appsApi } from '../api/apps'
 import { instancesApi, type ProcessInstanceDto } from '../api/process-instances'
+import { PLATFORM_ROLE } from '../api/types'
+import { useAuth } from '../auth/AuthContext'
 
 export default function InstancesPage() {
   const { message } = App.useApp()
   const navigate = useNavigate()
+  // 「从流程定义发起」入口仅管理员可见;普通用户只查看自己发起的实例
+  const { me } = useAuth()
+  const isAdmin = (me?.roles ?? []).includes(PLATFORM_ROLE.SYSTEM_ADMIN)
+    || (me?.roles ?? []).includes(PLATFORM_ROLE.APP_ADMIN)
 
   const [data, setData] = useState<ProcessInstanceDto[]>([])
   const [apps, setApps] = useState<ApplicationDto[]>([])
@@ -160,13 +166,15 @@ export default function InstancesPage() {
           ]}
         />
         <Button onClick={() => load()}>刷新</Button>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => navigate('/workflows')}
-        >
-          从流程定义发起
-        </Button>
+        {isAdmin && (
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/workflows')}
+          >
+            从流程定义发起
+          </Button>
+        )}
       </Space>
       <Table<ProcessInstanceDto>
         rowKey="id"

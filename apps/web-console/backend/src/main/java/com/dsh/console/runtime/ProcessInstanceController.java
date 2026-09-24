@@ -2,6 +2,7 @@ package com.dsh.console.runtime;
 
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.runtime.dto.CompleteTaskRequest;
+import com.dsh.console.runtime.dto.ContextVariableDto;
 import com.dsh.console.runtime.dto.HistoricActivityDto;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
 import com.dsh.console.runtime.dto.ProcessVariableDto;
@@ -75,6 +76,19 @@ public class ProcessInstanceController {
     }
 
     /**
+     * 实例流程定义的全部上下文声明(管理员强制完成弹窗的变量清单)。
+     *
+     * <p>权限与查详情一致(isAuthenticated + Service 层 requireAccessibleInstance)。
+     */
+    @GetMapping("/{instanceId}/context-declarations")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<List<ContextVariableDto>> contextDeclarations(
+        @PathVariable String instanceId,
+        @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(instanceService.listContextDeclarations(instanceId, auth));
+    }
+
+    /**
      * 启动流程实例。
      *
      * <p>组织维度审批路由(design 2026-09-19 §5.1):system_admin/应用管理员之外,
@@ -92,13 +106,14 @@ public class ProcessInstanceController {
      * 列实例(运行中/正常完成/已终止/全部)。
      *
      * <p>{@code appId} 给定时只列该应用下 published workflow_definitions 的实例;
-     * 不给时 system_admin 查全部,app_admin 自动汇总自己管理的所有应用下的实例。
-     * {@code procdefId} 单独过滤时也校验应用访问权限。
+     * 不给时 system_admin 查全部,app_admin 自动汇总自己管理的所有应用下的实例;
+     * 普通用户仅能看到自己发起的实例(Service 层按 startUserId=JWT sub 强制过滤)。
+     * {@code procdefId} 单独过滤时也校验应用访问权限(普通用户跳过应用管理校验,仍只看自己的)。
      * {@code state} 不传查全部;{@code running} 只看运行中;{@code completed} 只看正常完成;
      * {@code terminated} 只看已终止。
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ProcessInstanceDto>> list(
         @AuthenticationPrincipal AuthContext auth,
         @RequestParam(required = false) UUID appId,
@@ -110,10 +125,10 @@ public class ProcessInstanceController {
     }
 
     /**
-     * 查实例详情(runtime 优先,已结束回退历史)。
+     * 查实例详情(runtime 优先,已结束回退历史;普通用户仅限自己发起的实例)。
      */
     @GetMapping("/{instanceId}")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<ProcessInstanceDto> get(@PathVariable String instanceId,
                                                 @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.getById(instanceId, auth));
@@ -123,7 +138,7 @@ public class ProcessInstanceController {
      * 列实例任务(运行中走 runtime;已结束回退历史,含完成时间/终止原因)。
      */
     @GetMapping("/{instanceId}/tasks")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<TaskDto>> listTasks(@PathVariable String instanceId,
                                                  @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.listTasks(instanceId, auth));
@@ -133,7 +148,7 @@ public class ProcessInstanceController {
      * 列实例上下文变量(运行中返回当前值,已结束返回终值)。
      */
     @GetMapping("/{instanceId}/variables")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ProcessVariableDto>> listVariables(@PathVariable String instanceId,
                                                                @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.listVariables(instanceId, auth));
@@ -143,7 +158,7 @@ public class ProcessInstanceController {
      * 列实例历史活动(执行路径回溯:节点/类型/处理人/起止时间/耗时,含连线)。
      */
     @GetMapping("/{instanceId}/activities")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<HistoricActivityDto>> listActivities(@PathVariable String instanceId,
                                                                  @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.listActivities(instanceId, auth));
@@ -153,7 +168,7 @@ public class ProcessInstanceController {
      * 取实例部署版 BPMN XML(详情页活动路径图渲染用)。
      */
     @GetMapping("/{instanceId}/bpmn-xml")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'APP_ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<String> getBpmnXml(@PathVariable String instanceId,
                                           @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.getBpmnXml(instanceId, auth));

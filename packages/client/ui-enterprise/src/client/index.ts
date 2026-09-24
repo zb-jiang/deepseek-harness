@@ -45,7 +45,7 @@ import { KbUploadAction } from './KbUploadAction.tsx'
 import type { KbUploadInjected } from './KbUploadAction.tsx'
 
 export const inject = [
-  'slots', 'sessions', 'workspaces', 'layout', 'conversation', 'inputTriggers', 'sidebarRight',
+  'slots', 'sessions', 'workspaces', 'uiWorkspace', 'layout', 'conversation', 'inputTriggers', 'sidebarRight',
   'sidebarRightTabs', 'remote', 'remote.workspaceFiles',
 ]
 

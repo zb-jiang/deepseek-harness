@@ -14,7 +14,7 @@ DeepSeek Harness 目前已经有面向遥测的匿名身份，但企业平台能
 
 这条 seam 拥有的是 Harness 侧治理记录，而不是登录握手本身。外部身份后端继续负责认证、会话签发、密码重置和 SSO。seam 接收一个已经创建好的 auth subject，并治理对应的平台用户记录：注册进入 `pending_approval`、带平台角色审批、变更角色、禁用、锁定、恢复，以及按平台用户 id 或 auth subject 查询。
 
-第一个 provider 是 `@deepseek-ai/dsh-platform-user-supabase`。它注册到 `ctx.platformUsers`，把每个 auth subject 对应的一条治理记录存进 Supabase 表，在存储边界校验每条数据行，再把存储行映射成 seam 稳定的 `PlatformUser` 值。
+当前生效的 provider 是 `@deepseek-ai/dsh-platform-user-console`（第一个 provider `@deepseek-ai/dsh-platform-user-supabase` 直读 Supabase 表，存储迁到本地 PostgreSQL 后退役，见[平台用户迁本地 PostgreSQL](2026-09-21-platform-users-local-pg.zh.md)）。它注册到 `ctx.platformUsers`，本地验证 auth JWT，从 Web Console 后端读取当前用户的治理记录，在存储边界校验每条数据行，再把存储行映射成 seam 稳定的 `PlatformUser` 值。
 
 这个拆分遵循现有 capability 模式：一个包放 Service Definition，另一个包放后端 provider，后续再在它之上挂 API 和 Web consumer。
 
@@ -32,4 +32,4 @@ identity 组现在同时包含匿名身份和企业治理两条能力线。
 
 后续 API、host 和 Web 工作将消费 `ctx.platformUsers`，而不是各自拥有审批和角色规则。
 
-Supabase 是这条能力的第一个后端，但不是产品边界本身。
+Supabase Auth 仍是身份后端，但治理记录后端在设计上可替换，且已不再是 Supabase 存储。

@@ -1911,9 +1911,9 @@ importers:
       '@deepseek-ai/dsh-platform-user-api':
         specifier: workspace:^
         version: link:../../enterprise/platform-user-api
-      '@deepseek-ai/dsh-platform-user-supabase':
+      '@deepseek-ai/dsh-platform-user-console':
         specifier: workspace:^
-        version: link:../../enterprise/platform-user-supabase
+        version: link:../../enterprise/platform-user-console
       '@deepseek-ai/dsh-process-start':
         specifier: workspace:^
         version: link:../../enterprise/process-start
@@ -6395,7 +6395,7 @@ importers:
         specifier: workspace:^
         version: link:../platform-user
 
-  packages/enterprise/platform-user-supabase:
+  packages/enterprise/platform-user-console:
     dependencies:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
@@ -6407,9 +6407,6 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
       '@deepseek-ai/dsh-platform-user':
         specifier: workspace:^
         version: link:../platform-user

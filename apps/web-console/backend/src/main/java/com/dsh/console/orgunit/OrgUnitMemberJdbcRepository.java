@@ -1,5 +1,6 @@
 package com.dsh.console.orgunit;
 
+import com.dsh.console.orgunit.dto.OrgUnitMemberDto;
 import com.dsh.console.orgunit.dto.UserOrgUnitDto;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -142,5 +143,34 @@ public class OrgUnitMemberJdbcRepository {
             .param("orgUnitId", orgUnitId)
             .query(UUID.class)
             .list();
+    }
+
+    /**
+     * 部门成员明细(关联 platform_users 带登录名/显示名/状态;部门管理页成员面板用)。
+     */
+    public List<OrgUnitMemberDto> listMembersByOrgUnit(UUID orgUnitId) {
+        return jdbcClient.sql("""
+                SELECT m.user_id, p.login_name, p.display_name, p.status
+                FROM public.org_unit_members m
+                JOIN public.platform_users p ON p.id = m.user_id
+                WHERE m.org_unit_id = :orgUnitId
+                ORDER BY p.display_name, p.login_name
+                """)
+            .param("orgUnitId", orgUnitId)
+            .query((rs, rowNum) -> new OrgUnitMemberDto(
+                rs.getObject("user_id", UUID.class), rs.getString("login_name"),
+                rs.getString("display_name"), rs.getString("status")))
+            .list();
+    }
+
+    /**
+     * 移出单个成员(幂等:映射不存在则 0 行)。
+     */
+    public void deleteMember(UUID orgUnitId, UUID userId) {
+        jdbcClient.sql(
+                "DELETE FROM public.org_unit_members WHERE org_unit_id = :orgUnitId AND user_id = :userId")
+            .param("orgUnitId", orgUnitId)
+            .param("userId", userId)
+            .update();
     }
 }

@@ -3,7 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { IDENTITY_DISCIPLINE, ORG_POSITIONS_HEADER, USER_IDENTITY_SECTION } from './text.ts'
+import { AUTH_TOKEN_HEADER, IDENTITY_DISCIPLINE, ORG_POSITIONS_HEADER, USER_IDENTITY_SECTION } from './text.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-user-identity-context'
 const SOURCE_NAME = 'user-identity-context'
@@ -12,6 +12,8 @@ const BLOCK = new RegExp(
   '^<user_identity>\\n'
   + '当前登录人：(.+)（(.+)）\\n'
   + 'userId: (.+)\\n'
+  // 认证令牌段可选(未登录/尚未验签时不渲染),整行非捕获避免 undefined 捕获组
+  + '(?:' + escapeRegExp(AUTH_TOKEN_HEADER) + '\\n.+\\n)?'
   // 组织身份段可选(未登录拉取失败/组织维度未启用时不渲染),有则至少一条
   + '(?:' + escapeRegExp(ORG_POSITIONS_HEADER) + '\\n(?:- .+\\n)+)?'
   + escapeRegExp(IDENTITY_DISCIPLINE)

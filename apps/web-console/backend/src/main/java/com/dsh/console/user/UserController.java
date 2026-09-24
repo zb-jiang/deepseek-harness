@@ -23,7 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 平台用户治理 REST 端点。
  *
- * <p>仅 {@code system_admin} 角色可访问;由 setup guide §4 trigger 自动插入 pending_approval 记录,
+ * <p>仅 {@code system_admin} 角色可访问;JWT 验证时对无记录用户 JIT 插入 pending_approval 记录
+ * (见 {@link com.dsh.console.security.JwtAuthConverter}),
  * 由本 Controller 完成审批/禁用/锁定/激活/角色更新。
  */
 @RestController

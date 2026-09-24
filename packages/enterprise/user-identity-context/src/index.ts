@@ -3,7 +3,9 @@
  * verified platform user, and the first step of every turn injects a
  * model-visible identity block (identity + org positions) so the assistant
  * knows who it is serving and where that person sits in the org tree. The
- * block is display-only; authorization never travels through the model.
+ * block also carries the current verified access token so the assistant can
+ * call enterprise internal systems (Supabase SSO, bearer auth) as the signed-in
+ * employee; identity fields stay display-only.
  *
  * The store is fed by the `platform-user/verified` and `platform-user/signout`
  * events that `platform-user-api` emits on its auth touchpoints, so the two
@@ -57,11 +59,12 @@ declare module '@deepseek-ai/cordis' {
  * context listener reads the store at each turn's first step. State lives in
  * memory only: a restarted webserver learns the identity at the client's next
  * `/me` call, and a token expiring mid-session leaves the last verified
- * identity in place until the next touchpoint (the block is display-only, so
- * a same-human staleness window is benign). The raw access token is kept next
- * to the identity so enterprise background consumers (skill-sync) can call
- * server-side APIs as the signed-in employee; it never enters the model
- * context.
+ * identity in place until the next touchpoint (a same-human staleness window is
+ * benign). The raw access token is kept next to the identity with two
+ * consumers: enterprise background services (skill-sync) call server-side APIs
+ * as the signed-in employee, and the identity block renders it so the assistant
+ * can call enterprise internal systems (Supabase SSO bearer auth) as that
+ * employee.
  */
 export class CurrentUserService extends Service {
   private user: PlatformUser | undefined
@@ -163,7 +166,7 @@ export function apply(ctx: Context, config: Config): void {
     if (user === undefined) return decision
     const token = ctx.currentUser.getToken()
     const positions = token === undefined ? [] : await loadPositions(token)
-    const text = renderIdentityText(user, positions)
+    const text = renderIdentityText(user, positions, token)
     return {
       kind: 'enter',
       messages: [

@@ -19,7 +19,7 @@ import java.util.UUID;
  * @param status          状态:pending_approval / active / disabled / locked
  * @param platformRoles   平台角色数组(system_admin / app_admin / normal_user)
  * @param createdAt       创建时间
- * @param createdBy       创建人(可空,首次 trigger 自动插入时为 null)
+ * @param createdBy       创建人(可空,JIT 建档与管理员手工创建时为 null)
  * @param approvedAt      审批时间
  * @param approvedBy      审批人
  * @param disabledAt      禁用时间

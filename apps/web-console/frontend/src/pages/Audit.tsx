@@ -31,6 +31,19 @@ const EVENT_COLOR: Record<string, string> = {
   TASK_COMPLETE: 'green',
 }
 
+/** 审计事件 targetType → 中文标签映射 */
+const TARGET_TYPE_LABEL: Record<string, string> = {
+  platform_user: '用户',
+  application: '应用',
+  app_role: '角色',
+  app_membership: '成员',
+  org_unit: '组织',
+  workflow_definition: '流程',
+  process_instance: '实例',
+  kb_document: '文档',
+  kb_folder: '文件夹',
+}
+
 const EVENT_OPTIONS = Object.keys(EVENT_COLOR).map(k => ({ label: k, value: k }))
 
 export default function AuditPage() {
@@ -72,17 +85,33 @@ export default function AuditPage() {
     },
     {
       title: '操作人',
-      dataIndex: 'operatorId',
-      key: 'operatorId',
+      dataIndex: 'operatorDisplayName',
+      key: 'operatorDisplayName',
       width: 120,
-      render: (v: string | null) => (v ? v.slice(0, 8) : <Typography.Text type="secondary">系统</Typography.Text>),
+      render: (_v: string | null, row: AuditEventDto) =>
+        row.operatorDisplayName
+          ? row.operatorDisplayName
+          : row.operatorId
+            ? row.operatorId.slice(0, 8)
+            : <Typography.Text type="secondary">系统</Typography.Text>,
     },
     {
-      title: '目标用户',
-      dataIndex: 'targetUserId',
-      key: 'targetUserId',
-      width: 120,
-      render: (v: string | null) => (v ? v.slice(0, 8) : '-'),
+      title: '目标',
+      dataIndex: 'targetUserDisplayName',
+      key: 'targetUserDisplayName',
+      width: 140,
+      render: (_v: string | null, row: AuditEventDto) => {
+        const type = row.targetType ?? ''
+        const typeLabel = TARGET_TYPE_LABEL[type]
+          ? <Tag color="default">{TARGET_TYPE_LABEL[type]}</Tag>
+          : null
+        if (type === 'platform_user') {
+          const name = row.targetUserDisplayName
+            ?? (row.targetUserId ? row.targetUserId.slice(0, 8) : null)
+          return <Space size={4}>{typeLabel}{name}</Space>
+        }
+        return <Space size={4}>{typeLabel}{row.targetUserId ? row.targetUserId.slice(0, 8) : null}</Space>
+      },
     },
     {
       title: '详情',

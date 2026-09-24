@@ -88,6 +88,14 @@ export interface StartFormVariableDto {
   required: boolean
 }
 
+/** 流程上下文声明项(对齐 com.dsh.console.runtime.dto.ContextVariableDto);object 类型带递归字段清单。 */
+export interface ContextVariableDto {
+  name: string
+  type: string
+  description: string | null
+  fields: ContextVariableDto[]
+}
+
 export const instancesApi = {
   start: (body: StartProcessInstanceRequest) => post<ProcessInstanceDto>('/api/process-instances', body),
   /** 启动表单变量清单(已部署 BPMN 的 start-param 声明)。 */
@@ -106,6 +114,9 @@ export const instancesApi = {
   /** 列实例上下文变量(历史变量统一视图)。 */
   listVariables: (instanceId: string) =>
     get<ProcessVariableDto[]>(`/api/process-instances/${instanceId}/variables`),
+  /** 实例流程定义的全部上下文声明(强制完成弹窗的变量清单)。 */
+  contextDeclarations: (instanceId: string) =>
+    get<ContextVariableDto[]>(`/api/process-instances/${instanceId}/context-declarations`),
   /** 列实例历史活动(执行路径回溯)。 */
   listActivities: (instanceId: string) =>
     get<HistoricActivityDto[]>(`/api/process-instances/${instanceId}/activities`),

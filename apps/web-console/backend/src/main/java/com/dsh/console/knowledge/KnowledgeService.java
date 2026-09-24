@@ -36,6 +36,9 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class KnowledgeService {
 
+    /** 全部知识库共用的 Storage 桶(setup guide §4.1 一次性手工预建),应用间以对象路径 {appId}/ 段隔离。 */
+    private static final String KB_BUCKET = "kb-documents";
+
     private final KnowledgeJdbcRepository repository;
     private final ApplicationJdbcRepository appRepository;
     private final SupabaseStorageClient storageClient;
@@ -57,7 +60,11 @@ public class KnowledgeService {
     // ---------- 知识库开通 ----------
 
     /**
-     * 查应用知识库,不存在则按需开通(写 knowledge_bases + 登记 Storage 桶)。
+     * 查应用知识库,不存在则按需开通(写 knowledge_bases 行,登记公共 Storage 桶名)。
+     *
+     * <p>Storage 统一用公共桶 {@link #KB_BUCKET}:桶按 setup guide §4.1 一次性手工预建;
+     * 治理 JDBC 连的是本地 PG,云端 storage schema 不可达,代码不做桶登记。
+     * 应用间以对象路径 {@code {appId}/{docId}/...} 分段隔离。
      *
      * <p>开通属配置动作,仅 system_admin / 应用管理员可触发;成员的内容访问
      * 走 {@link #getKnowledgeBase}(KB 已存在时由管理员先行开通)。
@@ -68,11 +75,9 @@ public class KnowledgeService {
         ApplicationDto app = appRepository.findById(appId)
             .orElseThrow(() -> new NotFoundException("应用不存在: " + appId));
         return repository.findKbByApp(appId).orElseGet(() -> {
-            String bucket = "kb-" + appId;
-            KnowledgeBaseDto kb = repository.insertKb(appId, app.name() + " 知识库", bucket);
-            repository.ensureStorageBucket(bucket);
+            KnowledgeBaseDto kb = repository.insertKb(appId, app.name() + " 知识库", KB_BUCKET);
             auditService.record("KB_CREATE", "application", null, auth.platformUserId(),
-                Map.of("appId", appId, "kbId", kb.id(), "storageBucket", bucket));
+                Map.of("appId", appId, "kbId", kb.id(), "storageBucket", KB_BUCKET));
             return kb;
         });
     }
@@ -247,8 +252,9 @@ public class KnowledgeService {
             ? "application/octet-stream" : file.getContentType();
         UUID docId = UUID.randomUUID();
         // Storage 对象 key 是 S3 风格 ASCII 白名单,中文文件名会被拒(InvalidKey);
-        // 对象名只用 docId + ASCII 扩展名,显示名以元数据 name 为准(下载由前端按 name 命名)
-        String storagePath = docId + "/document" + storageExtension(name);
+        // 对象路径 {appId}/{docId}/document{ext} 在公共桶内按应用分段隔离,对象名只用
+        // docId + ASCII 扩展名,显示名以元数据 name 为准(下载由前端按 name 命名)
+        String storagePath = kb.applicationId() + "/" + docId + "/document" + storageExtension(name);
         KbDocumentRecord doc = new KbDocumentRecord(docId, kbId, folderId, name, contentType,
             content.length, storagePath, null, KbDocumentDto.STATUS_PENDING, null,
             auth.authSubject(), null, null);

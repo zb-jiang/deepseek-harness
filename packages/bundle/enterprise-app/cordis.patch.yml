@@ -1,7 +1,7 @@
 # The dsh-enterprise-app bundle patch: enterprise platform-user authentication
 # layer over dsh-web-app. Applied after dsh-web-app's patch; rows here
-# insert the platform-user seam, its Supabase provider (read-only: JWKS JWT
-# verify + RLS self-read), the HTTP API routes that expose /auth/me and
+# insert the platform-user seam, its Web Console provider (read-only: JWKS JWT
+# verify + /api/users/me self-read), the HTTP API routes that expose /auth/me and
 # /auth/config to the browser surface, and the flowable-engine task API proxy
 # (/dsh/tasks, /dsh/history) the employee task workbench fetches through the
 # local webserver.
@@ -20,13 +20,13 @@
     - id: platform-user
       name: '@deepseek-ai/dsh-platform-user'
 
-    # Supabase-backed provider，从环境变量读取凭据（无 service_role）。
-    - id: platform-user-supabase
-      name: '@deepseek-ai/dsh-platform-user-supabase'
+    # Web-Console-backed provider：JWKS 本地验 JWT 后经 web-console
+    # /api/users/me 读治理记录（platform_users 已迁本地 PG，不再直连 Supabase 读表）。
+    - id: platform-user-console
+      name: '@deepseek-ai/dsh-platform-user-console'
       config:
-        url: !!js process.env.SUPABASE_URL ?? ''
-        anonKey: !!js process.env.SUPABASE_ANON_KEY ?? ''
-        usersTable: platform_users
+        supabaseUrl: !!js process.env.SUPABASE_URL ?? ''
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
 
     # HTTP API 路由，注册 /api/enterprise/auth 前缀路由。
     - id: platform-user-api

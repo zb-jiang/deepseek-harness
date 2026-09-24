@@ -10,8 +10,9 @@ import static org.mockito.Mockito.when;
 import com.dsh.flowable.listener.DshBpmnExtensionParser;
 import com.dsh.flowable.listener.DshCandidateResolver;
 import com.dsh.flowable.listener.DshExtensionProperties;
+import com.dsh.flowable.listener.DshMultiInstanceSetupListener;
+import com.dsh.flowable.listener.DshSodFilter;
 import com.dsh.flowable.listener.DshTaskListener;
-import com.dsh.flowable.repository.DshMembershipRepository;
 import com.dsh.flowable.repository.DshOrgUnitRepository;
 import java.util.List;
 import java.util.Map;
@@ -43,8 +44,7 @@ class DshTaskEscalationDelegateTest {
     private final DshCandidateResolver candidateResolver = mock(DshCandidateResolver.class);
     private final DshOrgUnitRepository orgUnitRepository = mock(DshOrgUnitRepository.class);
     private final DshTaskEscalationDelegate delegate = new DshTaskEscalationDelegate(
-        repositoryService, taskService, mock(DshMembershipRepository.class),
-        extensionParser, candidateResolver, orgUnitRepository);
+        repositoryService, taskService, extensionParser, candidateResolver, orgUnitRepository);
 
     private final DelegateExecution execution = mock(DelegateExecution.class);
     private final Task task = mock(Task.class);
@@ -61,7 +61,8 @@ class DshTaskEscalationDelegateTest {
         DshExtensionProperties props = new DshExtensionProperties(
             null, null, null, List.of(),
             new DshExtensionProperties.ActionPolicy(
-                new DshExtensionProperties.TimeoutPolicy("PT1H", null, null, "parent"), null),
+                new DshExtensionProperties.TimeoutPolicy("PT1H", null, null, "parent", null, null),
+                null),
             List.of(), List.of(), null);
         when(extensionParser.parse(userTask)).thenReturn(props);
 
@@ -127,5 +128,72 @@ class DshTaskEscalationDelegateTest {
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("属于 2 个部门")
             .hasMessageContaining("组织身份不唯一");
+    }
+
+    @Test
+    void escalationUserIdTakesPriorityOverVirtualRole() {
+        // 优先级 用户 ID > 虚拟角色:XML 同时残留两类属性时按用户 ID 升级,不进虚拟角色解析
+        when(extensionParser.parse(org.mockito.ArgumentMatchers.any(UserTask.class)))
+            .thenReturn(new DshExtensionProperties(
+                null, null, null, List.of(),
+                new DshExtensionProperties.ActionPolicy(
+                    new DshExtensionProperties.TimeoutPolicy("PT1H", null, LAOZHOU, "parent", null, null),
+                    null),
+                List.of(), List.of(), null));
+
+        delegate.execute(execution);
+
+        verify(taskService).setAssignee(TASK_ID, LAOZHOU);
+        verify(candidateResolver, never())
+            .resolveForEscalation(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void escalationRoleResolvesThroughApplicantScope() {
+        // 实体角色升级走 resolveForApplicant:orgScope/fixedUnitId 与申请人锚点原样传递
+        when(extensionParser.parse(org.mockito.ArgumentMatchers.any(UserTask.class)))
+            .thenReturn(new DshExtensionProperties(
+                null, null, null, List.of(),
+                new DshExtensionProperties.ActionPolicy(
+                    new DshExtensionProperties.TimeoutPolicy(
+                        "PT1H", "role-1", null, null, "sameLine", null),
+                    null),
+                List.of(), List.of(), null));
+        when(execution.getVariable(DshMultiInstanceSetupListener.PROCESS_VARIABLE_APPLICANT_ORG_UNIT_ID))
+            .thenReturn(DEPT_A);
+        when(execution.getVariable(DshSodFilter.PROCESS_VARIABLE_APPLICANT_USER_ID))
+            .thenReturn("applicant-1");
+        when(candidateResolver.resolveForApplicant(
+            new DshExtensionProperties.AssignmentRule("role-1", "sameLine", null, null),
+            DEPT_A, "applicant-1"))
+            .thenReturn(new DshCandidateResolver.Resolution(List.of(LAOZHOU), Map.of(), false));
+
+        delegate.execute(execution);
+
+        verify(taskService).addCandidateUser(TASK_ID, LAOZHOU);
+    }
+
+    @Test
+    void escalationRoleEmptyResolutionKeepsOriginalAssignee() {
+        // 实体角色在范围内无候选人:保持原办理人不升级(先清后解析会让任务无人可见)
+        when(extensionParser.parse(org.mockito.ArgumentMatchers.any(UserTask.class)))
+            .thenReturn(new DshExtensionProperties(
+                null, null, null, List.of(),
+                new DshExtensionProperties.ActionPolicy(
+                    new DshExtensionProperties.TimeoutPolicy(
+                        "PT1H", "role-1", null, null, "global", null),
+                    null),
+                List.of(), List.of(), null));
+        when(candidateResolver.resolveForApplicant(
+            new DshExtensionProperties.AssignmentRule("role-1", "global", null, null),
+            null, null))
+            .thenReturn(new DshCandidateResolver.Resolution(List.of(), Map.of(), false));
+
+        delegate.execute(execution);
+
+        verify(taskService, never()).setAssignee(anyString(), anyString());
+        verify(taskService, never()).setAssignee(anyString(), org.mockito.ArgumentMatchers.isNull());
+        verify(taskService, never()).addCandidateUser(anyString(), anyString());
+        verify(taskService, never()).deleteCandidateUser(anyString(), anyString());
     }
 }

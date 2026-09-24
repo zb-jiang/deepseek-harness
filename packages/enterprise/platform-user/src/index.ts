@@ -49,16 +49,16 @@ declare module '@deepseek-ai/cordis' {
 /** One provider implementation of the platform-user seam. */
 export interface PlatformUserProvider {
   /**
-   * Resolve a platform user from a Supabase Auth access token.
-   *
-   * Verifies the JWT locally via JWKS, then reads the platform_users row
-   * whose `auth_subject` matches the token's `sub` claim. The Supabase
-   * query uses the user's own JWT so that the RLS self-read policy allows
-   * the row to be returned without a service-role key.
-   *
-   * @param accessToken - Supabase Auth access token (Bearer).
-   * @returns the platform user record.
-   */
+ * Resolve a platform user from an access token issued by the external auth
+ * backend (Supabase Auth).
+ *
+ * Providers verify the JWT locally via JWKS and read the governance record
+ * whose `auth_subject` matches the token's `sub` claim; where the record
+ * lives and with which credentials it is read is a provider decision.
+ *
+ * @param accessToken - auth backend access token (Bearer).
+ * @returns the platform user record.
+ */
   getUserByToken(accessToken: string): Promise<PlatformUser>
 }
 

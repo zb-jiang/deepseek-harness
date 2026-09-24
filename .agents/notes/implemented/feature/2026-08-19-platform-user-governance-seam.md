@@ -14,7 +14,7 @@ The enterprise platform starts with a dedicated identity-group seam, `@deepseek-
 
 The seam owns the Harness-side governance record, not the login handshake itself. External identity backends keep authentication, session issuance, password reset, and SSO. The seam receives an already-created auth subject and governs the corresponding platform-user record: register into `pending_approval`, approve with platform roles, change roles, disable, lock, restore, and query by platform-user id or auth subject.
 
-The first provider is `@deepseek-ai/dsh-platform-user-supabase`. It registers into `ctx.platformUsers`, stores one governance row per auth subject in a Supabase table, validates every row at the storage boundary, and maps storage rows to the seam's stable `PlatformUser` value.
+The active provider is `@deepseek-ai/dsh-platform-user-console` (the first provider, `@deepseek-ai/dsh-platform-user-supabase`, read a Supabase table directly and was retired when storage moved to a local PostgreSQL instance; see [platform users on local PostgreSQL](2026-09-21-platform-users-local-pg.md)). It registers into `ctx.platformUsers`, verifies the auth JWT locally, reads the caller's governance row from the Web Console backend, validates every row at the storage boundary, and maps storage rows to the seam's stable `PlatformUser` value.
 
 This split follows the existing capability pattern: Service Definition in one package, backend provider in another, later API and Web consumers on top.
 
@@ -32,4 +32,4 @@ The identity group now contains both anonymous identity and enterprise governanc
 
 Future API, host, and Web work consumes `ctx.platformUsers` instead of owning approval and role rules themselves.
 
-Supabase is the first supported backend for this capability, but not the product boundary.
+Supabase Auth remains the identity backend, but the governance-record backend is swappable by design and is no longer Supabase storage.

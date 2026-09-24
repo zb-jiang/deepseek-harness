@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-platform-user": "workspace:^",
-    "@deepseek-ai/dsh-platform-user-supabase": "workspace:^",
+    "@deepseek-ai/dsh-platform-user-console": "workspace:^",
     "@deepseek-ai/dsh-platform-user-api": "workspace:^",
     "@deepseek-ai/dsh-user-identity-context": "workspace:^",
     "@deepseek-ai/dsh-flowable-task-proxy": "workspace:^",

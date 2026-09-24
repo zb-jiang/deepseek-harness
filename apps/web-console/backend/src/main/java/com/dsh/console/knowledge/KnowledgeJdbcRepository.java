@@ -17,7 +17,7 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 知识库三张表({@code knowledge_bases} / {@code kb_folders} / {@code kb_documents},
- * setup guide §12.1)与 Storage 桶登记的数据访问。
+ * local-pg-setup-guide §3.3)的数据访问。
  *
  * <p>连接角色为 postgres(表 owner),不受 RLS 限制,写权限由服务层成员校验兜底。
  */
@@ -63,21 +63,6 @@ public class KnowledgeJdbcRepository {
             .param("bucket", storageBucket)
             .query(KbRowMapper.KB_INSTANCE)
             .single();
-    }
-
-    /**
-     * 登记存储桶(应用首次开通知识库时;同 id 重复执行为幂等 no-op)。
-     *
-     * <p>postgres 角色对 {@code storage.buckets} 有写权,与治理表同一条 JDBC 直连路径,
-     * 免去手工建桶步骤。
-     */
-    public void ensureStorageBucket(String bucket) {
-        jdbcClient.sql("""
-                INSERT INTO storage.buckets (id, name, "public") VALUES (:id, :id, false)
-                ON CONFLICT (id) DO NOTHING
-                """)
-            .param("id", bucket)
-            .update();
     }
 
     /**
@@ -261,7 +246,9 @@ public class KnowledgeJdbcRepository {
      * (folder 为 null + recursive = 全库,员工端 kb_search/kb_list 工具依赖)。
      *
      * <p>kw 非空时强制只返回 ready(不变式:未解析完成的文档不得进入检索结果),
-     * 对 name 与 text_content 做 ILIKE;parseStatus 参数可再过滤解析状态。
+     * 对 name 与 text_content 做 ILIKE,并按 pg_trgm 的 similarity 相关性降序
+     * (需 local-pg-setup-guide §3.3 的 pg_trgm 扩展与 GIN trgm 索引;未装扩展时检索报错);
+     * parseStatus 参数可再过滤解析状态。
      */
     public List<KbDocumentRecord> listDocuments(UUID kbId, KbFolderDto folder,
                                                 boolean recursive, String kw, String parseStatus) {
@@ -292,7 +279,11 @@ public class KnowledgeJdbcRepository {
         if (parseStatus != null && !parseStatus.isBlank()) {
             sql.append(" AND parse_status = :parseStatus");
         }
-        sql.append(" ORDER BY name");
+        if (search) {
+            sql.append(" ORDER BY GREATEST(similarity(name, :kw), similarity(text_content, :kw)) DESC NULLS LAST, name");
+        } else {
+            sql.append(" ORDER BY name");
+        }
 
         var statement = jdbcClient.sql(sql.toString()).param("kbId", kbId);
         if (folder != null) {
@@ -302,7 +293,7 @@ public class KnowledgeJdbcRepository {
             }
         }
         if (search) {
-            statement = statement.param("kwLike", "%" + kw + "%");
+            statement = statement.param("kwLike", "%" + kw + "%").param("kw", kw);
         }
         if (parseStatus != null && !parseStatus.isBlank()) {
             statement = statement.param("parseStatus", parseStatus);

@@ -43,6 +43,7 @@ import {
   ensureExtensionElements,
   findDshElement,
   getDshSkillOptions,
+  getDshSkillRefs,
   getDshText,
   readContextDeclarations,
   removeDshElement,
@@ -279,6 +280,16 @@ function UserPromptModalContent({
     [mappings],
   )
 
+  // 「插入 skill 名称」只列节点 skillRefs 已勾选的 skill;
+  // 清单里找不到的已勾选名(如未绑定 namespace)用裸名兜底,保证仍可插入
+  const skillInsertOptions = useMemo(() => {
+    const all = getDshSkillOptions()
+    return getDshSkillRefs(element).map((name) => {
+      const hit = all.find(o => o.value === name)
+      return { value: name, label: hit?.label ?? name }
+    })
+  }, [element])
+
   const updateMapping = (idx: number, field: keyof LocalMapping, value: string) => {
     setMappings((prev) => {
       const next = [...prev]
@@ -468,11 +479,11 @@ function UserPromptModalContent({
               />
               <Select
                 placeholder="插入 skill 名称"
-                options={getDshSkillOptions().map(o => ({ value: o.value, label: o.label }))}
+                options={skillInsertOptions}
                 allowClear
                 showSearch
                 onChange={value => insertSkill(value as string)}
-                notFoundContent="所属应用未配置 SkillHub namespace 或清单为空"
+                notFoundContent="节点未勾选 skill;请先在属性面板「Skill 引用」中勾选"
                 style={{ width: '100%' }}
               />
               <Button

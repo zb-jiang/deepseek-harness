@@ -37,6 +37,7 @@ import {
   type UpdateAppRoleRequest,
 } from '../api/roles'
 import { usersApi, type UserDto } from '../api/users'
+import AppWorkflowsTab from './AppWorkflowsTab'
 import KnowledgeTab from './KnowledgeTab'
 
 const ROLE_STATUS_COLOR: Record<string, string> = {
@@ -217,11 +218,7 @@ export default function AppDetailPage() {
           {
             key: 'workflows',
             label: '流程定义',
-            children: (
-              <Button type="primary" onClick={() => navigate(`/workflows?appId=${appId}`)}>
-                打开流程定义列表
-              </Button>
-            ),
+            children: <AppWorkflowsTab appId={appId} />,
           },
           {
             key: 'knowledge',

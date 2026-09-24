@@ -23,22 +23,22 @@ type MenuItem = Required<MenuProps>['items'][number]
 /**
  * 菜单项定义。
  * - system_admin: 全部菜单
- * - app_admin: 首页、应用管理、流程定义、流程实例
- * - normal_user: 仅首页
+ * - app_admin: 首页、应用管理、流程定义、流程实例、部门管理(只读)
+ * - normal_user: 首页、流程实例(仅自己发起的)、部门管理(只读)
  */
 function buildMenu(roles: string[]): MenuItem[] {
   const isSys = roles.includes(PLATFORM_ROLE.SYSTEM_ADMIN)
   const isAppAdmin = roles.includes(PLATFORM_ROLE.APP_ADMIN)
   const items: MenuItem[] = [
     { key: '/', icon: <HomeOutlined />, label: '首页' },
+    { key: '/org-units', icon: <ClusterOutlined />, label: '部门管理' },
+    { key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' },
   ]
   if (isSys || isAppAdmin) {
     items.push({ key: '/apps', icon: <ApartmentOutlined />, label: '应用管理' })
     items.push({ key: '/workflows', icon: <PartitionOutlined />, label: '流程定义' })
-    items.push({ key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' })
   }
   if (isSys) {
-    items.push({ key: '/org-units', icon: <ClusterOutlined />, label: '部门管理' })
     items.push({ key: '/users', icon: <TeamOutlined />, label: '平台用户' })
     items.push({ key: '/audit', icon: <AuditOutlined />, label: '审计' })
   }

@@ -178,3 +178,9 @@ Docs accompany every code change: update affected README and JSDoc contracts tog
 ## Vendoring policy
 
 `vendor/` packages are pinned source copies (manifest with upstream SHAs in [vendor/README.md](vendor/README.md)). Update via the sync procedure there; re-apply or retire the logged local modifications; rerun `pnpm run test && pnpm run build`.
+
+## Upstream merge-preserve deviations
+
+Core `packages/` normally tracks upstream verbatim; the deviations below are deliberate and must survive every upstream merge. On conflict, keep the local form unless the upstream change supersedes the reason recorded here.
+
+- `packages/core/tools/src/index.ts` — `TOOL_RUNTIME_SCHEDULER` is a namespaced **string** key, not `Symbol()`. Source launches load plugin entries from `lib/` through the cordis loader while tsconfig `paths` resolves the same package's cross-package imports to `src/`, so two module instances coexist and a Symbol key never matches (`ctx.tools[TOOL_RUNTIME_SCHEDULER]` is `undefined`; every tool call dies with `Cannot read properties of undefined (reading 'prepare')`). Upstream's own test and launch paths are plane-consistent, so they never observe this. Reverting to a Symbol reintroduces the crash under `pnpm dsh` with a built `lib/`.

@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -62,6 +63,20 @@ public class GlobalExceptionHandler {
                 e.getBindingResult().getFieldErrors().stream()
                     .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                     .toList())));
+    }
+
+    /**
+     * 请求体 JSON 反序列化失败(类型不匹配/格式非法):返回 400。
+     *
+     * <p>消息带 Jackson 定位的字段与原因(如 workflowDefinitionId 传了非 UUID),
+     * 调用方(员工端模型/前端)据此自我纠正;不落兜底 500——那会让模型无从判断。
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMessageNotReadable(HttpMessageNotReadableException e) {
+        log.warn("Request body JSON parse error: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ApiResponse.fail(ApiError.of("JSON_PARSE_ERROR",
+                "请求体 JSON 非法: " + e.getMostSpecificCause().getMessage())));
     }
 
     /** Flowable REST 调用失败:返回 502。 */

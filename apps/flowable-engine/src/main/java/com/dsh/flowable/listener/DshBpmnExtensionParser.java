@@ -323,7 +323,9 @@ public class DshBpmnExtensionParser {
             getAttribute(e, "duration"),
             getAttribute(e, "escalateToRoleId"),
             getAttribute(e, "escalateToUserId"),
-            trimToNull(getAttribute(e, "escalateToVirtualRole"))
+            trimToNull(getAttribute(e, "escalateToVirtualRole")),
+            trimToNull(getAttribute(e, "escalateOrgScope")),
+            trimToNull(getAttribute(e, "escalateFixedUnitId"))
         );
     }
 

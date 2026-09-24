@@ -1,7 +1,9 @@
 package com.dsh.console.orgunit;
 
 import com.dsh.console.common.ApiResponse;
+import com.dsh.console.orgunit.dto.AddOrgUnitMembersRequest;
 import com.dsh.console.orgunit.dto.OrgUnitDto;
+import com.dsh.console.orgunit.dto.OrgUnitMemberDto;
 import com.dsh.console.orgunit.dto.OrgUnitTreeNode;
 import com.dsh.console.orgunit.dto.SaveOrgUnitRequest;
 import com.dsh.console.security.AuthContext;
@@ -22,8 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 组织树(部门)治理 REST 端点。
  *
- * <p>组织树是全局治理数据,仅 {@code system_admin} 可访问(设计 2026-09-19 §6.1)。
- * 应用管理员为流程配置读取部门下拉时,后续按需开只读端点。
+ * <p>读(部门树)对所有登录用户开放——普通用户看组织架构,应用管理员在流程
+ * 配置里拉部门下拉;写(新建/更新/删除)仅 {@code system_admin}(设计 2026-09-19 §6.1)。
  */
 @RestController
 @RequestMapping("/api/org-units")
@@ -37,9 +39,10 @@ public class OrgUnitController {
     }
 
     /**
-     * 部门树(嵌套 JSON,含负责人显示名)。
+     * 部门树(嵌套 JSON,含负责人显示名)。方法级注解覆盖类级,所有登录用户可读。
      */
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<OrgUnitTreeNode>> tree() {
         return ApiResponse.ok(orgUnitService.tree());
     }
@@ -71,5 +74,34 @@ public class OrgUnitController {
                                     @AuthenticationPrincipal AuthContext auth) {
         orgUnitService.delete(orgUnitId, auth.platformUserId());
         return ApiResponse.ok(null);
+    }
+
+    /**
+     * 部门成员明细。与部门树读同级开放(所有登录用户只读可见;成员写仍维持类级 SYSTEM_ADMIN)。
+     */
+    @GetMapping("/{orgUnitId}/members")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<List<OrgUnitMemberDto>> members(@PathVariable UUID orgUnitId) {
+        return ApiResponse.ok(orgUnitService.members(orgUnitId));
+    }
+
+    /**
+     * 批量加入成员(幂等,返回加入后成员全量)。
+     */
+    @PostMapping("/{orgUnitId}/members")
+    public ApiResponse<List<OrgUnitMemberDto>> addMembers(@PathVariable UUID orgUnitId,
+                                                          @Valid @RequestBody AddOrgUnitMembersRequest body,
+                                                          @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(orgUnitService.addMembers(orgUnitId, body, auth.platformUserId()));
+    }
+
+    /**
+     * 移出单个成员(负责人守卫,返回移出后成员全量)。
+     */
+    @DeleteMapping("/{orgUnitId}/members/{userId}")
+    public ApiResponse<List<OrgUnitMemberDto>> removeMember(@PathVariable UUID orgUnitId,
+                                                            @PathVariable UUID userId,
+                                                            @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(orgUnitService.removeMember(orgUnitId, userId, auth.platformUserId()));
     }
 }

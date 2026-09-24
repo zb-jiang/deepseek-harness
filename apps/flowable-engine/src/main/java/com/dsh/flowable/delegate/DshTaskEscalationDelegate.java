@@ -3,8 +3,9 @@ package com.dsh.flowable.delegate;
 import com.dsh.flowable.listener.DshBpmnExtensionParser;
 import com.dsh.flowable.listener.DshCandidateResolver;
 import com.dsh.flowable.listener.DshExtensionProperties;
+import com.dsh.flowable.listener.DshMultiInstanceSetupListener;
+import com.dsh.flowable.listener.DshSodFilter;
 import com.dsh.flowable.listener.DshTaskListener;
-import com.dsh.flowable.repository.DshMembershipRepository;
 import com.dsh.flowable.repository.DshOrgUnitRepository;
 import java.util.List;
 import org.flowable.bpmn.model.BpmnModel;
@@ -27,17 +28,21 @@ import org.springframework.util.StringUtils;
  * timer 触发。timer 触发时原 userTask 仍在执行,本 delegate 找到该任务并升级。
  *
  * <p>升级目标(design 2026-09-19 扩展虚拟角色,锚定当前审批人——升级本义是
- * "审批人超时,审批人的上级接管"):
+ * "审批人超时,审批人的上级接管";优先级:用户 ID &gt; 虚拟角色 &gt; 实体角色):
  * <ul>
  *   <li>{@code escalateToUserId}:直接将任务 assignee 设为该用户;</li>
- *   <li>{@code escalateToRoleId}:查询该角色下的 active 用户,设为 candidateUsers;</li>
  *   <li>{@code escalateToVirtualRole}(parent/grandparent):按当前审批人(多实例逐任务
  *       assignee)的解析依据部门走 {@link DshCandidateResolver} 链式解析——锚点优先
  *       任务局部变量 {@code dsh_assignment_org_unit}(design 决策 13),缺失回退按
  *       assignee 反查 org_unit_members 映射表且要求唯一(0/多个报错);审批人已是组织
  *       顶点时无处可升,保持原审批人并记审计变量 {@code dsh_escalationTop_<taskId>}
  *       (§5.3 升级到顶行,不自动通过、不报错)。</li>
- *   <li>同时清除原 candidateUsers / candidateGroups / assignee,避免多人同时可见。</li>
+ *   <li>{@code escalateToRoleId}:走 {@link DshCandidateResolver#resolveForApplicant}
+ *       按 {@code escalateOrgScope} 解析(缺省/ global 全公司;sameLine 锚定申请人
+ *       实例变量 {@code dsh_applicant_org_unit_id};fixedUnit 指定部门子树),解析有
+ *       候选人才升级并设为 candidateUsers;空结果保持原状。</li>
+ *   <li>升级落地时清除原 candidateUsers / candidateGroups / assignee,避免多人同时
+ *       可见;解析为空/到顶保持原状不清。</li>
  * </ul>
  *
  * <p>多实例场景下同一 taskDefinitionKey 可能有多个 active task,本 delegate 会全部升级;
@@ -55,20 +60,17 @@ public class DshTaskEscalationDelegate implements JavaDelegate {
 
     private final RepositoryService repositoryService;
     private final TaskService taskService;
-    private final DshMembershipRepository membershipRepository;
     private final DshBpmnExtensionParser extensionParser;
     private final DshCandidateResolver candidateResolver;
     private final DshOrgUnitRepository orgUnitRepository;
 
     public DshTaskEscalationDelegate(RepositoryService repositoryService,
                                      TaskService taskService,
-                                     DshMembershipRepository membershipRepository,
                                      DshBpmnExtensionParser extensionParser,
                                      DshCandidateResolver candidateResolver,
                                      DshOrgUnitRepository orgUnitRepository) {
         this.repositoryService = repositoryService;
         this.taskService = taskService;
-        this.membershipRepository = membershipRepository;
         this.extensionParser = extensionParser;
         this.candidateResolver = candidateResolver;
         this.orgUnitRepository = orgUnitRepository;
@@ -122,15 +124,29 @@ public class DshTaskEscalationDelegate implements JavaDelegate {
 
     private void escalateTask(DelegateExecution execution, Task task, String originalTaskDefKey,
                               DshExtensionProperties.TimeoutPolicy policy) {
+        String taskId = task.getId();
+        // 升级目标优先级:用户 ID > 虚拟角色 > 实体角色(设计器三选一互斥,这里按序兜底)
+
+        // 用户 ID 直接指派;同时清候选集,避免旧候选人仍能看到任务
+        if (StringUtils.hasText(policy.escalateToUserId())) {
+            clearCandidates(taskId);
+            taskService.setAssignee(taskId, policy.escalateToUserId());
+            return;
+        }
+
         // 虚拟角色路径:先解析升级目标,审批人已是组织顶点时保持原审批人(不进入清空逻辑)
         if (StringUtils.hasText(policy.escalateToVirtualRole())) {
             escalateToVirtual(execution, task, originalTaskDefKey, policy.escalateToVirtualRole());
             return;
         }
 
-        String taskId = task.getId();
-        // 先解除当前办理人与原候选集,避免升级后旧办理人仍能看到任务
-        taskService.setAssignee(taskId, null);
+        if (StringUtils.hasText(policy.escalateToRoleId())) {
+            escalateToRole(execution, task, policy);
+        }
+    }
+
+    /** 清除任务候选用户/候选组,升级后旧办理人不再可见。 */
+    private void clearCandidates(String taskId) {
         taskService.getIdentityLinksForTask(taskId).stream()
             .filter(link -> "candidate".equals(link.getType()))
             .forEach(link -> {
@@ -140,17 +156,34 @@ public class DshTaskEscalationDelegate implements JavaDelegate {
                     taskService.deleteCandidateGroup(taskId, link.getGroupId());
                 }
             });
+    }
 
-        if (StringUtils.hasText(policy.escalateToUserId())) {
-            taskService.setAssignee(taskId, policy.escalateToUserId());
+    /**
+     * 实体角色升级:复用待办分配解析({@code escalateOrgScope}:缺省/global 全公司、
+     * sameLine 锚定申请人实例变量、fixedUnit 指定部门子树)。解析有候选人才清空原
+     * assignee/候选集并设为 candidateUsers;空结果保持原状(与虚拟角色路径一致,
+     * 先清后解析会让任务无人可见且 timer 不再重试)。
+     */
+    private void escalateToRole(DelegateExecution execution, Task task,
+                                DshExtensionProperties.TimeoutPolicy policy) {
+        DshExtensionProperties.AssignmentRule rule = new DshExtensionProperties.AssignmentRule(
+            policy.escalateToRoleId(), policy.escalateOrgScope(), null, policy.escalateFixedUnitId());
+        String applicantOrgUnitId = (String) execution.getVariable(
+            DshMultiInstanceSetupListener.PROCESS_VARIABLE_APPLICANT_ORG_UNIT_ID);
+        String applicantUserId = (String) execution.getVariable(
+            DshSodFilter.PROCESS_VARIABLE_APPLICANT_USER_ID);
+        DshCandidateResolver.Resolution resolution =
+            candidateResolver.resolveForApplicant(rule, applicantOrgUnitId, applicantUserId);
+        if (resolution == null || resolution.candidates().isEmpty()) {
+            log.info("任务 {} 的升级目标角色 {} 在审批范围内无候选人,保持原办理人",
+                task.getId(), policy.escalateToRoleId());
             return;
         }
-
-        if (StringUtils.hasText(policy.escalateToRoleId())) {
-            List<String> userIds = membershipRepository.findActiveUserIdsByRoleId(policy.escalateToRoleId());
-            for (String userId : userIds) {
-                taskService.addCandidateUser(taskId, userId);
-            }
+        String taskId = task.getId();
+        taskService.setAssignee(taskId, null);
+        clearCandidates(taskId);
+        for (String userId : resolution.candidates()) {
+            taskService.addCandidateUser(taskId, userId);
         }
     }
 

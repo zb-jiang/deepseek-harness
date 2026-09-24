@@ -1,5 +1,7 @@
 # DSH Flowable 引擎服务配置
-# 参见 docs/plans/2026-08-19-supabase-setup-guide.md §10.2
+# 环境变量:SUPABASE_URL 指向 Supabase 项目(仅 JWT issuer),
+# SUPABASE_DB_HOST/USER/PASSWORD 指向本地 PostgreSQL,
+# 参见 docs/plans/2026-08-19-supabase-setup-guide.md 与 docs/plans/2026-09-21-local-pg-setup-guide.md
 #
 # 所有敏感值通过环境变量注入,不写入仓库。
 # 本地开发可在 IDE Run Configuration 配置环境变量,或用 application-dev.yml 覆盖。
@@ -14,30 +16,31 @@ spring:
   application:
     name: dsh-flowable-engine
 
-  # Supabase Postgres 走 Supavisor session pooler(5432,每客户端连接独占后端,支持完整事务/DDL)
-  # 免费版直连域名 db.<ref>.supabase.co 仅 IPv6,无 IPv6 网络的环境解析失败;
-  # pooler 域名提供 IPv4。禁止用 transaction 模式(6543),其不支持 prepared statement。
+  # 本地 PostgreSQL 直连(5432);禁止 Supabase transaction pooler 模式(6543),其不支持 prepared statement
   datasource:
-    url: jdbc:postgresql://${SUPABASE_DB_HOST}:5432/postgres
+    # connectTimeout/socketTimeout(秒,pgjdbc):网络中断时快速失败,防止查询线程卡死在
+    # socket 读上耗尽连接池(症状=前端 30s 超时而后台无报错);全部为小查询,60s 足够宽裕
+    url: jdbc:postgresql://${SUPABASE_DB_HOST}:5432/postgres?connectTimeout=10&socketTimeout=60
     username: ${SUPABASE_DB_USER}
     password: ${SUPABASE_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
-      # Supabase session pooler 上限 15;与 web-console 各分 5(合计 10<15,留余量)。
-      # 恒温 5 条(不用 minimum-idle 缩池):远端 RTT 高,现建连接要数秒,缩池后突发
-      # 请求会排队超时;僵尸进程清理后名额足够,保持常连接避免建连空窗。
+      # 与 web-console 各分 5,本地 PG 默认 max_connections=100 足够。
+      # 恒温 5 条(不用 minimum-idle 缩池):保持常连接避免建连空窗。
       maximum-pool-size: 5
       connection-timeout: 30000
-      # 30 分钟轮换连接,回收网络抖动产生的半开连接
+      # 30s 保活探测 + 30 分钟轮换:网络恢复后半死连接及时检出重建,不用等使用时才失败
+      keepalive-time: 30000
       max-lifetime: 1800000
 
 # Flowable 7 Spring Boot starter 配置前缀是顶级 flowable.*(不是 spring.flowable.*);
 # 写在 spring 下会被忽略,Flowable 回退到默认 schema=public 把 ACT_* 建到 public 下。
 flowable:
   # ACT_* 表建在 flowable schema,与 public schema 业务表隔离
+  # schema 本身由本地 PG 手册 §3.0 的 CREATE SCHEMA 建好,引擎不自动建 schema
   database-schema: flowable
-  # 首次启动自动建表,后续启动比对版本升级
-  database-schema-update: false
+  # 首次启动自动建 ACT_* 表,后续启动比对版本;表已存在的存量环境可改 false 锁定 schema 演进
+  database-schema-update: true
   # 启用异步 executor:定时器边界事件(超时升级 §6.8)、异步 ServiceTask 需要
   async-executor-activate: true
   # 异步 executor 线程池调优(V1):
@@ -80,7 +83,21 @@ dsh:
     call-timeout-seconds: 600
 
 logging:
+  # 主日志与控制台并行落文件:logs/engine.log(相对引擎工作目录,与 logs/process/ 同级),
+  # 终端历史丢失后可从文件回溯;按天+大小滚动,防长期运行无限膨胀
+  file:
+    name: logs/engine.log
+  logback:
+    rollingpolicy:
+      file-name-pattern: logs/engine.%d{yyyy-MM-dd}.%i.log
+      max-file-size: 20MB
+      max-history: 14
+      total-size-cap: 500MB
   level:
     com.dsh.flowable: INFO
     org.flowable: INFO
     org.springframework.security: INFO
+
+sor:
+  base-url: ${SOR_BASE_URL:http://127.0.0.1:8091}
+  service-key: ${SOR_SERVICE_KEY:demo-service-key}

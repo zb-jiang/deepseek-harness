@@ -30,8 +30,8 @@ public class SupabaseStorageClient {
     /**
      * 上传对象(路径不存在则创建;同路径重复上传由 Storage 返回 409,调用方保证路径唯一)。
      *
-     * @param bucket     桶名('kb-{appId}')
-     * @param objectPath 桶内对象路径(docId + '/' + 文档名)
+     * @param bucket     桶名(公共桶 kb-documents,一次性手工预建)
+     * @param objectPath 桶内对象路径({appId}/{docId}/document{ext},应用间分段隔离)
      * @param content    文件字节
      * @param contentType MIME 类型(未知用 application/octet-stream)
      */

@@ -1,0 +1,30 @@
+server:
+  port: ${SOR_PORT:8091}
+
+spring:
+  application:
+    name: expense-sor
+  datasource:
+    url: jdbc:postgresql://${SOR_DB_HOST:localhost}:${SOR_DB_PORT:5432}/${SOR_DB_NAME:expense}
+    username: ${SOR_DB_USER:postgres}
+    password: ${SOR_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 15MB
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${SOR_JWKS_URL:}
+
+app:
+  jwt-issuer: ${SOR_JWT_ISSUER:}
+  service-key: ${SOR_SERVICE_KEY:}
+  attachment-dir: ${SOR_ATTACHMENT_DIR:./data/attachments}

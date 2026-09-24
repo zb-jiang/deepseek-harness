@@ -225,7 +225,7 @@ describe('platform-user event wiring', () => {
 
     await fire(ctx, sessionAgent(session), 1, 1)
 
-    expect(identityTexts(session)).toEqual([renderIdentityText(user)])
+    expect(identityTexts(session)).toEqual([renderIdentityText(user, [], 'jwt-event')])
   })
 
   it('forgets the cached identity on platform-user/signout', async () => {
@@ -265,8 +265,8 @@ describe('org positions injection (design 2026-09-19 §6.4)', () => {
     await fire(ctx, agent, 2, 1)
 
     expect(identityTexts(session)).toEqual([
-      renderIdentityText(user, POSITIONS),
-      renderIdentityText(user, POSITIONS),
+      renderIdentityText(user, POSITIONS, 'jwt-1'),
+      renderIdentityText(user, POSITIONS, 'jwt-1'),
     ])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -291,8 +291,8 @@ describe('org positions injection (design 2026-09-19 §6.4)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(identityTexts(session)).toEqual([
-      renderIdentityText(platformUser(), POSITIONS),
-      renderIdentityText(relogged, POSITIONS),
+      renderIdentityText(platformUser(), POSITIONS, 'jwt-1'),
+      renderIdentityText(relogged, POSITIONS, 'jwt-2'),
     ])
   })
 
@@ -306,7 +306,7 @@ describe('org positions injection (design 2026-09-19 §6.4)', () => {
 
     await fire(ctx, sessionAgent(session), 1, 1)
 
-    expect(identityTexts(session)).toEqual([renderIdentityText(user)])
+    expect(identityTexts(session)).toEqual([renderIdentityText(user, [], 'jwt-1')])
   })
 
   it('degrades to a positions-free block when the envelope reports failure', async () => {
@@ -319,7 +319,7 @@ describe('org positions injection (design 2026-09-19 §6.4)', () => {
 
     await fire(ctx, sessionAgent(session), 1, 1)
 
-    expect(identityTexts(session)).toEqual([renderIdentityText(user)])
+    expect(identityTexts(session)).toEqual([renderIdentityText(user, [], 'jwt-1')])
   })
 
   it('skips the positions fetch when no verified token exists', async () => {

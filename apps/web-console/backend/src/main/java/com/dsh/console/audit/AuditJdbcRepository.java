@@ -24,8 +24,12 @@ import org.springframework.stereotype.Repository;
 public class AuditJdbcRepository {
 
     private static final String SELECT_BASE = """
-        SELECT id, event_type, target_user_id, operator_id, details, created_at
-        FROM public.audit_events
+        SELECT ae.id, ae.event_type, ae.target_user_id, ae.operator_id, ae.details, ae.created_at,
+               tu.display_name AS target_user_display_name,
+               ou.display_name AS operator_display_name
+        FROM public.audit_events ae
+        LEFT JOIN public.platform_users tu ON tu.id = ae.target_user_id
+        LEFT JOIN public.platform_users ou ON ou.id = ae.operator_id
         """;
 
     private final JdbcClient jdbcClient;
@@ -58,12 +62,12 @@ public class AuditJdbcRepository {
     public List<AuditEventDto> list(String eventTypeFilter, UUID operatorIdFilter, int offset, int limit) {
         StringBuilder sql = new StringBuilder(SELECT_BASE).append(" WHERE 1=1");
         if (eventTypeFilter != null && !eventTypeFilter.isBlank()) {
-            sql.append(" AND event_type = :eventType");
+            sql.append(" AND ae.event_type = :eventType");
         }
         if (operatorIdFilter != null) {
-            sql.append(" AND operator_id = :operatorId");
+            sql.append(" AND ae.operator_id = :operatorId");
         }
-        sql.append(" ORDER BY created_at DESC LIMIT :limit OFFSET :offset");
+        sql.append(" ORDER BY ae.created_at DESC LIMIT :limit OFFSET :offset");
 
         var stmt = jdbcClient.sql(sql.toString())
             .param("limit", limit)
@@ -81,7 +85,7 @@ public class AuditJdbcRepository {
      * 按目标用户查(用于用户治理页右侧"该用户的历史动作")。
      */
     public List<AuditEventDto> listByTargetUser(UUID targetUserId, int offset, int limit) {
-        return jdbcClient.sql(SELECT_BASE + " WHERE target_user_id = :targetUserId ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
+        return jdbcClient.sql(SELECT_BASE + " WHERE ae.target_user_id = :targetUserId ORDER BY ae.created_at DESC LIMIT :limit OFFSET :offset")
             .param("targetUserId", targetUserId)
             .param("limit", limit)
             .param("offset", offset)
@@ -115,11 +119,15 @@ public class AuditJdbcRepository {
         public AuditEventDto mapRow(ResultSet rs, int rowNum) throws SQLException {
             String detailsJson = rs.getString("details");
             Map<String, Object> details = parseDetails(detailsJson);
+            String targetType = details == null ? null : (String) details.get("targetType");
             return new AuditEventDto(
                 rs.getObject("id", UUID.class),
                 rs.getString("event_type"),
+                targetType,
                 rs.getObject("target_user_id", UUID.class),
+                rs.getString("target_user_display_name"),
                 rs.getObject("operator_id", UUID.class),
+                rs.getString("operator_display_name"),
                 details,
                 rs.getObject("created_at", java.time.OffsetDateTime.class)
             );

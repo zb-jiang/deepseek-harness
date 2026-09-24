@@ -251,7 +251,7 @@
     { "path": "./packages/session/session-telemetry" },
     { "path": "./packages/identity/anonymous-user-id" },
     { "path": "./packages/enterprise/platform-user" },
-    { "path": "./packages/enterprise/platform-user-supabase" },
+    { "path": "./packages/enterprise/platform-user-console" },
     { "path": "./packages/enterprise/platform-user-api" },
     { "path": "./packages/enterprise/user-identity-context" },
     { "path": "./packages/enterprise/flowable-task-proxy" },

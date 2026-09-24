@@ -10,20 +10,26 @@ import java.util.UUID;
  *
  * <p>所有写操作 Controller/Service 写审计;读操作查询审计页。
  *
- * @param id            主键 UUID
- * @param eventType     事件类型(机器可读,如 USER_APPROVE / APP_CREATE / WORKFLOW_PUBLISH)
- * @param targetUserId  目标用户 ID(可空,如目标是 application 则存到 details.target_id)
- * @param operatorId    操作人 ID(对应 platform_users.id)
- * @param details       详情 JSONB(可空)
- * @param createdAt     发生时间
+ * @param id                    主键 UUID
+ * @param eventType             事件类型(机器可读,如 USER_APPROVE / APP_CREATE / WORKFLOW_PUBLISH)
+ * @param targetType            目标实体类型(platform_user / application / app_role / org_unit / kb_document 等;可空)
+ * @param targetUserId          目标实体 ID(可空;含义由 targetType 决定,非 user 时不是 platform_users.id)
+ * @param targetUserDisplayName 目标用户 display_name(仅 targetType=platform_user 时有意义;可空)
+ * @param operatorId            操作人 ID(对应 platform_users.id,可空:系统自动操作)
+ * @param operatorDisplayName   操作人 display_name(可空:已删用户 / 系统自动操作)
+ * @param details               详情 JSONB(可空)
+ * @param occurredAt            发生时间
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AuditEventDto(
     UUID id,
     String eventType,
+    String targetType,
     UUID targetUserId,
+    String targetUserDisplayName,
     UUID operatorId,
+    String operatorDisplayName,
     Map<String, Object> details,
-    OffsetDateTime createdAt
+    OffsetDateTime occurredAt
 ) {
 }

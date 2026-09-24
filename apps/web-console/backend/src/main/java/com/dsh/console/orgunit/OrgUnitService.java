@@ -2,7 +2,9 @@ package com.dsh.console.orgunit;
 
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.orgunit.dto.AddOrgUnitMembersRequest;
 import com.dsh.console.orgunit.dto.OrgUnitDto;
+import com.dsh.console.orgunit.dto.OrgUnitMemberDto;
 import com.dsh.console.orgunit.dto.OrgPositionDto;
 import com.dsh.console.orgunit.dto.OrgUnitTreeNode;
 import com.dsh.console.orgunit.dto.SaveOrgUnitRequest;
@@ -157,11 +159,65 @@ public class OrgUnitService {
         int members = memberRepository.countByOrgUnit(id);
         if (members > 0) {
             throw new IllegalStateException(
-                "部门「%s」名下仍有 %d 名成员,先在用户管理页移出成员".formatted(existing.name(), members));
+                "部门「%s」名下仍有 %d 名成员,先在成员面板移出成员".formatted(existing.name(), members));
         }
         orgUnitRepository.delete(id);
         auditService.record("ORG_UNIT_DELETE", "org_unit", id, deleterId,
             Map.of("name", existing.name()));
+    }
+
+    /**
+     * 部门成员明细(部门管理页成员面板)。
+     */
+    @Transactional(readOnly = true)
+    public List<OrgUnitMemberDto> members(UUID orgUnitId) {
+        requireOrgUnitExists(orgUnitId);
+        return memberRepository.listMembersByOrgUnit(orgUnitId);
+    }
+
+    /**
+     * 批量加入成员(幂等:已在本部门的 id 跳过)。
+     *
+     * <p>校验:部门存在、用户存在;审计 ORG_UNIT_MEMBER_ADD。
+     */
+    @Transactional
+    public List<OrgUnitMemberDto> addMembers(UUID orgUnitId, AddOrgUnitMembersRequest request,
+                                             UUID operatorId) {
+        OrgUnitDto unit = requireOrgUnitExists(orgUnitId);
+        for (UUID userId : request.userIds().stream().distinct().toList()) {
+            if (userRepository.findById(userId).isEmpty()) {
+                throw new NotFoundException("用户不存在: " + userId);
+            }
+            memberRepository.insert(orgUnitId, userId);
+        }
+        auditService.record("ORG_UNIT_MEMBER_ADD", "org_unit", orgUnitId, operatorId,
+            Map.of("name", unit.name(), "count", request.userIds().size()));
+        return memberRepository.listMembersByOrgUnit(orgUnitId);
+    }
+
+    /**
+     * 移出单个成员。
+     *
+     * <p>守卫:负责人不可移出(决策 12:负责人必然有本部门归属),先更换负责人再移出;
+     * 审计 ORG_UNIT_MEMBER_REMOVE。
+     */
+    @Transactional
+    public List<OrgUnitMemberDto> removeMember(UUID orgUnitId, UUID userId, UUID operatorId) {
+        OrgUnitDto unit = requireOrgUnitExists(orgUnitId);
+        if (userId.equals(unit.headUserId())) {
+            throw new IllegalStateException(
+                "用户是部门「%s」的负责人,先更换负责人再移出".formatted(unit.name()));
+        }
+        memberRepository.deleteMember(orgUnitId, userId);
+        auditService.record("ORG_UNIT_MEMBER_REMOVE", "org_unit", orgUnitId, operatorId,
+            Map.of("name", unit.name(), "userId", userId.toString()));
+        return memberRepository.listMembersByOrgUnit(orgUnitId);
+    }
+
+    /** 部门存在性守卫(成员端点共用)。 */
+    private OrgUnitDto requireOrgUnitExists(UUID orgUnitId) {
+        return orgUnitRepository.findById(orgUnitId)
+            .orElseThrow(() -> new NotFoundException("部门不存在: " + orgUnitId));
     }
 
     /**

@@ -87,7 +87,9 @@ public class DshOrgUnitRepository {
             || orgUnitIds == null || orgUnitIds.isEmpty()) {
             return Map.of();
         }
-        String placeholders = String.join(",", java.util.Collections.nCopies(orgUnitIds.size(), "?"));
+        // org_unit_id 是 uuid 列,参数为 Java String:占位符必须显式 ::uuid,否则 PG 报
+        // "操作符不存在: uuid = character varying"(role_ids 同理,见下)
+        String placeholders = String.join(",", java.util.Collections.nCopies(orgUnitIds.size(), "?::uuid"));
         Map<String, List<String>> members = new HashMap<>();
         jdbcTemplate.query(
             "SELECT om.org_unit_id, pu.auth_subject FROM public.platform_users pu "

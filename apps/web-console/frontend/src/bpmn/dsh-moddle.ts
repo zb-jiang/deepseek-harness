@@ -83,15 +83,20 @@ export const dshModdleDescriptor = {
     },
     {
       // 超时升级目标优先级(引擎 DshTaskEscalationDelegate 对齐):
-      // escalateToVirtualRole(parent/grandparent,锚定当前审批人)
-      // > escalateToUserId > escalateToRoleId
+      // escalateToUserId > escalateToVirtualRole(parent/grandparent,锚定当前审批人)
+      // > escalateToRoleId(escalateOrgScope/escalateFixedUnitId 语义同 AssignmentRule)
       name: 'TimeoutPolicy',
       superClass: ['Element'],
       properties: [
         { name: 'duration', isAttr: true, type: 'String' },
+        // 设计器显式记录的升级目标类型(none/user/virtual/entity);引擎不读,
+        // 引擎按 escalateTo* 属性 hasText 兜底判断
+        { name: 'escalateTargetType', isAttr: true, type: 'String' },
         { name: 'escalateToRoleId', isAttr: true, type: 'String' },
         { name: 'escalateToUserId', isAttr: true, type: 'String' },
         { name: 'escalateToVirtualRole', isAttr: true, type: 'String' },
+        { name: 'escalateOrgScope', isAttr: true, type: 'String' },
+        { name: 'escalateFixedUnitId', isAttr: true, type: 'String' },
       ],
     },
     {

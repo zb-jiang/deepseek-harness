@@ -143,7 +143,7 @@ public class WorkflowDefinitionJdbcRepository {
      */
     public List<com.dsh.console.runtime.dto.StartableWorkflowDto> listStartableAll() {
         return jdbcClient.sql("""
-                SELECT w.id, w.name, w.description, w.app_id, a.name AS app_name
+                SELECT w.id, w.name, w.description, w.bpmn_process_key, w.app_id, a.name AS app_name
                 FROM public.workflow_definitions w
                 JOIN public.applications a ON a.id = w.app_id
                 WHERE w.status = 'published'
@@ -153,6 +153,7 @@ public class WorkflowDefinitionJdbcRepository {
                 rs.getObject("id", UUID.class),
                 rs.getString("name"),
                 rs.getString("description"),
+                rs.getString("bpmn_process_key"),
                 rs.getObject("app_id", UUID.class),
                 rs.getString("app_name")))
             .list();
@@ -168,7 +169,7 @@ public class WorkflowDefinitionJdbcRepository {
             return List.of();
         }
         return jdbcClient.sql("""
-                SELECT w.id, w.name, w.description, w.app_id, a.name AS app_name
+                SELECT w.id, w.name, w.description, w.bpmn_process_key, w.app_id, a.name AS app_name
                 FROM public.workflow_definitions w
                 JOIN public.applications a ON a.id = w.app_id
                 WHERE w.status = 'published' AND w.app_id IN (:appIds)
@@ -179,6 +180,7 @@ public class WorkflowDefinitionJdbcRepository {
                 rs.getObject("id", UUID.class),
                 rs.getString("name"),
                 rs.getString("description"),
+                rs.getString("bpmn_process_key"),
                 rs.getObject("app_id", UUID.class),
                 rs.getString("app_name")))
             .list();

@@ -3,8 +3,11 @@ import { get } from './client'
 export interface AuditEventDto {
   id: string
   eventType: string
+  targetType?: string | null
   targetUserId: string | null
+  targetUserDisplayName?: string | null
   operatorId: string | null
+  operatorDisplayName?: string | null
   details: Record<string, unknown> | null
   occurredAt: string | null
 }

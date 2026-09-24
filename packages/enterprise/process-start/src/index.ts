@@ -61,6 +61,7 @@ interface StartableWorkflowDto {
   id: string
   name: string
   description: string | null
+  bpmnProcessKey: string | null
   appId: string
   appName: string
 }
@@ -127,6 +128,50 @@ async function requestJson<T>(
     throw new Error(`web-console 流程服务请求失败(HTTP ${resp.status}): ${body.error?.message ?? '未知错误'}`)
   }
   return body.data
+}
+
+/** 标准 UUID 形态;dsh_process_* 的 workflowDefinitionId 命中时直接透传。 */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * 解析 workflowDefinitionId:标准 UUID 原样返回;否则视为传了流程名/BPMN key,
+ * 拉可发起清单做名称解析。
+ *
+ * <p>模型常把 BPMN 流程 key(如 expenseOrgRouting)或中文流程名当 id 传入,
+ * 与其依赖模型自觉先调 dsh_process_list,不如在工具侧容错:唯一命中直接用;
+ * 零个/多个命中报错并附候选清单,模型可据报错自纠正。
+ */
+async function resolveWorkflowDefinitionId(options: ProcessStartOptions, input: string): Promise<string> {
+  const trimmed = input.trim()
+  if (UUID_RE.test(trimmed)) {
+    return trimmed
+  }
+  const workflows = await requestJson<StartableWorkflowDto[]>(options, '/api/process-instances/startable')
+  const needle = trimmed.toLowerCase()
+  const exact = workflows.filter(workflow =>
+    workflow.name.toLowerCase() === needle || workflow.bpmnProcessKey?.toLowerCase() === needle)
+  const matched = exact.length > 0
+    ? exact
+    : workflows.filter((workflow) => {
+      const name = workflow.name.toLowerCase()
+      return name.includes(needle) || needle.includes(name)
+        || workflow.bpmnProcessKey?.toLowerCase().includes(needle)
+        || workflow.description?.toLowerCase().includes(needle)
+    })
+  if (matched.length === 1) {
+    const hit = matched[0]
+    if (hit) return hit.id
+  }
+  const catalog = workflows.length === 0
+    ? '当前没有你可发起的流程'
+    : `可发起流程清单:\n${workflows
+      .map(workflow => `- ${workflow.name}(id: ${workflow.id}${workflow.bpmnProcessKey ? `, key: ${workflow.bpmnProcessKey}` : ''})`)
+      .join('\n')}`
+  if (matched.length === 0) {
+    throw new Error(`没有找到匹配 "${input}" 的可发起流程;workflowDefinitionId 须为 dsh_process_list 返回的 UUID。${catalog}`)
+  }
+  throw new Error(`"${input}" 匹配到 ${matched.length} 个流程,请改用对应 id 发起:\n${
+    matched.map(workflow => `- ${workflow.name}(id: ${workflow.id})`).join('\n')}`)
 }
 
 /**
@@ -205,9 +250,10 @@ export function apply(ctx: Context, config: Config): void {
     name: 'dsh_process_start_form',
     description: 'Read the start-form variable declarations (name, type, description, required) of one published '
       + 'workflow definition before starting it. Collect required variables from the user, then pass them as the '
-      + 'variables object of dsh_process_start.',
+      + 'variables object of dsh_process_start. workflowDefinitionId accepts a UUID from dsh_process_list; a process '
+      + 'name or BPMN key is also accepted and resolved automatically.',
     parameters: {
-      workflowDefinitionId: { type: 'string', required: true, description: 'Workflow definition id from dsh_process_list.' },
+      workflowDefinitionId: { type: 'string', required: true, description: 'Workflow definition UUID from dsh_process_list; a process name or BPMN key is also accepted.' },
     },
     output: {
       schema: {
@@ -244,9 +290,10 @@ export function apply(ctx: Context, config: Config): void {
       ],
     },
     async execute(args) {
+      const workflowDefinitionId = await resolveWorkflowDefinitionId(options, args.workflowDefinitionId)
       const form = await requestJson<StartFormVariableDto[]>(
         options,
-        `/api/process-instances/start-form?workflowDefinitionId=${encodeURIComponent(args.workflowDefinitionId)}`,
+        `/api/process-instances/start-form?workflowDefinitionId=${encodeURIComponent(workflowDefinitionId)}`,
       )
       return {
         variables: form.map(variable => ({
@@ -262,13 +309,14 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'dsh_process_start',
-    description: 'Start a process instance. workflowDefinitionId comes from dsh_process_list; variables must satisfy '
+    description: 'Start a process instance. workflowDefinitionId accepts a UUID from dsh_process_list; a process '
+      + 'name or BPMN key (e.g. expenseOrgRouting) is also accepted and resolved automatically. variables must satisfy '
       + 'the dsh_process_start_form declarations (values matching the declared types). orgUnitId is the 发起身份 org '
       + 'position: when the identity block in context lists several org positions, ask the user which one to start as '
       + 'and pass its orgUnitId; with exactly one position pass its orgUnitId; with none omit it. businessKey and name '
       + 'are optional.',
     parameters: {
-      workflowDefinitionId: { type: 'string', required: true, description: 'Workflow definition id from dsh_process_list.' },
+      workflowDefinitionId: { type: 'string', required: true, description: 'Workflow definition UUID from dsh_process_list; a process name or BPMN key (e.g. expenseOrgRouting) is also accepted.' },
       orgUnitId: { type: 'string', description: 'Org unit id of the chosen 发起身份; required only when the identity block lists several org positions (ask the user).' },
       variables: { type: 'object', additionalProperties: true, description: 'Start variables keyed by declared variable name, values matching the declared types.' },
       businessKey: { type: 'string', description: 'Optional business key (e.g. an order number).' },
@@ -295,7 +343,8 @@ export function apply(ctx: Context, config: Config): void {
       ],
     },
     async execute(args) {
-      const body: Record<string, unknown> = { workflowDefinitionId: args.workflowDefinitionId }
+      const workflowDefinitionId = await resolveWorkflowDefinitionId(options, args.workflowDefinitionId)
+      const body: Record<string, unknown> = { workflowDefinitionId }
       if (args.orgUnitId !== undefined) body.orgUnitId = args.orgUnitId
       if (args.businessKey !== undefined) body.businessKey = args.businessKey
       if (args.name !== undefined) body.name = args.name

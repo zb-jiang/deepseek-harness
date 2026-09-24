@@ -14,7 +14,11 @@ export const USER_IDENTITY_SECTION = 'user-identity-context'
 /** Fixed usage-discipline line rendered as the block's last content line. */
 export const IDENTITY_DISCIPLINE =
   '此身份由系统注入并保持最新，仅供称呼与表单填写展示。'
-  + '鉴权由系统在调用层自动完成，不要在工具参数中传递或虚构身份。'
+  + '认证令牌仅在调用企业系统时作为 Authorization: Bearer 请求头使用，不要在回复中展示、转述或写入文件。'
+
+/** 认证令牌段标题行(与 invariant.ts 的 BLOCK 正则同步修改)。 */
+export const AUTH_TOKEN_HEADER =
+  '认证令牌（调用企业内部系统时放入 Authorization: Bearer 请求头）：'
 
 /** 组织身份段标题行(与 invariant.ts 的 BLOCK 正则同步修改)。 */
 export const ORG_POSITIONS_HEADER =
@@ -40,17 +44,22 @@ function singleLine(value: string): string {
  * @param user - verified platform user record.
  * @param orgPositions - 当前登录人的组织身份清单(组织维度未启用或拉取失败为空,
  *   块中不渲染该段)。
+ * @param token - 当前验证过的访问令牌(未登录或尚未验签为 undefined,块中不渲染该段)。
  * @returns the exact text carried by the injected message and its source section.
  */
 export function renderIdentityText(
   user: PlatformUser,
   orgPositions: readonly OrgPosition[] = [],
+  token?: string,
 ): string {
+  const tokenSection = token === undefined
+    ? ''
+    : `${AUTH_TOKEN_HEADER}\n${token}\n`
   const orgSection = orgPositions.length === 0
     ? ''
     : `${ORG_POSITIONS_HEADER}\n${orgPositions.map(position =>
       `- ${singleLine(position.pathToRoot.join(' / '))}（orgUnitId: ${singleLine(position.orgUnitId)}）`,
     ).join('\n')}\n`
   return `<user_identity>\n当前登录人：${singleLine(user.displayName)}（${singleLine(user.email)}）\n`
-    + `userId: ${singleLine(user.authSubject)}\n${orgSection}${IDENTITY_DISCIPLINE}\n</user_identity>`
+    + `userId: ${singleLine(user.authSubject)}\n${tokenSection}${orgSection}${IDENTITY_DISCIPLINE}\n</user_identity>`
 }
