@@ -63,3 +63,6 @@ packages/host/webserver/src/*.d.ts.map
 # Local test data: invoice fixtures and Tesseract OCR language packs
 /发票/
 apps/web-console/tessdata/
+# Runtime state: engine logs and expense attachment storage
+apps/flowable-engine/logs/
+apps/expense-ctrl/attachments/
