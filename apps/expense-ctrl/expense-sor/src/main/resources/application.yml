@@ -28,3 +28,12 @@ app:
   jwt-issuer: ${SOR_JWT_ISSUER:}
   service-key: ${SOR_SERVICE_KEY:}
   attachment-dir: ${SOR_ATTACHMENT_DIR:./data/attachments}
+  # Web UI(2026-09-24 新增):前端 Supabase 直连登录所需客户端配置
+  supabase-url: ${SOR_SUPABASE_URL:}
+  supabase-anon-key: ${SOR_SUPABASE_ANON_KEY:}
+  # platform_users 表所在库(默认与主库同实例的 postgres 库 public schema),供 /api/me 查显示名
+  user-db-host: ${SOR_USER_DB_HOST:${SOR_DB_HOST:localhost}}
+  user-db-port: ${SOR_USER_DB_PORT:${SOR_DB_PORT:5432}}
+  user-db-name: ${SOR_USER_DB_NAME:postgres}
+  user-db-user: ${SOR_USER_DB_USER:${SOR_DB_USER:postgres}}
+  user-db-password: ${SOR_USER_DB_PASSWORD:${SOR_DB_PASSWORD:}}

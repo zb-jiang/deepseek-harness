@@ -102,6 +102,8 @@ $env:SOR_JWKS_URL = "https://tmommaaeuqnhanbtqmti.supabase.co/auth/v1/.well-know
 $env:SOR_JWT_ISSUER = "https://tmommaaeuqnhanbtqmti.supabase.co/auth/v1"
 $env:SOR_ATTACHMENT_DIR = "D:\works\deepseek-harness\apps\expense-ctrl\attachments"
 $env:SOR_SERVICE_KEY = "demo-service-key"
+$env:SOR_SUPABASE_URL = "https://tmommaaeuqnhanbtqmti.supabase.co"
+$env:SOR_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtb21tYWFldXFuaGFuYnRxbXRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDYxMTgsImV4cCI6MjEwMjcyMjExOH0.TRUg-O36QkIH9QbJYi9FPL6j1PucKnrulecamWRSnkI"
 cd D:\works\deepseek-harness\apps\expense-ctrl\expense-sor
 mvn test
 mvn package -DskipTests

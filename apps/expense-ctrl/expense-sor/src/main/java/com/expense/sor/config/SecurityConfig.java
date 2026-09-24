@@ -69,6 +69,9 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a -> a
                 .requestMatchers("/api/health").permitAll()
+                // Web UI 静态资源与登录页客户端配置端点放行(2026-09-24);
+                // /api/ui-config 仅下发 Supabase URL 与 anon key(公开客户端密钥),不涉及业务数据
+                .requestMatchers("/", "/index.html", "/favicon.ico", "/css/**", "/js/**", "/api/ui-config").permitAll()
                 .anyRequest().authenticated())
             .addFilterBefore(serviceKeyFilter, org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationFilter.class)
             .oauth2ResourceServer(o -> o

@@ -50,6 +50,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.INTERNAL_SERVER_ERROR.value(), 1500, "服务内部错误:数据库访问失败", null);
     }
 
+    /** 静态资源不存在(如浏览器自动请求 /favicon.ico):静默 404,不刷 ERROR 堆栈 */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    @RawResponse
+    public ResponseEntity<Map<String, Object>> handleNoResource(org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        return build(HttpStatus.NOT_FOUND.value(), 1404, "资源不存在: " + e.getResourcePath(), null);
+    }
+
     @ExceptionHandler(Exception.class)
     @RawResponse
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception e) {
