@@ -6,6 +6,7 @@ import com.dsh.flowable.listener.DshExtensionProperties;
 import com.dsh.flowable.listener.DshExtensionResolver;
 import com.dsh.flowable.listener.DshPromptInterpolator;
 import com.dsh.flowable.listener.DshVariableMappingSupport;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +71,16 @@ public class DshBackendTaskDelegate implements JavaDelegate {
                 + "(activity " + activityId + ",流程应经 web-console 发布校验)");
         }
         String prompt = interpolatePrompt(props, execution);
-        Map<String, Object> result = client.execute(profileUrl, prompt, props.skillRefs(), activityId);
+        // 每次尝试(含 async job 重试)都在实例日志留下完整输入/产出/失败,重试重放会重复记录
+        ProcessLog.log(execution, "提交 backend task -> {}\n{}", profileUrl, prompt);
+        Map<String, Object> result;
+        try {
+            result = client.execute(profileUrl, prompt, props.skillRefs(), activityId);
+        } catch (RuntimeException e) {
+            ProcessLog.log(execution, "backend task 调用失败: {}", e.getMessage());
+            throw e;
+        }
+        ProcessLog.log(execution, "backend task 返回: {}", toJson(result));
         applyOutputMappings(execution, result, props.outputMappings(), props.contextVariables());
         log.info("[DSH backend] {} 完成,输出映射 {} 条", activityId,
             props.outputMappings() == null ? 0 : props.outputMappings().size());
@@ -111,6 +121,15 @@ public class DshBackendTaskDelegate implements JavaDelegate {
             return "";
         }
         return DshPromptInterpolator.interpolate(template, execution::getVariable, objectMapper);
+    }
+
+    /** result 序列化为 JSON 文本(写实例日志);序列化失败退回 Map.toString。 */
+    private String toJson(Map<String, Object> result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (JsonProcessingException e) {
+            return String.valueOf(result);
+        }
     }
 
     /**
