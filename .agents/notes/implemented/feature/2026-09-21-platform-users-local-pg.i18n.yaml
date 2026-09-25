@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-21-platform-users-local-pg.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-platform-users-local-pg.md
+/agent-note-platform-users-on-local-postgresql:
+  en: 5d780aa11252643e
+  zh: 6c4534b5820e2750
+/agent-note-platform-users-on-local-postgresql/problem:
+  en: de63e4a2a5739410
+  zh: a0ed4e1e332bd2fd
+/agent-note-platform-users-on-local-postgresql/decision:
+  en: b1cbf80b4e9557af
+  zh: b6040b09cd9e183a
+/agent-note-platform-users-on-local-postgresql/alternatives-considered:
+  en: cb42e0cd3eb2b43f
+  zh: 725bedb3b64045c1
+/agent-note-platform-users-on-local-postgresql/consequences:
+  en: b22d6c0a4fa72526
+  zh: 09ddb15e131c3f90

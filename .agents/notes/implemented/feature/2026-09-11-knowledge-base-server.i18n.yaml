@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-11-knowledge-base-server.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-knowledge-base-server.md
+/agent-note-enterprise-knowledge-base-server-web-console:
+  en: ec0b82d1db6bb7f8
+  zh: 5bb33a937ee6f9f5
+/agent-note-enterprise-knowledge-base-server-web-console/problem:
+  en: 391295e582056ec8
+  zh: 574c73991c3e13e8
+/agent-note-enterprise-knowledge-base-server-web-console/decision:
+  en: 3981e6ac4046d230
+  zh: 6a074e09138f70ec
+/agent-note-enterprise-knowledge-base-server-web-console/alternatives-considered:
+  en: 142442678219c01c
+  zh: d3c661dffd792ab4
+/agent-note-enterprise-knowledge-base-server-web-console/consequences:
+  en: 35995a504dc9155b
+  zh: 8813e029139096d0
