@@ -1,5 +1,6 @@
 package com.dsh.flowable.delegate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -14,6 +15,7 @@ import com.dsh.flowable.listener.DshMultiInstanceSetupListener;
 import com.dsh.flowable.listener.DshSodFilter;
 import com.dsh.flowable.listener.DshTaskListener;
 import com.dsh.flowable.repository.DshOrgUnitRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Map;
 import org.flowable.bpmn.model.BpmnModel;
@@ -43,8 +45,10 @@ class DshTaskEscalationDelegateTest {
     private final DshBpmnExtensionParser extensionParser = mock(DshBpmnExtensionParser.class);
     private final DshCandidateResolver candidateResolver = mock(DshCandidateResolver.class);
     private final DshOrgUnitRepository orgUnitRepository = mock(DshOrgUnitRepository.class);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final DshTaskEscalationDelegate delegate = new DshTaskEscalationDelegate(
-        repositoryService, taskService, extensionParser, candidateResolver, orgUnitRepository);
+        repositoryService, taskService, extensionParser, candidateResolver, orgUnitRepository,
+        meterRegistry);
 
     private final DelegateExecution execution = mock(DelegateExecution.class);
     private final Task task = mock(Task.class);
@@ -90,6 +94,8 @@ class DshTaskEscalationDelegateTest {
 
         verify(orgUnitRepository, never()).findOrgUnitIdsByAuthSubject(anyString());
         verify(taskService).setAssignee(TASK_ID, LAOZHOU);
+        // 运维埋点:升级触发计数(timer 触发且有任务待升级)
+        assertThat(meterRegistry.get("dsh.task.escalation").counter().count()).isEqualTo(1.0);
     }
 
     @Test

@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { PendingGate, RequireAuth } from './auth/RequireAuth'
 import ConsoleLayout from './layouts/ConsoleLayout'
+import AnalyticsPage from './pages/Analytics'
 import AppDetailPage from './pages/AppDetail'
 import AppsPage from './pages/Apps'
 import AuditPage from './pages/Audit'
@@ -66,6 +67,7 @@ export default function App() {
                 <Route path="workflows/:workflowId" element={<WorkflowDetailPage />} />
                 <Route path="instances" element={<InstancesPage />} />
                 <Route path="instances/:instanceId" element={<InstanceDetailPage />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="audit" element={<AuditPage />} />
                 <Route path="*" element={<NotFound />} />
               </Route>

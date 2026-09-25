@@ -70,6 +70,28 @@ dsh:
     tessdata-path: ${TESSDATA_PATH:}
     max-upload-size-mb: ${KB_MAX_UPLOAD_MB:50}
 
+  # 分析看板(设计 2026-09-25 §8):轮询引擎 /actuator/metrics 落 dsh_metrics_sample 表。
+  # 白名单内指标逐个采集;带 tag 的指标(如 dsh.backend.task{outcome=...})按引擎返回的
+  # availableTags 展开逐值采集,落库名形如 "name{tag=value}"。
+  analytics:
+    # 轮询间隔(毫秒)
+    poll-interval-ms: ${ANALYTICS_POLL_INTERVAL_MS:30000}
+    # 指标保留天数(每日 03:30 清理过期行)
+    retention-days: ${ANALYTICS_RETENTION_DAYS:90}
+    # 轮询白名单(引擎 actuator metrics 指标名;白名单外不采集)
+    metrics:
+      - dsh.flowable.jobs.async
+      - dsh.flowable.jobs.timer
+      - dsh.flowable.jobs.deadletter
+      - dsh.flowable.jobs.suspended
+      - dsh.backend.task
+      - dsh.task.escalation
+      - hikaricp.connections.active
+      - jvm.memory.used
+    # 简单阈值告警:指标名 → max 阈值;越限写 ANALYTICS_ALERT 审计事件(同一指标 2h 去重)
+    alerts:
+      "[dsh.flowable.jobs.deadletter]": 0
+
 logging:
   level:
     com.dsh.console: INFO

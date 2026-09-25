@@ -82,6 +82,15 @@ dsh:
     # 单次任务调用总超时(秒,含轮询累计);超时抛异常触发 async Job 重试
     call-timeout-seconds: 600
 
+# Actuator 暴露面收敛:只开 health(部署探活)与 metrics(分析看板运维指标,
+# web-console 轮询采集)两个端点;env/configprops/beans 等敏感端点不暴露。
+# metrics 端点 permitAll(内网信任,SecurityConfig 有说明,V2 收紧为 service token)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+
 logging:
   # 主日志与控制台并行落文件:logs/engine.log(相对引擎工作目录,与 logs/process/ 同级),
   # 终端历史丢失后可从文件回溯;按天+大小滚动,防长期运行无限膨胀

@@ -479,4 +479,73 @@ public class FlowableRestClient {
             .body(JsonNode.class);
         return resp == null ? -1 : resp.path("total").asInt(-1);
     }
+
+    // ==================== 分析看板(设计 2026-09-25) ====================
+
+    /**
+     * 分析聚合:流程实例概览统计(发起/完成/运行中/终止 + 时长均值/P95)。
+     *
+     * <p>调引擎 {@code GET /dsh/analytics/overview},透传当前用户 JWT(请求线程)。
+     */
+    public JsonNode getAnalyticsOverview(int days, String processDefinitionKey) {
+        return analyticsGet("/dsh/analytics/overview", days, processDefinitionKey);
+    }
+
+    /**
+     * 分析聚合:每日吞吐量(发起数按发起日/完成数按完成日,同一日期轴)。
+     */
+    public JsonNode getAnalyticsDailyVolumes(int days, String processDefinitionKey) {
+        return analyticsGet("/dsh/analytics/daily-volumes", days, processDefinitionKey);
+    }
+
+    /**
+     * 分析聚合:节点活动统计(热力图 + TOP 最慢节点,含 sequenceFlow 连线)。
+     */
+    public JsonNode getAnalyticsActivityStats(int days, String processDefinitionKey) {
+        return analyticsGet("/dsh/analytics/activity-stats", days, processDefinitionKey);
+    }
+
+    /**
+     * 分析聚合:办理人时效统计(assignee 为 user.id,displayName 由本服务补齐)。
+     */
+    public JsonNode getAnalyticsTaskStats(int days, String processDefinitionKey) {
+        return analyticsGet("/dsh/analytics/task-stats", days, processDefinitionKey);
+    }
+
+    /** 引擎分析端点公共 GET(透传用户 JWT;key 为空不传参)。 */
+    private JsonNode analyticsGet(String path, int days, String processDefinitionKey) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> {
+                uriBuilder.path(path).queryParam("days", days);
+                if (processDefinitionKey != null && !processDefinitionKey.isBlank()) {
+                    uriBuilder.queryParam("processDefinitionKey", processDefinitionKey);
+                }
+                return uriBuilder.build();
+            })
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
+     * 查引擎单个 actuator 指标(分析看板运维指标轮询用)。
+     *
+     * <p>调 {@code GET /actuator/metrics/{metric}},返回 {@code {name, description,
+     * baseUnit, measurements:[{statistic,value}], availableTags:[...]}}。
+     * 调度线程无用户 JWT,透传 interceptor 不补头——引擎侧该端点 permitAll(内网信任)。
+     *
+     * @param metricName 指标名(如 dsh.flowable.jobs.async)
+     * @param tagFilter  可选;tag 过滤(格式 {@code tagKey:tagValue},如 outcome:success)
+     */
+    public JsonNode getEngineMetric(String metricName, String tagFilter) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> {
+                uriBuilder.path("/actuator/metrics/{metric}");
+                if (tagFilter != null && !tagFilter.isBlank()) {
+                    uriBuilder.queryParam("tag", tagFilter);
+                }
+                return uriBuilder.build(metricName);
+            })
+            .retrieve()
+            .body(JsonNode.class);
+    }
 }

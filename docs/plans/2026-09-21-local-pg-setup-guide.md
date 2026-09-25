@@ -358,3 +358,27 @@ CREATE TABLE IF NOT EXISTS public.org_unit_members (
 -- 索引:按员工反查其全部部门(发起身份选择/超时升级锚点回退)
 CREATE INDEX IF NOT EXISTS idx_org_unit_members_user ON public.org_unit_members (user_id);
 ```
+
+## 分析看板指标表
+
+web-console 定时轮询 flowable-engine `/actuator/metrics` 落库的运维指标采样表:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.dsh_metrics_sample (
+    id BIGSERIAL PRIMARY KEY,
+    metric TEXT NOT NULL,          -- 指标名,如 dsh.flowable.jobs.async;
+                                   -- 带 tag 指标形如 dsh.backend.task{outcome=success}
+    statistic TEXT NOT NULL,       -- VALUE / COUNT / TOTAL_TIME / MAX
+    value DOUBLE PRECISION NOT NULL,
+    ts TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dsh_metrics_sample_metric_ts
+  ON public.dsh_metrics_sample (metric, ts DESC);
+```
+
+可选(数据量增长后按需执行):引擎历史表按"定义 + 发起时间"聚合查询的组合索引:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_hi_actinst_procdef_start
+  ON flowable.act_hi_actinst (proc_def_id_, start_time_);
+```

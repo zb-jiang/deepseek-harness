@@ -7,6 +7,7 @@ import com.dsh.flowable.listener.DshMultiInstanceSetupListener;
 import com.dsh.flowable.listener.DshSodFilter;
 import com.dsh.flowable.listener.DshTaskListener;
 import com.dsh.flowable.repository.DshOrgUnitRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.UserTask;
@@ -63,17 +64,20 @@ public class DshTaskEscalationDelegate implements JavaDelegate {
     private final DshBpmnExtensionParser extensionParser;
     private final DshCandidateResolver candidateResolver;
     private final DshOrgUnitRepository orgUnitRepository;
+    private final MeterRegistry meterRegistry;
 
     public DshTaskEscalationDelegate(RepositoryService repositoryService,
                                      TaskService taskService,
                                      DshBpmnExtensionParser extensionParser,
                                      DshCandidateResolver candidateResolver,
-                                     DshOrgUnitRepository orgUnitRepository) {
+                                     DshOrgUnitRepository orgUnitRepository,
+                                     MeterRegistry meterRegistry) {
         this.repositoryService = repositoryService;
         this.taskService = taskService;
         this.extensionParser = extensionParser;
         this.candidateResolver = candidateResolver;
         this.orgUnitRepository = orgUnitRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
@@ -109,6 +113,10 @@ public class DshTaskEscalationDelegate implements JavaDelegate {
             .active()
             .list();
 
+        if (!tasks.isEmpty()) {
+            // 运维指标:超时升级触发数(timer 触发且有任务待升级才计,分析看板阈值告警用)
+            meterRegistry.counter("dsh.task.escalation").increment();
+        }
         for (Task task : tasks) {
             escalateTask(execution, task, originalTaskDefKey, policy);
         }

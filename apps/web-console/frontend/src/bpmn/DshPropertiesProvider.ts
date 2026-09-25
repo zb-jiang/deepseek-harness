@@ -90,8 +90,8 @@ import type { AppRoleDto } from '../api/roles'
 import type { BackendProfileDto } from '../api/backend-profiles'
 import { userPromptModalEntry } from './UserPromptModal'
 
-/** bpmn-js 图元素的最小结构(provider 只用 businessObject)。 */
-export type BpmnElement = { businessObject: BpmnModdleElement }
+/** bpmn-js 图元素的最小结构(provider 只用 id 与 businessObject)。 */
+export type BpmnElement = { id?: string; businessObject: BpmnModdleElement }
 
 /** moddle 元素(动态属性访问)。 */
 export type BpmnModdleElement = {

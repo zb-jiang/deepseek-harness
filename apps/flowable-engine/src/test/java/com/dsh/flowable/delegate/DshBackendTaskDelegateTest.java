@@ -8,6 +8,7 @@ import com.dsh.flowable.listener.DshBpmnExtensionParser;
 import com.dsh.flowable.listener.DshExtensionPropertiesCache;
 import com.dsh.flowable.listener.DshExtensionResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
@@ -57,6 +58,9 @@ class DshBackendTaskDelegateTest {
     /** 桩返回:backend task 的 result JSON。 */
     private volatile Map<String, Object> stubResult = Map.of();
 
+    /** 运维指标注册表(分析看板 backend task 成功率/时延埋点断言用)。 */
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
     @BeforeEach
     void setUp() {
         AtomicReference<RepositoryService> realRepositoryService = new AtomicReference<>();
@@ -87,7 +91,7 @@ class DshBackendTaskDelegateTest {
         DshBackendTaskDelegate delegate = new DshBackendTaskDelegate(
             new DshExtensionResolver(lazyRepositoryService,
                 new DshBpmnExtensionParser(), new DshExtensionPropertiesCache()),
-            stubClient, new ObjectMapper());
+            stubClient, new ObjectMapper(), meterRegistry);
 
         StandaloneProcessEngineConfiguration configuration = new StandaloneProcessEngineConfiguration();
         configuration.setJdbcUrl("jdbc:h2:mem:dsh-backend-delegate-test");
@@ -153,6 +157,9 @@ class DshBackendTaskDelegateTest {
         // array 整体覆盖写(不做 user task 多实例 append 聚合)
         assertThat(runtimeService.getVariable(instance.getId(), "reportList"))
             .isEqualTo(List.of(1, 2));
+        // 运维埋点:成功路径记录 dsh.backend.task{outcome=success} 计时
+        assertThat(meterRegistry.get("dsh.backend.task").tag("outcome", "success").timer().count())
+            .isEqualTo(1L);
     }
 
     @Test

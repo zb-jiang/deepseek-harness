@@ -8,8 +8,10 @@ import com.dsh.flowable.listener.DshPromptInterpolator;
 import com.dsh.flowable.listener.DshVariableMappingSupport;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.flowable.engine.delegate.DelegateExecution;
 import org.flowable.engine.delegate.JavaDelegate;
 import org.slf4j.Logger;
@@ -46,13 +48,16 @@ public class DshBackendTaskDelegate implements JavaDelegate {
     private final DshExtensionResolver resolver;
     private final DshBackendClient client;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     public DshBackendTaskDelegate(DshExtensionResolver resolver,
                                    DshBackendClient client,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   MeterRegistry meterRegistry) {
         this.resolver = resolver;
         this.client = client;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
@@ -73,13 +78,21 @@ public class DshBackendTaskDelegate implements JavaDelegate {
         String prompt = interpolatePrompt(props, execution);
         // 每次尝试(含 async job 重试)都在实例日志留下完整输入/产出/失败,重试重放会重复记录
         ProcessLog.log(execution, "提交 backend task -> {}\n{}", profileUrl, prompt);
+        // 运维指标:backend task 调用计时(success/failed 分 tag)+ 失败计数
+        // (分析看板按 dsh_metrics_sample 的 COUNT/TOTAL_TIME 窗口差分算成功率与平均时延)
+        long start = System.nanoTime();
         Map<String, Object> result;
         try {
             result = client.execute(profileUrl, prompt, props.skillRefs(), activityId);
         } catch (RuntimeException e) {
+            meterRegistry.timer("dsh.backend.task", "outcome", "failed")
+                .record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+            meterRegistry.counter("dsh.backend.task.failure").increment();
             ProcessLog.log(execution, "backend task 调用失败: {}", e.getMessage());
             throw e;
         }
+        meterRegistry.timer("dsh.backend.task", "outcome", "success")
+            .record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
         ProcessLog.log(execution, "backend task 返回: {}", toJson(result));
         applyOutputMappings(execution, result, props.outputMappings(), props.contextVariables());
         log.info("[DSH backend] {} 完成,输出映射 {} 条", activityId,

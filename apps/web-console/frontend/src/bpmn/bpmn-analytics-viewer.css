@@ -1,0 +1,66 @@
+/*
+ * 定义级节点时长热力图(分析看板业务 tab)。
+ *
+ * - 节点按时长分三桶:绿(快,P33 以下)/黄(中)/红(慢,P66 以上)
+ * - sequenceFlow 连线:低频(计数低于连线中位数)半透明淡化,高频保持默认
+ * - hover 角标(bpmn-js overlays)显示 count/avg/max
+ */
+
+.dsh-ana-viewer .dsh-ana-low:not(.djs-connection) .djs-visual > :nth-child(1) {
+  fill: #d9f7be !important;
+  stroke: #52c41a !important;
+  stroke-width: 2px !important;
+}
+
+.dsh-ana-viewer .dsh-ana-mid:not(.djs-connection) .djs-visual > :nth-child(1) {
+  fill: #fff1b8 !important;
+  stroke: #faad14 !important;
+  stroke-width: 2px !important;
+}
+
+.dsh-ana-viewer .dsh-ana-high:not(.djs-connection) .djs-visual > :nth-child(1) {
+  fill: #ffd6d6 !important;
+  stroke: #ff4d4f !important;
+  stroke-width: 2px !important;
+}
+
+.dsh-ana-viewer .dsh-ana-flow-faint.djs-connection .djs-visual > :nth-child(1) {
+  stroke: #bfbfbf !important;
+  stroke-width: 1px !important;
+  opacity: 0.45;
+}
+
+.dsh-ana-tip {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.dsh-ana-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  z-index: 10;
+}
+
+.dsh-ana-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}

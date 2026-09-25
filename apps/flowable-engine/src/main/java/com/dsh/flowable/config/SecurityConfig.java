@@ -66,7 +66,11 @@ public class SecurityConfig {
      * AntPathRequestMatcher 与 servlet 数量无关。
      *
      * <p>{@code /actuator/health} 免认证供部署探活(load balancer / k8s probe);
-     * 其余 actuator 端点默认不暴露(application.yml 未开 exposure),无需单独规则。
+     * {@code /actuator/metrics/**} 免认证供 web-console 定时轮询采集引擎指标——
+     * 轮询方(后台调度线程)没有用户 JWT 可透传,先例是 web-console 的
+     * backend-profiles register permitAll("内网服务间信任,第一期");exposure 只开
+     * health,metrics 两个端点(application.yml),不含 env/configprops/beans,
+     * 指标数值不含敏感信息。V2 收紧为静态 service token。
      * <p>{@code /process-api/**} 是 Flowable 官方 REST 端点(参见 Flowable 文档),
      * {@code /dsh/**} 是 DSH 自定义薄封装端点。
      */
@@ -77,6 +81,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers(AntPathRequestMatcher.antMatcher("/actuator/health")).permitAll()
+                .requestMatchers(AntPathRequestMatcher.antMatcher("/actuator/metrics/**")).permitAll()
                 .requestMatchers(AntPathRequestMatcher.antMatcher("/process-api/**")).authenticated()
                 .requestMatchers(AntPathRequestMatcher.antMatcher("/dsh/**")).authenticated()
                 .anyRequest().authenticated())

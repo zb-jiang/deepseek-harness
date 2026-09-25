@@ -1,6 +1,7 @@
 import {
   ApartmentOutlined,
   AuditOutlined,
+  BarChartOutlined,
   ClockCircleOutlined,
   ClusterOutlined,
   HomeOutlined,
@@ -37,6 +38,8 @@ function buildMenu(roles: string[]): MenuItem[] {
   if (isSys || isAppAdmin) {
     items.push({ key: '/apps', icon: <ApartmentOutlined />, label: '应用管理' })
     items.push({ key: '/workflows', icon: <PartitionOutlined />, label: '流程定义' })
+    // 分析看板:app_admin 只见业务分析 tab,运维健康 tab 后端 @PreAuthorize 双保险
+    items.push({ key: '/analytics', icon: <BarChartOutlined />, label: '分析看板' })
   }
   if (isSys) {
     items.push({ key: '/users', icon: <TeamOutlined />, label: '平台用户' })

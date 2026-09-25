@@ -138,7 +138,8 @@ class DshServiceTaskVotingRuleTest {
                 return Map.of("approved", true);
             }
         };
-        return new DshBackendTaskDelegate(resolver, stubClient, new ObjectMapper());
+        return new DshBackendTaskDelegate(resolver, stubClient, new ObjectMapper(),
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     @Test
