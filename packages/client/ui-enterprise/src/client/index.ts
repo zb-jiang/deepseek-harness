@@ -15,7 +15,7 @@
  * 已开通时渲染),已选文档 chip 行占据 `conversation.input.dock`,输入框
  * '@' 知识库文档触发源注册进 ctx.inputTriggers(待办会话候选 → 内联
  * chip),工作空间文件行的「上传到知识库」占据 ui-sidebar-files 声明的
- * `sidebar.files.entry.action`(readAll 经 ctx.remote.workspaceFiles 绑定);
+ * `sidebar.files.entry.action`(readBytes 经 ctx.remote.workspaceFiles 绑定);
  * 历史消息里的 `知识库文档 docid: <id>` wire 文本经 ui-primitives 的
  * registerUserTextDecorator 注册装饰器恢复为文档徽标。座位由其他包的注册
  * 声明,经 ctx.slots.inject 延迟到声明后注册。
@@ -118,9 +118,9 @@ export function apply(ctx: ClientContext): void {
     inject: () => ({ knowledge }),
   }, KbChipsDock))
 
-  // 工作空间文件行「上传到知识库」:readAll 读全文 → 代理 multipart 上传。
+  // 工作空间文件行「上传到知识库」:readBytes 无 range 读全文(受 maxFileBytes 上限) → 代理 multipart 上传。
   const readWorkspaceFile: KbUploadInjected['readWorkspaceFile'] =
-    (sessionId, path, signal) => ctx.remote.workspaceFiles.readAll(sessionId, path, signal)
+    (sessionId, path, signal) => ctx.remote.workspaceFiles.readBytes(sessionId, path, {}, signal)
   ctx.slots.inject('sidebar.files.entry.action', () => ctx.slots.register({
     name: 'sidebar.files.entry.action',
     id: 'kb-upload',

@@ -4,7 +4,7 @@
  *
  * <p>每个文件行渲染一个上传图标按钮,点击打开对话框:选应用(当前用户
  * 可见的知识库清单 /api/kb/mine)+ 目标文件夹(该库文件夹树,含根)→
- * 确认后经 Remote readAll 读工作空间文件全文(base64,超限走 too-large
+ * 确认后经 Remote readBytes 读工作空间文件全文(原生字节,超限走 too-large
  * 失败)→ 重组 File → 经代理 multipart 上传,响应 pending(解析异步)。
  * 上传成功后展示解析状态提示;关闭对话框即中断在途读取。
  */
@@ -21,7 +21,7 @@ import css from './KbUploadAction.module.css'
 /** entry.action 座位注入面:读工作空间文件全文的 Remote 绑定。 */
 export type KbUploadInjected = {
   /**
-   * 读一个工作空间文件的完整字节(readAll;Remote 不拒绝,失败走 result)。
+   * 读一个工作空间文件的完整字节(readBytes 无 range;Remote 不拒绝,失败走 result)。
    * @param sessionId - 文件所在会话(定位 workspace root)。
    * @param path - 文件绝对路径(树根 + 相对位置)。
    * @param signal - 调用方取消。
@@ -30,7 +30,7 @@ export type KbUploadInjected = {
     sessionId: SessionId,
     path: string,
     signal: AbortSignal,
-  ) => Promise<RemoteResult<WorkspaceFileBytes>>
+  ) => Promise<RemoteResult<WorkspaceFileBytes<Uint8Array<ArrayBuffer>>>>
 }
 
 /** entry.action 座位组件 props:owner(path/name)+ session 标准 kit + 注入面。 */
@@ -41,20 +41,9 @@ export type KbUploadActionProps =
     readonly path: string
     /** 文件名。 */
     readonly name: string
-    /** 当前会话(readAll 的 workspace root 定位)。 */
+    /** 当前会话(readBytes 的 workspace root 定位)。 */
     readonly sessionId: SessionId
   }
-
-/**
- * base64 → 字节(逐窗口解码;上传 File 需要二进制载荷)。
- * @param base64 - readAll 返回的完整文件 base64。
- */
-function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
 
 /** 文件夹下拉的缩进标签(path 按层深缩进,根为 (根目录))。 */
 function folderLabel(folder: KbFolder): string {
@@ -167,7 +156,7 @@ function KbUploadDialog({ readWorkspaceFile, path, name, sessionId, onClose }: K
         setError(`读取文件失败：${result.error.message}`)
         return
       }
-      const file = new File([base64ToBytes(result.value.data)], name)
+      const file = new File([result.value.data], name)
       const doc = await uploadDocument(kbId, file, folderId === '' ? null : folderId)
       setUploaded(doc)
     } catch (e) {

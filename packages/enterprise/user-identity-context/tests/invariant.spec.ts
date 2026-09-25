@@ -22,7 +22,7 @@ function event(
   text: string,
   time = SECOND + 456,
   content?: unknown[],
-  plugin = 'user-identity-context',
+  owner: 'user-identity-context' | 'other' = 'user-identity-context',
 ): SessionEvent<'user/message'> {
   return {
     type: 'user/message',
@@ -31,14 +31,13 @@ function event(
     surfaceOp: 'append',
     data: createUserMessage({
       content: (content ?? [{ type: 'text', text }]) as ContentBlock[],
-      source: plugin === 'user-identity-context'
+      source: owner === 'user-identity-context'
         ? {
-          kind: 'plugin',
-          plugin,
+          kind: 'user-identity-context',
           form: 'snapshot',
-          sections: [{ name: plugin, text }],
+          sections: [{ name: owner, text }],
         }
-        : { kind: 'plugin', plugin },
+        : { kind: 'user' },
     }),
   }
 }
@@ -66,8 +65,7 @@ function appendBlock(session: Session, text: string): void {
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: {
-      kind: 'plugin',
-      plugin: 'user-identity-context',
+      kind: 'user-identity-context',
       form: 'snapshot',
       sections: [{ name: 'user-identity-context', text }],
     },
@@ -173,23 +171,20 @@ describe('user-identity-context invariants', () => {
     const ctx = await setup()
     const base = event(BLOCK_TEXT)
     for (const source of [
-      { kind: 'plugin', plugin: 'user-identity-context' },
+      { kind: 'user-identity-context' },
       { ...base.data.source, authority: {} },
       {
-        kind: 'plugin',
-        plugin: 'user-identity-context',
+        kind: 'user-identity-context',
         form: 'snapshot',
         sections: [{ name: 'user-identity-context', text: 'different' }],
       },
       {
-        kind: 'plugin',
-        plugin: 'user-identity-context',
+        kind: 'user-identity-context',
         form: 'snapshot',
         sections: { 0: { name: 'user-identity-context', text: BLOCK_TEXT }, length: 1 },
       },
       {
-        kind: 'plugin',
-        plugin: 'user-identity-context',
+        kind: 'user-identity-context',
         form: 'snapshot',
         sections: [{ name: 'user-identity-context', text: BLOCK_TEXT, extra: true }],
       },

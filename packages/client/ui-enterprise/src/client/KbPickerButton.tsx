@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { IconContextInjectionOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconContextInjectionOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { EnterpriseWorkbench } from './enterprise-workbench.ts'
 import type { KnowledgeWorkbench } from './knowledge-workbench.ts'
@@ -70,7 +70,7 @@ export function KbPickerButton({ sessionId, workbench, knowledge }: KbPickerButt
         title="选择知识库文档"
         onClick={() => { setOpen(true) }}
       >
-        <IconContextInjectionOutline16 size={15} />
+        <IconContextInjectionOutlineMedium size={15} />
         <span className={css.label}>知识库</span>
       </button>
       <KbPickerModal

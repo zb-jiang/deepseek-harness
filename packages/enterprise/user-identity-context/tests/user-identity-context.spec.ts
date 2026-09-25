@@ -59,8 +59,7 @@ function identityTexts(session: Session): string[] {
   const texts: string[] = []
   for (const event of session.snapshotEvents()) {
     if (event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'user-identity-context') {
+      && event.data.source.kind === 'user-identity-context') {
       texts.push(event.data.content.find(block => block.type === 'text')?.text ?? '')
     }
   }
@@ -76,7 +75,7 @@ async function fire(
 ): Promise<void> {
   const proposed = createUserMessage({
     content: [{ type: 'text', text: 'request proposal' }],
-    source: { kind: 'plugin', plugin: 'user-identity-context-test' },
+    source: { kind: 'user' },
   })
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
@@ -106,8 +105,7 @@ describe('per-turn identity injection', () => {
     expect(event?.type).toBe('user/message')
     if (event?.type !== 'user/message') throw new Error('missing identity block')
     expect(event.data.source).toEqual({
-      kind: 'plugin',
-      plugin: 'user-identity-context',
+      kind: 'user-identity-context',
       form: 'snapshot',
       sections: [{ name: 'user-identity-context', text: renderIdentityText(user) }],
     })

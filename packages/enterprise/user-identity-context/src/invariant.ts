@@ -6,7 +6,6 @@ import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-inva
 import { AUTH_TOKEN_HEADER, IDENTITY_DISCIPLINE, ORG_POSITIONS_HEADER, USER_IDENTITY_SECTION } from './text.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-user-identity-context'
-const SOURCE_NAME = 'user-identity-context'
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const BLOCK = new RegExp(
   '^<user_identity>\\n'
@@ -93,7 +92,7 @@ function validateReading(
   preparationPosition(history, fail)
   const source = event.data.source
   /* v8 ignore next 2 -- replay and dispatch callers select this exact package-owned source before validation. */
-  if (source.kind !== 'plugin' || source.plugin !== SOURCE_NAME) {
+  if (source.kind !== 'user-identity-context') {
     fail('user-identity source must retain package ownership')
   }
   const sections: unknown = 'sections' in source ? source.sections : undefined
@@ -101,7 +100,7 @@ function validateReading(
   const section = typeof sectionValue === 'object' && sectionValue !== null
     ? sectionValue as Record<string, unknown>
     : undefined
-  if (Object.keys(source).length !== 4
+  if (Object.keys(source).length !== 3
     || source.form !== 'snapshot'
     || !Array.isArray(sections)
     || sections.length !== 1
@@ -119,8 +118,7 @@ function validateSession(session: Session, fail: InvariantFailure): void {
   const history = session.snapshotEvents()
   for (const [index, event] of history.entries()) {
     if (event.type !== 'user/message'
-      || event.data.source.kind !== 'plugin'
-      || event.data.source.plugin !== SOURCE_NAME) continue
+      || event.data.source.kind !== 'user-identity-context') continue
     validateReading(history.slice(0, index), event, fail)
   }
 }
@@ -133,8 +131,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
     if (event.type !== 'user/message'
-      || event.data.source.kind !== 'plugin'
-      || event.data.source.plugin !== SOURCE_NAME) return
+      || event.data.source.kind !== 'user-identity-context') return
     validateReading(session.snapshotEvents(), event, fail)
   }, { global: true })
 }, { inject: ['sessions'] })

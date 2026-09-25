@@ -24,6 +24,7 @@ import { Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type { PlatformUser } from '@deepseek-ai/dsh-platform-user'
 import { fetchOrgPositions } from './positions.ts'
 import { type OrgPosition, renderIdentityText } from './text.ts'
@@ -43,6 +44,13 @@ export interface Config {
 export const Config: z<Config> = z.object({
   webConsoleBaseUrl: z.string().default('http://127.0.0.1:8080'),
 })
+
+/** This package's message-source kind: the identity block's package ownership in the durable log. */
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'user-identity-context': { kind: 'user-identity-context' } & ContextFormed
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -173,7 +181,7 @@ export function apply(ctx: Context, config: Config): void {
         ...decision.messages,
         createUserMessage({
           content: [{ type: 'text', text }],
-          source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
+          source: { kind: 'user-identity-context', form: 'snapshot', sections: [{ name, text }] },
         }),
       ],
     }

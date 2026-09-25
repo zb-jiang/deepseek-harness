@@ -13,7 +13,7 @@
  * 删除/失权的稳定失败重试代价只是一次 404,不影响消息阅读。
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { ReferenceIcon } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ReferenceIconRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UserTextDecorationRange, UserTextDecorator } from '@deepseek-ai/dsh-client-ui-primitives'
 import { getDocument } from './kb-api.ts'
 import css from './KbDocChip.module.css'
@@ -86,7 +86,7 @@ function KbDocChip({ docId, title }: { docId: string; title: string }): ReactNod
   }, [docId])
   return (
     <span className={css.chip} title={title} data-kb-doc-chip={docId}>
-      <ReferenceIcon kind="file" size={16} className={css.icon} />
+      <ReferenceIconRegular kind="file" size={16} className={css.icon} />
       {name ?? fallbackLabel(docId)}
     </span>
   )
