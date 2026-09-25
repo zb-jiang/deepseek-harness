@@ -254,7 +254,7 @@ export default function UsersPage() {
   return (
     <div>
       <Space style={{ marginBottom: 16 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>平台用户</Typography.Title>
+        <Typography.Title level={4} style={{ margin: 0 }}>用户管理</Typography.Title>
         <Select
           allowClear
           placeholder="按状态过滤"

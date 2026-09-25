@@ -486,39 +486,40 @@ public class FlowableRestClient {
      * 分析聚合:流程实例概览统计(发起/完成/运行中/终止 + 时长均值/P95)。
      *
      * <p>调引擎 {@code GET /dsh/analytics/overview},透传当前用户 JWT(请求线程)。
+     * {@code processDefinitionKeys} 为空集合 = 不过滤;非空时按 key 集合并集聚合。
      */
-    public JsonNode getAnalyticsOverview(int days, String processDefinitionKey) {
-        return analyticsGet("/dsh/analytics/overview", days, processDefinitionKey);
+    public JsonNode getAnalyticsOverview(int days, List<String> processDefinitionKeys) {
+        return analyticsGet("/dsh/analytics/overview", days, processDefinitionKeys);
     }
 
     /**
      * 分析聚合:每日吞吐量(发起数按发起日/完成数按完成日,同一日期轴)。
      */
-    public JsonNode getAnalyticsDailyVolumes(int days, String processDefinitionKey) {
-        return analyticsGet("/dsh/analytics/daily-volumes", days, processDefinitionKey);
+    public JsonNode getAnalyticsDailyVolumes(int days, List<String> processDefinitionKeys) {
+        return analyticsGet("/dsh/analytics/daily-volumes", days, processDefinitionKeys);
     }
 
     /**
      * 分析聚合:节点活动统计(热力图 + TOP 最慢节点,含 sequenceFlow 连线)。
      */
-    public JsonNode getAnalyticsActivityStats(int days, String processDefinitionKey) {
-        return analyticsGet("/dsh/analytics/activity-stats", days, processDefinitionKey);
+    public JsonNode getAnalyticsActivityStats(int days, List<String> processDefinitionKeys) {
+        return analyticsGet("/dsh/analytics/activity-stats", days, processDefinitionKeys);
     }
 
     /**
      * 分析聚合:办理人时效统计(assignee 为 user.id,displayName 由本服务补齐)。
      */
-    public JsonNode getAnalyticsTaskStats(int days, String processDefinitionKey) {
-        return analyticsGet("/dsh/analytics/task-stats", days, processDefinitionKey);
+    public JsonNode getAnalyticsTaskStats(int days, List<String> processDefinitionKeys) {
+        return analyticsGet("/dsh/analytics/task-stats", days, processDefinitionKeys);
     }
 
-    /** 引擎分析端点公共 GET(透传用户 JWT;key 为空不传参)。 */
-    private JsonNode analyticsGet(String path, int days, String processDefinitionKey) {
+    /** 引擎分析端点公共 GET(透传用户 JWT;key 集合为空不传参)。 */
+    private JsonNode analyticsGet(String path, int days, List<String> processDefinitionKeys) {
         return flowableRestClient.get()
             .uri(uriBuilder -> {
                 uriBuilder.path(path).queryParam("days", days);
-                if (processDefinitionKey != null && !processDefinitionKey.isBlank()) {
-                    uriBuilder.queryParam("processDefinitionKey", processDefinitionKey);
+                if (processDefinitionKeys != null && !processDefinitionKeys.isEmpty()) {
+                    uriBuilder.queryParam("processDefinitionKeys", String.join(",", processDefinitionKeys));
                 }
                 return uriBuilder.build();
             })

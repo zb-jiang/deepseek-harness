@@ -31,17 +31,15 @@ import org.springframework.stereotype.Service;
  * <p>统一参数:
  * <ul>
  *   <li>{@code days}:统计窗口天数(截至当前时刻);</li>
- *   <li>{@code processDefinitionKey}:可选;按流程定义 key 过滤,跨部署版本聚合
- *       (子查询 {@code PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ = ?)},
- *       语义对齐 {@link DshHistoryController} 的 key 过滤);null/空白 = 不过滤。</li>
+ *   <li>{@code processDefinitionKeys}:可选;按流程定义 key 集合过滤,跨部署版本聚合
+ *       (子查询 {@code PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ IN (…))},
+ *       语义对齐 {@link DshHistoryController} 的 key 过滤);null/空集合 = 不过滤。
+ *       web-console 侧用单元素集合表达"选定具体流程",用名下应用的全量 key 集合
+ *       表达 app_admin 的数据可见范围。</li>
  * </ul>
  */
 @Service
 public class DshAnalyticsQueryService {
-
-    /** 按 key 过滤历史表的子查询片段(历史表均含 PROC_DEF_ID_ 列,直接拼子查询)。 */
-    private static final String KEY_FILTER =
-        " AND PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ = ?)";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -53,7 +51,7 @@ public class DshAnalyticsQueryService {
      * 流程实例概览统计:窗口内发起/完成/运行中/终止数 + 已结束实例的端到端时长
      * 均值与 P95。completed/terminated 按 DELETE_REASON_ 是否为空区分。
      */
-    public AnalyticsOverviewDto overview(int days, String processDefinitionKey) {
+    public AnalyticsOverviewDto overview(int days, List<String> processDefinitionKeys) {
         Timestamp cutoff = cutoff(days);
         StringBuilder sql = new StringBuilder("""
             SELECT COUNT(*) AS started,
@@ -69,7 +67,7 @@ public class DshAnalyticsQueryService {
             WHERE START_TIME_ >= ?""");
         List<Object> params = new ArrayList<>();
         params.add(cutoff);
-        appendKeyFilter(sql, params, processDefinitionKey);
+        appendKeyFilter(sql, params, processDefinitionKeys);
 
         return jdbcTemplate.queryForObject(sql.toString(), (rs, rowNum) -> new AnalyticsOverviewDto(
             rs.getLong("started"),
@@ -87,22 +85,22 @@ public class DshAnalyticsQueryService {
      * 返回按日期升序。拆成两个简单 group-by 查询而非 SQL 全外连接——聚合行数只有
      * 每天一行,Java 合并成本可忽略,且完全规避 FULL OUTER JOIN 的方言差异。
      */
-    public List<DailyVolumeDto> dailyVolumes(int days, String processDefinitionKey) {
+    public List<DailyVolumeDto> dailyVolumes(int days, List<String> processDefinitionKeys) {
         Timestamp cutoff = cutoff(days);
         Map<String, Long> startedByDay = toDayCountMap(jdbcTemplate.query("""
                         SELECT CAST(START_TIME_ AS DATE) AS stat_date, COUNT(*) AS cnt
                         FROM ACT_HI_PROCINST
-                        WHERE START_TIME_ >= ?""" + keyFilterSuffix(processDefinitionKey)
+                        WHERE START_TIME_ >= ?""" + keyFilterSuffix(processDefinitionKeys)
                         + "\nGROUP BY CAST(START_TIME_ AS DATE)",
             (rs, rowNum) -> Map.entry(rs.getDate("stat_date").toLocalDate().toString(), rs.getLong("cnt")),
-            params(cutoff, processDefinitionKey)));
+            params(cutoff, processDefinitionKeys)));
         Map<String, Long> completedByDay = toDayCountMap(jdbcTemplate.query("""
                         SELECT CAST(END_TIME_ AS DATE) AS stat_date, COUNT(*) AS cnt
                         FROM ACT_HI_PROCINST
-                        WHERE END_TIME_ IS NOT NULL AND END_TIME_ >= ? AND DELETE_REASON_ IS NULL""" + keyFilterSuffix(processDefinitionKey)
+                        WHERE END_TIME_ IS NOT NULL AND END_TIME_ >= ? AND DELETE_REASON_ IS NULL""" + keyFilterSuffix(processDefinitionKeys)
                         + "\nGROUP BY CAST(END_TIME_ AS DATE)",
             (rs, rowNum) -> Map.entry(rs.getDate("stat_date").toLocalDate().toString(), rs.getLong("cnt")),
-            params(cutoff, processDefinitionKey)));
+            params(cutoff, processDefinitionKeys)));
 
         TreeSet<String> allDays = new TreeSet<>();
         allDays.addAll(startedByDay.keySet());
@@ -118,7 +116,7 @@ public class DshAnalyticsQueryService {
      * (DURATION_ 为 NULL)的行,含 sequenceFlow 连线行(前端按 activityType 区分渲染)。
      * 按执行份数倒序。
      */
-    public List<ActivityStatDto> activityStats(int days, String processDefinitionKey) {
+    public List<ActivityStatDto> activityStats(int days, List<String> processDefinitionKeys) {
         Timestamp cutoff = cutoff(days);
         StringBuilder sql = new StringBuilder("""
             SELECT ACT_ID_,
@@ -131,7 +129,7 @@ public class DshAnalyticsQueryService {
             WHERE START_TIME_ >= ? AND DURATION_ IS NOT NULL""");
         List<Object> params = new ArrayList<>();
         params.add(cutoff);
-        appendKeyFilter(sql, params, processDefinitionKey);
+        appendKeyFilter(sql, params, processDefinitionKeys);
         sql.append("\nGROUP BY ACT_ID_\nORDER BY cnt DESC");
 
         return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> new ActivityStatDto(
@@ -150,7 +148,7 @@ public class DshAnalyticsQueryService {
      * ACT_HI_TASKINST 更稳),只统计 assignee 非空且时长已知的已完成任务份数,
      * 按份数倒序限 50。assignee 为 user.id,displayName 由 web-console 侧补齐。
      */
-    public List<TaskStatDto> taskStats(int days, String processDefinitionKey) {
+    public List<TaskStatDto> taskStats(int days, List<String> processDefinitionKeys) {
         Timestamp cutoff = cutoff(days);
         StringBuilder sql = new StringBuilder("""
             SELECT ASSIGNEE_,
@@ -162,7 +160,7 @@ public class DshAnalyticsQueryService {
               AND ASSIGNEE_ IS NOT NULL AND DURATION_ IS NOT NULL""");
         List<Object> params = new ArrayList<>();
         params.add(cutoff);
-        appendKeyFilter(sql, params, processDefinitionKey);
+        appendKeyFilter(sql, params, processDefinitionKeys);
         sql.append("\nGROUP BY ASSIGNEE_\nORDER BY cnt DESC\nLIMIT 50");
 
         return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> new TaskStatDto(
@@ -173,8 +171,8 @@ public class DshAnalyticsQueryService {
         ), params.toArray());
     }
 
-    private static boolean hasKey(String processDefinitionKey) {
-        return processDefinitionKey != null && !processDefinitionKey.isBlank();
+    private static boolean hasKeys(List<String> processDefinitionKeys) {
+        return processDefinitionKeys != null && !processDefinitionKeys.isEmpty();
     }
 
     /** 日期 → 计数 映射(每日吞吐两条分组查询共用的转换)。 */
@@ -184,24 +182,42 @@ public class DshAnalyticsQueryService {
     }
 
     /** key 过滤片段(有 key 才拼,否则空串);用于字符串拼接式 SQL。 */
-    private static String keyFilterSuffix(String processDefinitionKey) {
-        return hasKey(processDefinitionKey) ? KEY_FILTER : "";
+    private static String keyFilterSuffix(List<String> processDefinitionKeys) {
+        return hasKeys(processDefinitionKeys) ? keyFilterSql(processDefinitionKeys) : "";
     }
 
-    /** 单 cutoff + 可选 key 的参数列表(顺序与 keyFilterSuffix 占位符一致)。 */
-    private static Object[] params(Timestamp cutoff, String processDefinitionKey) {
-        return hasKey(processDefinitionKey)
-            ? new Object[]{cutoff, processDefinitionKey}
-            : new Object[]{cutoff};
+    /** 单 cutoff + 可选 key 集合的参数列表(顺序与 keyFilterSuffix 占位符一致)。 */
+    private static Object[] params(Timestamp cutoff, List<String> processDefinitionKeys) {
+        if (!hasKeys(processDefinitionKeys)) {
+            return new Object[]{cutoff};
+        }
+        Object[] all = new Object[1 + processDefinitionKeys.size()];
+        all[0] = cutoff;
+        for (int i = 0; i < processDefinitionKeys.size(); i++) {
+            all[1 + i] = processDefinitionKeys.get(i);
+        }
+        return all;
     }
 
     /** 有 key 过滤时把子查询片段追加到 SQL 并登记参数(保持参数顺序与占位符一致)。 */
     private static void appendKeyFilter(StringBuilder sql, List<Object> params,
-                                        String processDefinitionKey) {
-        if (hasKey(processDefinitionKey)) {
-            sql.append(KEY_FILTER);
-            params.add(processDefinitionKey);
+                                        List<String> processDefinitionKeys) {
+        if (hasKeys(processDefinitionKeys)) {
+            sql.append(keyFilterSql(processDefinitionKeys));
+            params.addAll(processDefinitionKeys);
         }
+    }
+
+    /**
+     * 按 key 集合过滤历史表的子查询片段(历史表均含 PROC_DEF_ID_ 列,直接拼子查询):
+     * {@code AND PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ IN (?, …))}。
+     * 占位符按入参顺序生成,调用方负责按同一顺序登记参数。
+     */
+    private static String keyFilterSql(List<String> processDefinitionKeys) {
+        String placeholders = String.join(", ", java.util.Collections.nCopies(
+            processDefinitionKeys.size(), "?"));
+        return " AND PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ IN ("
+            + placeholders + "))";
     }
 
     /** 统计窗口起点(当前时刻往前 days 天);Java 侧计算,避免数据库方言 interval 语法。 */

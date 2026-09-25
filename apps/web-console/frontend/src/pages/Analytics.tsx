@@ -3,9 +3,10 @@
  *
  * - 业务分析(system_admin + app_admin):概览卡/每日吞吐/办理人时效/节点热力图,
  *   数据经 web-console 代理引擎 /dsh/analytics/*;
+ *   system_admin 看全局,app_admin 后端收敛到名下应用的已发布流程(下拉同样只列名下流程);
  * - 运维健康(仅 system_admin):引擎指标实时卡 + 趋势折线,
  *   数据为 web-console 轮询落库的 dsh_metrics_sample。
- * 前端按角色显隐 tab;后端 @PreAuthorize 双保险(越权直接 403)。
+ * 前端按角色显隐 tab;后端 @PreAuthorize + 数据范围收敛双保险(越权直接 403/404)。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -61,6 +62,8 @@ function toVolumeSeries(volumes: DailyVolume[]) {
 }
 
 function BusinessTab() {
+  const { me } = useAuth()
+  const restrictedToManagedApps = !(me?.roles ?? []).includes(PLATFORM_ROLE.SYSTEM_ADMIN)
   const [workflows, setWorkflows] = useState<WorkflowDefinitionDto[]>([])
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [days, setDays] = useState(30)
@@ -98,10 +101,11 @@ function BusinessTab() {
         analyticsApi.taskStats({ days, processDefinitionKey: keyParam }),
         analyticsApi.activityStats({ days, processDefinitionKey: keyParam }),
       ])
+      // app_admin 名下无已发布流程时后端短路返回 null → 归一为空数组
       setOverview(ov)
-      setVolumes(dv)
-      setTaskStats(ts)
-      setActivityStats(as)
+      setVolumes(dv ?? [])
+      setTaskStats(ts ?? [])
+      setActivityStats(as ?? [])
       const workflow = workflows.find(w => procdefKey(w) === selectedKey)
       setBpmnXml(
         workflow?.publishedProcdefId ? await analyticsApi.bpmnXml(workflow.publishedProcdefId) : '',
@@ -142,7 +146,10 @@ function BusinessTab() {
           onChange={v => setDays(v as number)}
           options={DAYS_OPTIONS.map(d => ({ label: `${d} 天`, value: d }))}
         />
-        <Typography.Text type="secondary">统计窗口按发起时间截取</Typography.Text>
+        <Typography.Text type="secondary">
+          统计窗口按发起时间截取
+          {restrictedToManagedApps && ' · 仅统计名下应用的流程数据'}
+        </Typography.Text>
       </Space>
       {error && <Alert type="error" showIcon message={error} />}
       <Row gutter={16}>

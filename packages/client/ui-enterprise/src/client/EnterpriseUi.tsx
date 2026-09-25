@@ -406,9 +406,9 @@ export function EnterpriseOverlay() {
           <div className={css.authBrand}>
             <BrandWordmark />
           </div>
-          <div className={css.authPageTitle}>企业流程协同工作台</div>
+          <div className={css.authPageTitle}>云汉企业AI工作台</div>
           <div className={css.authPageSubtitle}>
-            统一身份入口，注册后进入待审批状态，通过后才能进入企业主界面。
+            基于DeepSeek Harness 企业AI工作台。
           </div>
           <ul className={css.authFeatures}>
             <li><CheckIcon />待办任务一站式处理</li>

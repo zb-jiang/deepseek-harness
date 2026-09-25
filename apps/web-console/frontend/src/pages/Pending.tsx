@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { BrandMark } from '../components/Brand'
 
 const STATUS_TEXT: Record<string, string> = {
   pending_approval: '待审批',
@@ -23,7 +24,7 @@ export default function PendingPage() {
   return (
     <div className="auth-shell">
       <Card style={{ width: 420, textAlign: 'center' }}>
-        <div className="auth-brand">DS</div>
+        <BrandMark variant="auth" />
         <Typography.Title level={3} style={{ marginBottom: 8 }}>
           账号状态:{text}
         </Typography.Title>

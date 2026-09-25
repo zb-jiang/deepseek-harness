@@ -3,6 +3,7 @@ import { Alert, App, Button, Card, Form, Input, Typography } from 'antd'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { BrandMark } from '../components/Brand'
 
 interface RegisterForm {
   email: string
@@ -70,11 +71,11 @@ export default function RegisterPage() {
     <div className="auth-shell">
       <Card style={{ width: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div className="auth-brand">DS</div>
+          <BrandMark variant="auth" />
           <Typography.Title level={3} style={{ marginBottom: 4 }}>
             注册账号
           </Typography.Title>
-          <Typography.Text type="secondary">DSH 企业级应用平台</Typography.Text>
+          <Typography.Text type="secondary">云汉企业AI协同平台</Typography.Text>
         </div>
 
         {registeredEmail ? (

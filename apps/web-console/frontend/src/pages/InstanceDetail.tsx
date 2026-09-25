@@ -222,7 +222,7 @@ function InstanceStartForm({ workflowId }: { workflowId: string }) {
             showIcon
             style={{ marginBottom: 16 }}
             message="当前账号未分配部门"
-            description="流程将不以任何组织身份发起;若流程含同行政线审批节点,发起会被拒绝。可在「平台用户」页分配所属部门。"
+            description="流程将不以任何组织身份发起;若流程含同行政线审批节点,发起会被拒绝。可在「用户管理」页分配所属部门。"
           />
         ) : (
           <Form.Item

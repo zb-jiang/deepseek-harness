@@ -83,7 +83,7 @@ class DshAnalyticsQueryTest {
         runtimeService.deleteProcessInstance(terminated.getId(), "管理员强制终止");
 
         // overview:三种状态口径
-        AnalyticsOverviewDto overview = queryService.overview(30, null);
+        AnalyticsOverviewDto overview = queryService.overview(30, List.of());
         assertThat(overview.started()).isEqualTo(3);
         assertThat(overview.completed()).isEqualTo(1);
         assertThat(overview.running()).isEqualTo(1);
@@ -93,7 +93,7 @@ class DshAnalyticsQueryTest {
         assertThat(overview.p95DurationMs()).isNotNull();
 
         // daily-volumes:合并到同一日期轴,今日 started=3 / completed=1
-        List<DailyVolumeDto> volumes = queryService.dailyVolumes(30, null);
+        List<DailyVolumeDto> volumes = queryService.dailyVolumes(30, List.of());
         assertThat(volumes).hasSize(1);
         assertThat(volumes.get(0).started()).isEqualTo(3);
         assertThat(volumes.get(0).completed()).isEqualTo(1);
@@ -101,7 +101,7 @@ class DshAnalyticsQueryTest {
 
         // activity-stats:start 节点 3 单都走过(有时长);end 节点只有完成单到达;
         // 运行中实例的 approve 节点(NULL 时长)被剔除,但完成单的 approve 计入
-        Map<String, ActivityStatDto> stats = statsByActivityId(queryService.activityStats(30, null));
+        Map<String, ActivityStatDto> stats = statsByActivityId(queryService.activityStats(30, List.of()));
         assertThat(stats.get("start").count()).isEqualTo(3);
         assertThat(stats.get("end").count()).isEqualTo(1);
         assertThat(stats.get("approve").count()).isGreaterThanOrEqualTo(1);
@@ -110,7 +110,7 @@ class DshAnalyticsQueryTest {
         assertThat(stats.get("flow1").count()).isEqualTo(3);
 
         // task-stats:办理人聚合(完成单 assignee=user-1;终止单历史任务无时长不计)
-        List<TaskStatDto> taskStats = queryService.taskStats(30, null);
+        List<TaskStatDto> taskStats = queryService.taskStats(30, List.of());
         assertThat(taskStats).extracting(TaskStatDto::assignee).contains("user-1");
     }
 
@@ -126,15 +126,15 @@ class DshAnalyticsQueryTest {
         }
 
         // 多实例按"份数"计数:会签 2 人 = approve count 2 / task count 2
-        Map<String, ActivityStatDto> stats = statsByActivityId(queryService.activityStats(30, null));
+        Map<String, ActivityStatDto> stats = statsByActivityId(queryService.activityStats(30, List.of()));
         assertThat(stats.get("approve").count()).isEqualTo(2);
-        List<TaskStatDto> taskStats = queryService.taskStats(30, null);
+        List<TaskStatDto> taskStats = queryService.taskStats(30, List.of());
         assertThat(taskStats).hasSize(1);
         assertThat(taskStats.get(0).assignee()).isEqualTo("user-1");
         assertThat(taskStats.get(0).count()).isEqualTo(2);
 
         // 两份都完成后实例正常结束
-        assertThat(queryService.overview(30, null).completed()).isEqualTo(1);
+        assertThat(queryService.overview(30, List.of()).completed()).isEqualTo(1);
     }
 
     @Test
@@ -149,12 +149,33 @@ class DshAnalyticsQueryTest {
         completeTask(fromV2.getId(), "approve");
 
         // key 过滤:两个版本的实例都命中
-        AnalyticsOverviewDto byKey = queryService.overview(30, "dsh_ana_ver");
+        AnalyticsOverviewDto byKey = queryService.overview(30, List.of("dsh_ana_ver"));
         assertThat(byKey.started()).isEqualTo(2);
         assertThat(byKey.completed()).isEqualTo(2);
 
         // key 不过滤时同一批数据同样命中(此库无其他实例)
-        assertThat(queryService.overview(30, null).started()).isEqualTo(2);
+        assertThat(queryService.overview(30, List.of()).started()).isEqualTo(2);
+    }
+
+    @Test
+    void multiKeyFilterUnionsAcrossProcesses() {
+        // 两个流程各跑 1 单并完成;多 key 集合过滤 = 两流程并集(app_admin 名下应用聚合语义)
+        String a = deployApprovalProcess("dsh_ana_multi_a");
+        deployApprovalProcess("dsh_ana_multi_b");
+
+        ProcessInstance fromA = runtimeService.startProcessInstanceById(a, Map.of());
+        completeTask(fromA.getId(), "approve");
+        ProcessInstance fromB = runtimeService.startProcessInstanceByKey("dsh_ana_multi_b", Map.of());
+        completeTask(fromB.getId(), "approve");
+
+        AnalyticsOverviewDto both = queryService.overview(30, List.of("dsh_ana_multi_a", "dsh_ana_multi_b"));
+        assertThat(both.started()).isEqualTo(2);
+        assertThat(both.completed()).isEqualTo(2);
+
+        // 集合外的 key 不命中
+        assertThat(queryService.overview(30, List.of("dsh_ana_multi_a")).started()).isEqualTo(1);
+        // 空集合 = 不过滤
+        assertThat(queryService.overview(30, List.of()).started()).isEqualTo(2);
     }
 
     private void completeTask(String processInstanceId, String taskDefKey) {

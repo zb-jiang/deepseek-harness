@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>统一参数</b>:
  * <ul>
  *   <li>{@code days}:统计窗口天数,默认 30,clamp 到 1-365(防误传拖垮全表扫描);</li>
- *   <li>{@code processDefinitionKey}:可选,按流程定义 key 过滤(跨部署版本聚合)。</li>
+ *   <li>{@code processDefinitionKeys}:可选,逗号分隔的流程定义 key 集合(跨部署版本聚合);
+ *       web-console 代理侧对 app_admin 注入名下应用的全量 key 集合,对 system_admin
+ *       原样透传用户选定的单个 key(单元素集合)。</li>
  * </ul>
  */
 @RestController
@@ -42,9 +44,9 @@ public class DshAnalyticsController {
     @GetMapping("/overview")
     public AnalyticsOverviewDto overview(
         @RequestParam(name = "days", defaultValue = "30") int days,
-        @RequestParam(name = "processDefinitionKey", required = false) String processDefinitionKey
+        @RequestParam(name = "processDefinitionKeys", required = false) String processDefinitionKeys
     ) {
-        return queryService.overview(clampDays(days), processDefinitionKey);
+        return queryService.overview(clampDays(days), parseKeys(processDefinitionKeys));
     }
 
     /**
@@ -53,9 +55,9 @@ public class DshAnalyticsController {
     @GetMapping("/daily-volumes")
     public List<DailyVolumeDto> dailyVolumes(
         @RequestParam(name = "days", defaultValue = "30") int days,
-        @RequestParam(name = "processDefinitionKey", required = false) String processDefinitionKey
+        @RequestParam(name = "processDefinitionKeys", required = false) String processDefinitionKeys
     ) {
-        return queryService.dailyVolumes(clampDays(days), processDefinitionKey);
+        return queryService.dailyVolumes(clampDays(days), parseKeys(processDefinitionKeys));
     }
 
     /**
@@ -64,9 +66,9 @@ public class DshAnalyticsController {
     @GetMapping("/activity-stats")
     public List<ActivityStatDto> activityStats(
         @RequestParam(name = "days", defaultValue = "30") int days,
-        @RequestParam(name = "processDefinitionKey", required = false) String processDefinitionKey
+        @RequestParam(name = "processDefinitionKeys", required = false) String processDefinitionKeys
     ) {
-        return queryService.activityStats(clampDays(days), processDefinitionKey);
+        return queryService.activityStats(clampDays(days), parseKeys(processDefinitionKeys));
     }
 
     /**
@@ -75,9 +77,20 @@ public class DshAnalyticsController {
     @GetMapping("/task-stats")
     public List<TaskStatDto> taskStats(
         @RequestParam(name = "days", defaultValue = "30") int days,
-        @RequestParam(name = "processDefinitionKey", required = false) String processDefinitionKey
+        @RequestParam(name = "processDefinitionKeys", required = false) String processDefinitionKeys
     ) {
-        return queryService.taskStats(clampDays(days), processDefinitionKey);
+        return queryService.taskStats(clampDays(days), parseKeys(processDefinitionKeys));
+    }
+
+    /** 逗号分隔 key 集合解析为列表(空白项剔除;null/空白 = 不过滤)。 */
+    private static List<String> parseKeys(String processDefinitionKeys) {
+        if (processDefinitionKeys == null || processDefinitionKeys.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(processDefinitionKeys.split(","))
+            .map(String::trim)
+            .filter(key -> !key.isEmpty())
+            .toList();
     }
 
     /** days clamp:非正数回退默认 30,超过 365 截断(设计文档 §6 统一参数约定)。 */

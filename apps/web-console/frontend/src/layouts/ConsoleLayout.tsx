@@ -16,6 +16,7 @@ import { useMemo } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { PLATFORM_ROLE } from '../api/types'
+import { BrandMark } from '../components/Brand'
 
 const { Header, Sider, Content } = Layout
 
@@ -23,9 +24,9 @@ type MenuItem = Required<MenuProps>['items'][number]
 
 /**
  * 菜单项定义。
- * - system_admin: 全部菜单
- * - app_admin: 首页、应用管理、流程定义、流程实例、部门管理(只读)
- * - normal_user: 首页、流程实例(仅自己发起的)、部门管理(只读)
+ * - system_admin: 首页、部门管理、用户管理、应用管理、流程定义、流程实例、分析看板、审计
+ * - app_admin: 首页、部门管理、应用管理、流程定义、流程实例、分析看板
+ * - normal_user: 首页、部门管理(只读)、流程实例(仅自己发起的)
  */
 function buildMenu(roles: string[]): MenuItem[] {
   const isSys = roles.includes(PLATFORM_ROLE.SYSTEM_ADMIN)
@@ -33,16 +34,20 @@ function buildMenu(roles: string[]): MenuItem[] {
   const items: MenuItem[] = [
     { key: '/', icon: <HomeOutlined />, label: '首页' },
     { key: '/org-units', icon: <ClusterOutlined />, label: '部门管理' },
-    { key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' },
   ]
+  if (isSys) {
+    items.push({ key: '/users', icon: <TeamOutlined />, label: '用户管理' })
+  }
   if (isSys || isAppAdmin) {
     items.push({ key: '/apps', icon: <ApartmentOutlined />, label: '应用管理' })
     items.push({ key: '/workflows', icon: <PartitionOutlined />, label: '流程定义' })
-    // 分析看板:app_admin 只见业务分析 tab,运维健康 tab 后端 @PreAuthorize 双保险
+  }
+  items.push({ key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' })
+  // 分析看板:app_admin 只见业务分析 tab,运维健康 tab 后端 @PreAuthorize 双保险
+  if (isSys || isAppAdmin) {
     items.push({ key: '/analytics', icon: <BarChartOutlined />, label: '分析看板' })
   }
   if (isSys) {
-    items.push({ key: '/users', icon: <TeamOutlined />, label: '平台用户' })
     items.push({ key: '/audit', icon: <AuditOutlined />, label: '审计' })
   }
   return items
@@ -81,10 +86,7 @@ export default function ConsoleLayout() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider theme="dark" width={220} className="dsh-sider" style={{ overflow: 'auto', height: '100vh', position: 'sticky', top: 0 }}>
-        <div className="dsh-brand">
-          <span className="dsh-brand-logo">DS</span>
-          <span>DSH Web Console</span>
-        </div>
+        <BrandMark variant="sidebar" />
         <Menu
           theme="dark"
           mode="inline"
@@ -96,6 +98,7 @@ export default function ConsoleLayout() {
       </Sider>
       <Layout>
         <Header className="dsh-header">
+          <BrandMark variant="header" />
           <Dropdown menu={userMenu} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />

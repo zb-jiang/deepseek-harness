@@ -1,6 +1,60 @@
+import {
+  ApartmentOutlined, AuditOutlined, BarChartOutlined, ClockCircleOutlined, ClusterOutlined,
+  PartitionOutlined, TeamOutlined,
+} from '@ant-design/icons'
 import { Card, Col, Row, Statistic, Typography } from 'antd'
+import type { ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { PLATFORM_ROLE } from '../api/types'
+
+/**
+ * 菜单功能导览:与 ConsoleLayout 的 buildMenu 同序、同角色条件、同图标
+ * (首页自身除外——导览卡片就在首页)。侧栏菜单增删或调整顺序时同步维护本表。
+ */
+const MENU_GUIDES: readonly { icon: ReactNode; label: string; desc: string; role: 'all' | 'admin' | 'sys' }[] = [
+  {
+    icon: <ClusterOutlined />,
+    label: '部门管理',
+    desc: '维护公司的部门架构,查看各部门的成员归属;全员可查,调整仅系统管理员可操作。',
+    role: 'all',
+  },
+  {
+    icon: <TeamOutlined />,
+    label: '用户管理',
+    desc: '审批新同事的注册申请,为他们分配平台管理角色。',
+    role: 'sys',
+  },
+  {
+    icon: <ApartmentOutlined />,
+    label: '应用管理',
+    desc: '创建业务应用,为每个应用配置办理角色和成员。',
+    role: 'admin',
+  },
+  {
+    icon: <PartitionOutlined />,
+    label: '流程定义',
+    desc: '绘制审批流程图,指定每个环节由哪个角色办理,发布后即可投入使用。',
+    role: 'admin',
+  },
+  {
+    icon: <ClockCircleOutlined />,
+    label: '流程实例',
+    desc: '跟踪每笔流程的进度:发起新流程、处理待办、查看进展到哪个环节,必要时终止流程。',
+    role: 'all',
+  },
+  {
+    icon: <BarChartOutlined />,
+    label: '分析看板',
+    desc: '用图表掌握流程运行情况:办理量、办理时效、哪些环节最耗时。',
+    role: 'admin',
+  },
+  {
+    icon: <AuditOutlined />,
+    label: '审计',
+    desc: '留存平台上的关键操作记录,随时可查"谁在什么时间做了什么"。',
+    role: 'sys',
+  },
+]
 
 export default function HomePage() {
   const { me } = useAuth()
@@ -12,7 +66,10 @@ export default function HomePage() {
     : isAppAdmin
       ? '应用管理员'
       : '普通用户'
-  const accessibleModules = isSys ? 6 : isAppAdmin ? 4 : 1
+  const guides = MENU_GUIDES.filter(guide =>
+    guide.role === 'all' || (guide.role === 'admin' && (isSys || isAppAdmin)) || (guide.role === 'sys' && isSys))
+  // 功能模块数 = 左侧菜单数 - 1(首页不计为模块),与导览条目一致
+  const accessibleModules = guides.length
 
   return (
     <div>
@@ -37,27 +94,20 @@ export default function HomePage() {
         </Col>
       </Row>
       <Card style={{ marginTop: 16 }}>
-        <Typography.Paragraph>
-          使用左侧菜单开始管理:
+        <Typography.Paragraph style={{ marginBottom: 16 }}>
+          左侧菜单功能导览:
         </Typography.Paragraph>
-        <ul>
-          {(isSys || isAppAdmin) && (
-            <>
-              <li><strong>应用管理</strong>:创建应用、管理角色与成员绑定关系。</li>
-              <li><strong>流程定义</strong>:编辑 BPMN XML，校验后发布到 Flowable 引擎。</li>
-              <li><strong>流程实例</strong>:发起实例、查看运行中任务、终止实例、完成任务。</li>
-            </>
-          )}
-          {isSys && (
-            <>
-              <li><strong>平台用户</strong>:审批注册用户、分配系统管理员或应用管理员角色。</li>
-              <li><strong>审计</strong>:查所有治理动作的审计事件。</li>
-            </>
-          )}
-          {!(isSys || isAppAdmin) && (
-            <li>普通用户暂无 Web Console 管理权限。</li>
-          )}
-        </ul>
+        <div className="menu-guide-grid">
+          {guides.map(guide => (
+            <div key={guide.label} className="menu-guide-item">
+              <span className="menu-guide-icon" aria-hidden="true">{guide.icon}</span>
+              <div className="menu-guide-text">
+                <div className="menu-guide-name">{guide.label}</div>
+                <div className="menu-guide-desc">{guide.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </Card>
     </div>
   )

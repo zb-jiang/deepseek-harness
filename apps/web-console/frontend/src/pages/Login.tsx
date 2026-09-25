@@ -3,6 +3,7 @@ import { Alert, App, Button, Card, Form, Input, Typography } from 'antd'
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { BrandMark } from '../components/Brand'
 
 interface LoginForm {
   email: string
@@ -37,9 +38,9 @@ export default function LoginPage() {
     <div className="auth-shell">
       <Card style={{ width: 380 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div className="auth-brand">DS</div>
+          <BrandMark variant="auth" />
           <Typography.Title level={3} style={{ marginBottom: 4 }}>
-            DSH Web Console
+            云汉企业AI协同平台
           </Typography.Title>
           <Typography.Text type="secondary">企业级应用平台管理后台</Typography.Text>
         </div>
