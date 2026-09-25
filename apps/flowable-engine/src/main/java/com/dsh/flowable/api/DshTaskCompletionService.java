@@ -36,6 +36,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class DshTaskCompletionService {
 
+    /**
+     * 运行时注入的提交人变量前缀:每个 userTask 一个 {@code dsh_submitters_<节点id>},
+     * 元素按提交次序追加,与同次提交的 array 输出聚合(如 leaderOpinions)按下标配对;
+     * 与计票变量同为运行时注入,不在上下文声明面,也不出现在 BPMN 静态引用中。
+     */
+    public static final String SUBMITTERS_VARIABLE_PREFIX = "dsh_submitters_";
+
     private final TaskService taskService;
     private final DshExtensionResolver resolver;
 
@@ -82,6 +89,7 @@ public class DshTaskCompletionService {
         // 会签计票(design 2026-09-15 §4.5):放在声明校验之后、complete 之前——
         // 校验失败抛出时尚未计数,重提不会重复累计;complete 内部求值完成条件能读到计数
         applyVotingAggregation(task, variables);
+        recordSubmitter(task);
         taskService.complete(task.getId(), vars);
     }
 
@@ -116,6 +124,26 @@ public class DshTaskCompletionService {
         Object current = taskService.getVariable(task.getId(), countVar);
         long next = (current instanceof Number n ? n.longValue() : 0) + 1;
         taskService.setVariable(task.getId(), countVar, next);
+    }
+
+    /**
+     * 提交人记录:把任务 assignee 追加到 {@code dsh_submitters_<节点id>}(运行时注入,
+     * 见 {@link #SUBMITTERS_VARIABLE_PREFIX})。与 array 输出聚合在同一次提交里各追加
+     * 一条,两者按下标配对,收尾 delegate(如归档)据此得到逐人意见——不查历史任务表:
+     * 收尾节点与最后一次提交在同一命令内执行,历史表 END_TIME_ 更新尚未落库,命令内
+     * 查询读不到(Flowable 命令缓冲语义),运行时变量无此问题。assignee 缺失(非指派
+     * 模式)时跳过,不阻断提交。
+     */
+    private void recordSubmitter(Task task) {
+        String assignee = task.getAssignee();
+        if (assignee == null || assignee.isBlank()) {
+            return;
+        }
+        String submitterVar = SUBMITTERS_VARIABLE_PREFIX + task.getTaskDefinitionKey();
+        Object existing = taskService.getVariable(task.getId(), submitterVar);
+        List<Object> list = existing instanceof List<?> l ? new ArrayList<>(l) : new ArrayList<>();
+        list.add(assignee);
+        taskService.setVariable(task.getId(), submitterVar, list);
     }
 
     /**

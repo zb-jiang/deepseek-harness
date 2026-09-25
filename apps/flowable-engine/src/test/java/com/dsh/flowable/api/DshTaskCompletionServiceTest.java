@@ -87,6 +87,12 @@ class DshTaskCompletionServiceTest {
             .variableName("amount")
             .singleResult()
             .getValue()).isEqualTo("300");
+        // 提交人记录:任务 assignee 追加到 dsh_submitters_<节点id>(运行时注入)
+        assertThat(processEngine.getHistoryService().createHistoricVariableInstanceQuery()
+            .processInstanceId(task.getProcessInstanceId())
+            .variableName(DshTaskCompletionService.SUBMITTERS_VARIABLE_PREFIX + "task")
+            .singleResult()
+            .getValue()).isEqualTo(java.util.List.of("user-1"));
     }
 
     private Task startProcessWithTask() {
