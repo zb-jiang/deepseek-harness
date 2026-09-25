@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-15-task-multi-instance.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-15-task-multi-instance.md
-2026-09-15-task-multi-instance.md: a039bad31d12b62417a7a9c8816b78a374cae381
-2026-09-15-task-multi-instance.zh.md: f788804e73ccb3c38c0b351312819ed860eb7dbf
+/agent-note-task-multi-instance-unification-servicetask-dsh-backend-task:
+  en: 87856fef2e83c40c
+  zh: cbcf4c5e4fafd95f
+/agent-note-task-multi-instance-unification-servicetask-dsh-backend-task/problem:
+  en: 29889cee2e92f1c4
+  zh: 7e1086daa834684f
+/agent-note-task-multi-instance-unification-servicetask-dsh-backend-task/decision:
+  en: dccc43545f87008d
+  zh: 183aaaafc2d249f5
+/agent-note-task-multi-instance-unification-servicetask-dsh-backend-task/alternatives-considered:
+  en: f935f9177e3e3c05
+  zh: 65042ab356930fd4
+/agent-note-task-multi-instance-unification-servicetask-dsh-backend-task/consequences:
+  en: fcb450d328ef25e4
+  zh: 493a6cafd85d13c1

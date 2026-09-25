@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-09-session-identity-context.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-09-session-identity-context.md
-2026-09-09-session-identity-context.md: f3b73083ba7795335d9fbf883cd89a97642cf431
-2026-09-09-session-identity-context.zh.md: 2159ca2e741419cc9afaa3758f1a6d99d777387b
+/agent-note-session-identity-context:
+  en: 167f4ea9d3f30ec0
+  zh: 2864f08349f8f6ce
+/agent-note-session-identity-context/problem:
+  en: df8e920de7d8f2ab
+  zh: c25ddcfed42f1d13
+/agent-note-session-identity-context/decision:
+  en: ff1bb725fd229182
+  zh: 6f53709b76df38bd
+/agent-note-session-identity-context/alternatives-considered:
+  en: bbab0a983cc554e2
+  zh: 1453942ca0a220d8
+/agent-note-session-identity-context/consequences:
+  en: d28b521a78f22bfa
+  zh: 6de1bfa4f200992e
+/agent-note-session-identity-context/testing:
+  en: 15e8a3b698777787
+  zh: a9dfb2abea6ed5eb
+/agent-note-session-identity-context/deferred:
+  en: 6987dc1314d65d6c
+  zh: 75f5e0f6b8bf4d87

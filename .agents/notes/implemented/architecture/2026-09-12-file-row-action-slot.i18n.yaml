@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-file-row-action-slot.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-12-file-row-action-slot.md
-2026-09-12-file-row-action-slot.md: 26837402e056d39c7e7aa1092abb7bc2682dc4d3
-2026-09-12-file-row-action-slot.zh.md: cd0f99409d86902b2d484bc490e6cb4d7b785c04
+/agent-note-file-row-action-slot-in-the-workspace-file-tree:
+  en: 703d24238eaa5e09
+  zh: df37d73e638a594d
+/agent-note-file-row-action-slot-in-the-workspace-file-tree/problem:
+  en: 73f58b41eceee40c
+  zh: 5890cc3f9ed33b69
+/agent-note-file-row-action-slot-in-the-workspace-file-tree/decision:
+  en: dc28e7ed12e6d26c
+  zh: 023d5080f965304f
+/agent-note-file-row-action-slot-in-the-workspace-file-tree/testing:
+  en: ea7a8e921c4f0163
+  zh: 52725d66c8dc1fbd
+/agent-note-file-row-action-slot-in-the-workspace-file-tree/alternatives-considered:
+  en: b6618f3b9563d5de
+  zh: 974f75e8fb0ea5d7
+/agent-note-file-row-action-slot-in-the-workspace-file-tree/consequences:
+  en: 927866eacd4c31ca
+  zh: f5eac43d28d47d6b

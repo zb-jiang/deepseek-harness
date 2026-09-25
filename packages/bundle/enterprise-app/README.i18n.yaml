@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/bundle/enterprise-app/README.md
+/:
+  en: 662875ec613d3794
+  zh: ea0ac277b0a55c11
+/deepseek-ai-dsh-enterprise-app:
+  en: 94f9b7426f1c9c19
+  zh: 50e40e778fae58f7
+/deepseek-ai-dsh-enterprise-app/summary:
+  en: 1accd66e8cd2a234
+  zh: 58fd833825b2b1d3
+/deepseek-ai-dsh-enterprise-app/table-of-contents:
+  en: 4e53164159b5ce41
+  zh: ed30ccbdf432afe6
+/deepseek-ai-dsh-enterprise-app/use-this-package:
+  en: 49f5a93e4a2e32d2
+  zh: c412b93a912f649d
+/deepseek-ai-dsh-enterprise-app/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-app/model-experience/employee-identity-context:
+  en: fdda59b0009ee516
+  zh: f57262b002177a0b
+/deepseek-ai-dsh-enterprise-app/model-experience/employee-identity-context/what-the-model-sees:
+  en: ae706917df9990a8
+  zh: 27688f226d50733f
+/deepseek-ai-dsh-enterprise-app/model-experience/employee-identity-context/token-effect:
+  en: 1ea936f0b66a72a8
+  zh: 41b10b946ed3e330
+/deepseek-ai-dsh-enterprise-app/model-experience/employee-identity-context/kv-cache-effect:
+  en: e3f97b3b6f9fdc48
+  zh: adffc6669fb6a581
+/deepseek-ai-dsh-enterprise-app/known-limitations-and-deferred-work:
+  en: 63b7d68a519e3ff8
+  zh: 52431fbfafeb3a8b
+/deepseek-ai-dsh-enterprise-app/known-limitations-and-deferred-work/dev-note:
+  en: 3f29d69efe1ca0ed
+  zh: 7a4d7b0e4d3f10f9

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-15-voting-rule.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-15-voting-rule.md
-2026-09-15-voting-rule.md: a6b8465e7be722824c1aeb9745255187389552dd
-2026-09-15-voting-rule.zh.md: fd109a0f663d2fbbb3e13e97d98f5c2e88fe9f6e
+/agent-note-countersign-voting-rule-dsh-votingrule:
+  en: 125eb03d19195ade
+  zh: 9a5ef56fa32df788
+/agent-note-countersign-voting-rule-dsh-votingrule/problem:
+  en: 782dc0939b1faf9a
+  zh: 705d11c8c4d6e0ff
+/agent-note-countersign-voting-rule-dsh-votingrule/decision:
+  en: f19de1b8ca8ed6de
+  zh: 82d20ab2ab876bfd
+/agent-note-countersign-voting-rule-dsh-votingrule/alternatives-considered:
+  en: 1c2fb50831199681
+  zh: a9196fcdc78172f6
+/agent-note-countersign-voting-rule-dsh-votingrule/consequences:
+  en: 5b0623265bc142ce
+  zh: 39bb11e92f178321

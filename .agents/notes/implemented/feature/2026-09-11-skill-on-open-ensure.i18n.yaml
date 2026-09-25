@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-skill-on-open-ensure.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-skill-on-open-ensure.md
-2026-09-11-skill-on-open-ensure.md: 3933657cf5017c60ed54f68f568159727bad2ef7
-2026-09-11-skill-on-open-ensure.zh.md: 39c2aa64f7987bcc24bf4b99ab622deeef68b8a1
+/agent-note-todo-open-skill-ensure:
+  en: 79c589d3b13406c4
+  zh: b447ce83c7f08928
+/agent-note-todo-open-skill-ensure/problem:
+  en: bba29fd403bd86f6
+  zh: fab1479ce0e1d81c
+/agent-note-todo-open-skill-ensure/decision:
+  en: f372f5a8f04e9446
+  zh: 0143c0def9ce157e
+/agent-note-todo-open-skill-ensure/alternatives-considered:
+  en: 51c15e13e52b98d6
+  zh: eb6b43745595ea33
+/agent-note-todo-open-skill-ensure/consequences:
+  en: 1e6dda5d71511086
+  zh: b9e26eadfb0bb889

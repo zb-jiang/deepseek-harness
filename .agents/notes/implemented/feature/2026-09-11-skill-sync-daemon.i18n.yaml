@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-skill-sync-daemon.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-skill-sync-daemon.md
-2026-09-11-skill-sync-daemon.md: c33d25fca4dcb913272fea6954f8aca72bf1f685
-2026-09-11-skill-sync-daemon.zh.md: 89476aa07a0d88769d68234dc1aad1ce630810a0
+/agent-note-enterprise-skill-sync-daemon:
+  en: 32a5e4651dbfc726
+  zh: e13a44d0fbf24763
+/agent-note-enterprise-skill-sync-daemon/problem:
+  en: d543104c4cecb7b3
+  zh: a44749843c62c702
+/agent-note-enterprise-skill-sync-daemon/decision:
+  en: fae41ac7184c4837
+  zh: db50155535041fd1
+/agent-note-enterprise-skill-sync-daemon/alternatives-considered:
+  en: fd3ae7e79c4745a0
+  zh: d07728c438db0a49
+/agent-note-enterprise-skill-sync-daemon/consequences:
+  en: bc04c8a227efcbc7
+  zh: afe1ca585521d419

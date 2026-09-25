@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-dsh-backend-task-and-profile.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-dsh-backend-task-and-profile.md
-2026-09-14-dsh-backend-task-and-profile.md: f0c6016b08c9c99f839a103946077a7ce9a2725a
-2026-09-14-dsh-backend-task-and-profile.zh.md: 0019fcd4cdd16c12d5e82e55fe5858558bec04bf
+/agent-note-dsh-backend-task-and-backend-profile:
+  en: e1e546c3bb1c4b13
+  zh: 4faa8222b8cad34d
+/agent-note-dsh-backend-task-and-backend-profile/problem:
+  en: f9a0dcb27a71515d
+  zh: 2b97d83f46eaea93
+/agent-note-dsh-backend-task-and-backend-profile/decision:
+  en: 5669f1e7636c893f
+  zh: 46e771aef39ac2d3
+/agent-note-dsh-backend-task-and-backend-profile/alternatives-considered:
+  en: e3f704b89ff7bbc1
+  zh: d546a09c36e10d34
+/agent-note-dsh-backend-task-and-backend-profile/consequences:
+  en: 83a830afa07f9392
+  zh: 05f4f29fed9a1ac5
