@@ -25,7 +25,7 @@
 | 钱姐     | 财务部                      | 财务复核员       |
 | 小钱     | 财务部                      | 财务复核员       |
 
-### 1.4 UUID 占位符（8 个 + profile 地址）
+### 1.3 UUID 占位符（8 个 + profile 地址）
 
 复制 XML 前全局替换：
 
@@ -41,7 +41,7 @@
 | `ROLE_CASHIER_UUID` | 出纳角色 id                                            |
 | `PROFILE_URL_N`     | backend profile 实例地址（P2，如 `http://127.0.0.1:3081`） |
 
-## 4. P1 BPMN XML：费用报销（组织路由版）
+## 2. P1 BPMN XML：费用报销（组织路由版）
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -496,7 +496,7 @@
 </bpmn2:definitions>
 ```
 
-## 5. P2 BPMN XML：发文审批（三策略三个定义）
+## 3. P2 BPMN XML：发文审批（三策略三个定义）
 
 三个流程定义**只有「下级负责人会签」节点不同**（下表），其余 XML 完全一致。发布三次（每次改 process id/name 与会签节点配置）：
 
@@ -504,7 +504,7 @@
 | -- | --------------------------- | --------------------------------------------- |
 | 单签 | `documentReviewSingle`      | 并行 + 完成条件 `${nrOfCompletedInstances &gt;= 1}` |
 | 会签 | `documentReviewCountersign` | 并行 + 完成条件留空                                   |
-| 串签 | `documentReviewSequential`  | **串行**（`isSequential="true"`）+ 完成条件留空         |
+| 串签 | `documentReviewSequential`  | **串行** + 完成条件留空                               |
 
 下面给出**会签版**完整 XML（另两版按上表改 3 处：process id、process name、multiInstanceLoopCharacteristics）：
 
@@ -524,17 +524,17 @@
         <dsh:contextVariable name="polishedContent" type="string" description="AI 润色后的正文" />
         <dsh:contextVariable name="compliancePassed" type="boolean" description="AI 合规评审表决变量" />
         <dsh:contextVariable name="reviewNotes" type="string" description="AI 评审说明" />
-        <dsh:contextVariable name="leaderOpinion" type="string" description="负责人会签意见" />
+        <dsh:contextVariable name="leaderOpinions" type="array" description="各下级负责人的会签意见聚合(会签每实例提交追加一条)" itemType="string" />
       </dsh:contextVariables>
     </bpmn2:extensionElements>
     <bpmn2:startEvent id="startEvent" name="开始" />
     <bpmn2:sequenceFlow id="flow01" sourceRef="startEvent" targetRef="polishContent" />
     <bpmn2:serviceTask id="polishContent" name="AI润色正文" flowable:async="true" flowable:delegateExpression="${dshBackendTaskDelegate}" flowable:failedJobRetryTimeCycle="R3/PT1M">
       <bpmn2:extensionElements>
-        <dsh:backendTask>
+        <dsh:backendTask backendProfileUrl="http://127.0.0.1:3190">
           <dsh:backendProfile url="PROFILE_URL_1" />
         </dsh:backendTask>
-        <dsh:userPrompt text="请润色以下发文正文，使其正式、简洁、保持原意，不要改变事实内容。输出包含 polishedContent（润色后的全文）字段的纯JSON。发文标题：《{{title}}》，正文：{{content}}" />
+        <dsh:userPrompt text="请润色以下发文的正文部分，使其正式、简洁、保持原意，不要改变事实内容。输出包含 polishedContent（润色后的正文）字段的纯JSON。&#10;&#10;发文：&#10;发文标题：《{{title}}》&#10;发文正文：{{content}}&#10;&#10;请以以下的JSON格式进行输出:&#10;{&#10;  &#34;polishedContent&#34;: &#34;&#34;&#10;}" />
         <dsh:outputMappings>
           <dsh:mapping source="polishedContent" target="polishedContent" />
         </dsh:outputMappings>
@@ -544,51 +544,50 @@
     <bpmn2:serviceTask id="aiReview" name="多AI合规评审" flowable:async="true" flowable:delegateExpression="${dshBackendTaskDelegate}" flowable:failedJobRetryTimeCycle="R3/PT1M">
       <bpmn2:extensionElements>
         <dsh:backendTask>
-          <dsh:backendProfile url="PROFILE_URL_1" />
-          <dsh:backendProfile url="PROFILE_URL_2" />
+          <dsh:backendProfile url="http://127.0.0.1:3190" />
+          <dsh:backendProfile url="http://127.0.0.1:3190" />
         </dsh:backendTask>
-        <dsh:votingRule variable="compliancePassed" passValue="true" passCount="1" />
-        <dsh:userPrompt text="请审阅以下发文，从用词合规、格式规范角度评审。输出包含 compliancePassed（true/false）与 reviewNotes（评审说明）字段的纯JSON。标题：《{{title}}》，正文：{{polishedContent}}" />
+        <dsh:votingRule variable="compliancePassed" passValue="true" passCount="2" />
+        <dsh:userPrompt text="请审阅以下发文的正文部分，从用词合规、格式规范角度评审（注意：评审标准不用太严格，因为是公司自己内部使用，发文意思表达清楚就行）。输出包含 compliancePassed（true/false）与 reviewNotes（评审说明）的纯JSON。&#10;&#10;发文：&#10;发文标题：《{{title}}》&#10;发文正文：{{polishedContent}}&#10;&#10;请以以下的JSON格式进行输出:&#10;{&#10;  &#34;compliancePassed&#34;: true,&#10;  &#34;reviewNotes&#34;: &#34;&#34;&#10;}" />
         <dsh:outputMappings>
           <dsh:mapping source="compliancePassed" target="compliancePassed" />
           <dsh:mapping source="reviewNotes" target="reviewNotes" />
         </dsh:outputMappings>
       </bpmn2:extensionElements>
-      <bpmn2:multiInstanceLoopCharacteristics isSequential="false">
-        <bpmn2:loopCardinality>2</bpmn2:loopCardinality>
+      <bpmn2:multiInstanceLoopCharacteristics>
+        <bpmn2:loopCardinality xsi:type="bpmn2:tFormalExpression">2</bpmn2:loopCardinality>
       </bpmn2:multiInstanceLoopCharacteristics>
     </bpmn2:serviceTask>
     <bpmn2:sequenceFlow id="flow03" sourceRef="aiReview" targetRef="gatewayAiPass" />
     <bpmn2:exclusiveGateway id="gatewayAiPass" name="AI评审通过?" />
     <bpmn2:sequenceFlow id="flow04" sourceRef="gatewayAiPass" targetRef="approveByLeaders">
-      <bpmn2:conditionExpression xsi:type="bpmn2:tFormalExpression">${dsh_passCount_aiReview &gt;= 1}</bpmn2:conditionExpression>
+      <bpmn2:conditionExpression xsi:type="bpmn2:tFormalExpression">${dsh_passCount_aiReview &gt;= 2}</bpmn2:conditionExpression>
     </bpmn2:sequenceFlow>
     <bpmn2:sequenceFlow id="flow05" sourceRef="gatewayAiPass" targetRef="notifyRejected">
-      <bpmn2:conditionExpression xsi:type="bpmn2:tFormalExpression">${dsh_passCount_aiReview &lt; 1}</bpmn2:conditionExpression>
+      <bpmn2:conditionExpression xsi:type="bpmn2:tFormalExpression">${dsh_passCount_aiReview &lt; 2}</bpmn2:conditionExpression>
     </bpmn2:sequenceFlow>
     <bpmn2:userTask id="approveByLeaders" name="下级负责人会签">
       <bpmn2:extensionElements>
         <dsh:assignmentRule virtualRole="child" />
-        <dsh:skillRef>universal-approver</dsh:skillRef>
-        <dsh:userPrompt text="请调用 universal-approver skill 会签发文：《{{title}}》，正文：{{polishedContent}}。AI 评审意见：{{reviewNotes}}。输出包含 leaderOpinion（会签意见）的纯JSON。" />
+        <dsh:userPrompt text="在你对下面发文审阅之前，AI 对发文的预评审意见为：{{reviewNotes}}   &#10;&#10;发文：&#10;发文标题 ：《{{title}}》&#10;发文正文：{{polishedContent}}。&#10;&#10;请给出你的审批建议，并将审批建议以纯JSON的形式输出。&#10;&#10;请以以下的JSON格式进行输出:&#10;{&#10;  &#34;leaderOpinion&#34;: &#34;&#34;&#10;}" />
         <dsh:outputMappings>
-          <dsh:mapping source="leaderOpinion" target="leaderOpinion" />
+          <dsh:mapping source="leaderOpinion" target="leaderOpinions" />
         </dsh:outputMappings>
       </bpmn2:extensionElements>
-      <bpmn2:multiInstanceLoopCharacteristics isSequential="false" />
+      <bpmn2:multiInstanceLoopCharacteristics />
     </bpmn2:userTask>
     <bpmn2:sequenceFlow id="flow06" sourceRef="approveByLeaders" targetRef="gatewaySplit" />
     <bpmn2:parallelGateway id="gatewaySplit" name="分流" />
     <bpmn2:sequenceFlow id="flow07" sourceRef="gatewaySplit" targetRef="archive" />
-    <bpmn2:serviceTask id="archive" name="归档" flowable:delegateExpression="${logDelegate}" />
+    <bpmn2:serviceTask id="archive" name="归档" flowable:delegateExpression="${dshArchiveDelegate}" />
     <bpmn2:sequenceFlow id="flow08" sourceRef="gatewaySplit" targetRef="notifyDone" />
-    <bpmn2:serviceTask id="notifyDone" name="通知发起人" flowable:delegateExpression="${logDelegate}" />
+    <bpmn2:serviceTask id="notifyDone" name="通知发起人" flowable:delegateExpression="${dshNotifyDelegate}" />
     <bpmn2:sequenceFlow id="flow09" sourceRef="archive" targetRef="gatewayJoin" />
     <bpmn2:sequenceFlow id="flow10" sourceRef="notifyDone" targetRef="gatewayJoin" />
     <bpmn2:parallelGateway id="gatewayJoin" name="汇聚" />
     <bpmn2:sequenceFlow id="flow11" sourceRef="gatewayJoin" targetRef="endEvent" />
     <bpmn2:endEvent id="endEvent" name="发文完成" />
-    <bpmn2:serviceTask id="notifyRejected" name="通知发文被否" flowable:async="true" flowable:delegateExpression="${logDelegate}">
+    <bpmn2:serviceTask id="notifyRejected" name="通知发文被否" flowable:async="true" flowable:delegateExpression="${dshNotifyDelegate}">
       <bpmn2:extensionElements>
         <flowable:failedJobRetryTimeCycle>R3/PT5M</flowable:failedJobRetryTimeCycle>
       </bpmn2:extensionElements>
@@ -598,43 +597,101 @@
   </bpmn2:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="documentReviewCountersign">
-      <bpmndi:BPMNShape id="startEvent_di" bpmnElement="startEvent"><dc:Bounds x="150" y="238" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="polishContent_di" bpmnElement="polishContent"><dc:Bounds x="250" y="216" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="aiReview_di" bpmnElement="aiReview"><dc:Bounds x="430" y="216" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="gatewayAiPass_di" bpmnElement="gatewayAiPass" isMarkerVisible="true"><dc:Bounds x="590" y="231" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="approveByLeaders_di" bpmnElement="approveByLeaders"><dc:Bounds x="690" y="216" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="gatewaySplit_di" bpmnElement="gatewaySplit" isMarkerVisible="true"><dc:Bounds x="840" y="231" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="archive_di" bpmnElement="archive"><dc:Bounds x="940" y="120" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="notifyDone_di" bpmnElement="notifyDone"><dc:Bounds x="940" y="310" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="gatewayJoin_di" bpmnElement="gatewayJoin" isMarkerVisible="true"><dc:Bounds x="1090" y="231" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="endEvent_di" bpmnElement="endEvent"><dc:Bounds x="1190" y="238" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="notifyRejected_di" bpmnElement="notifyRejected"><dc:Bounds x="700" y="430" width="100" height="80" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="endRejected_di" bpmnElement="endRejected"><dc:Bounds x="860" y="452" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="flow01_di" bpmnElement="flow01"><di:waypoint x="186" y="256" /><di:waypoint x="250" y="256" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow02_di" bpmnElement="flow02"><di:waypoint x="350" y="256" /><di:waypoint x="430" y="256" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow03_di" bpmnElement="flow03"><di:waypoint x="530" y="256" /><di:waypoint x="590" y="256" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow04_di" bpmnElement="flow04"><di:waypoint x="640" y="256" /><di:waypoint x="690" y="256" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow05_di" bpmnElement="flow05"><di:waypoint x="615" y="281" /><di:waypoint x="615" y="470" /><di:waypoint x="700" y="470" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow06_di" bpmnElement="flow06"><di:waypoint x="790" y="256" /><di:waypoint x="840" y="256" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow07_di" bpmnElement="flow07"><di:waypoint x="865" y="231" /><di:waypoint x="865" y="160" /><di:waypoint x="940" y="160" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow08_di" bpmnElement="flow08"><di:waypoint x="865" y="281" /><di:waypoint x="865" y="350" /><di:waypoint x="940" y="350" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow09_di" bpmnElement="flow09"><di:waypoint x="1040" y="160" /><di:waypoint x="1115" y="160" /><di:waypoint x="1115" y="231" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow10_di" bpmnElement="flow10"><di:waypoint x="1040" y="350" /><di:waypoint x="1115" y="350" /><di:waypoint x="1115" y="281" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow11_di" bpmnElement="flow11"><di:waypoint x="1140" y="256" /><di:waypoint x="1190" y="256" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="flow12_di" bpmnElement="flow12"><di:waypoint x="800" y="470" /><di:waypoint x="860" y="470" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNDiagram>
+      <bpmndi:BPMNShape id="startEvent_di" bpmnElement="startEvent">
+        <dc:Bounds x="150" y="238" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="polishContent_di" bpmnElement="polishContent">
+        <dc:Bounds x="250" y="216" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="aiReview_di" bpmnElement="aiReview">
+        <dc:Bounds x="430" y="216" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gatewayAiPass_di" bpmnElement="gatewayAiPass" isMarkerVisible="true">
+        <dc:Bounds x="590" y="231" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="approveByLeaders_di" bpmnElement="approveByLeaders">
+        <dc:Bounds x="690" y="216" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gatewaySplit_di" bpmnElement="gatewaySplit" isMarkerVisible="true">
+        <dc:Bounds x="840" y="231" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="archive_di" bpmnElement="archive">
+        <dc:Bounds x="940" y="120" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notifyDone_di" bpmnElement="notifyDone">
+        <dc:Bounds x="940" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gatewayJoin_di" bpmnElement="gatewayJoin" isMarkerVisible="true">
+        <dc:Bounds x="1090" y="231" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endEvent_di" bpmnElement="endEvent">
+        <dc:Bounds x="1190" y="238" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notifyRejected_di" bpmnElement="notifyRejected">
+        <dc:Bounds x="700" y="430" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endRejected_di" bpmnElement="endRejected">
+        <dc:Bounds x="860" y="452" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="flow01_di" bpmnElement="flow01">
+        <di:waypoint x="186" y="256" />
+        <di:waypoint x="250" y="256" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow02_di" bpmnElement="flow02">
+        <di:waypoint x="350" y="256" />
+        <di:waypoint x="430" y="256" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow03_di" bpmnElement="flow03">
+        <di:waypoint x="530" y="256" />
+        <di:waypoint x="590" y="256" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow04_di" bpmnElement="flow04">
+        <di:waypoint x="640" y="256" />
+        <di:waypoint x="690" y="256" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow05_di" bpmnElement="flow05">
+        <di:waypoint x="615" y="281" />
+        <di:waypoint x="615" y="470" />
+        <di:waypoint x="700" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow06_di" bpmnElement="flow06">
+        <di:waypoint x="790" y="256" />
+        <di:waypoint x="840" y="256" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow07_di" bpmnElement="flow07">
+        <di:waypoint x="865" y="231" />
+        <di:waypoint x="865" y="160" />
+        <di:waypoint x="940" y="160" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow08_di" bpmnElement="flow08">
+        <di:waypoint x="865" y="281" />
+        <di:waypoint x="865" y="350" />
+        <di:waypoint x="940" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow09_di" bpmnElement="flow09">
+        <di:waypoint x="1040" y="160" />
+        <di:waypoint x="1115" y="160" />
+        <di:waypoint x="1115" y="231" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow10_di" bpmnElement="flow10">
+        <di:waypoint x="1040" y="350" />
+        <di:waypoint x="1115" y="350" />
+        <di:waypoint x="1115" y="281" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow11_di" bpmnElement="flow11">
+        <di:waypoint x="1140" y="256" />
+        <di:waypoint x="1190" y="256" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow12_di" bpmnElement="flow12">
+        <di:waypoint x="800" y="470" />
+        <di:waypoint x="860" y="470" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn2:definitions>
 ```
 
-> 节点说明：
->
-> - **title/content 声明为** **`source="start-param"`**：启动必须传入，未传报错；员工端 `dsh_process_start_form` 会读出这两个声明供 AI 收集——这是阶段 7 发起链路的直接验证点。P1 无 start-param 声明，start-form 为空、可直接发起，两相对照。
-> - **多 AI 合规评审**：2 个 profile 行（`PROFILE_URL_1/2`，可同值）+ `votingRule passCount="1"`（1 票通过即提前收，第 2 实例自动跳过）。若想看"两票全投"，把 passCount 改 2。
-> - **下级负责人会签**（虚拟 `child`）：马总（总公司）发起 → 直接下级华东区+财务部的负责人（老周、钱姐）各一条待办。引擎部署时自动补 collection/assignee，无需手写。
-> - backend task 失败语义：HTTP/超时/JSON 不合法 → async Job 按 `R3/PT1M` 重试 → 耗尽走失败路径（引擎日志可见，实例可终止重发）。
-
-## 6. DMN XML（审批专线决策表）
+## 4. DMN XML（审批专线决策表）
 
 保存为 `apps/flowable-engine/src/main/resources/dmn/orgRoutingLevel.dmn`。decision id 是 `orgRoutingLevel`，与 P1 中 ServiceTask 表达式 `decisionKey('orgRoutingLevel')` 对应。输入金额来自流程变量 `amount`——由主轴第一个节点**读取报销单**（`${sorExpenseDelegate}`）从 SOR 单据写入，而非启动参数（启动参数只有 `expenseId`）。
 
@@ -672,7 +729,7 @@
 | 小额   | 500   | 直属主管      | 直属审批 → 财务复核 → 出纳            |
 | 大额   | ≥1000 | 直属主管+专线合规 | 直属审批 → **专线审批** → 财务复核 → 出纳 |
 
-## 7. JavaDelegate 完整代码（5 个文件）
+## 5. JavaDelegate 完整代码（7 个文件）
 
 复制到 `apps/flowable-engine/src/main/java/com/dsh/flowable/delegate/custom`，然后 `mvn compile` + 重启引擎。其中 7.3/7.4/7.5 三个 delegate 调 SOR，读 Spring 配置 `sor.base-url` / `sor.service-key`——在 `apps/flowable-engine/src/main/resources/application.yml` 追加（环境变量缺失时用 demo 默认值）：
 
@@ -682,7 +739,7 @@ sor:
   service-key: ${SOR_SERVICE_KEY:demo-service-key}
 ```
 
-### 7.1 InvoiceAuditDelegate —— 逐张发票复核（多实例元素注入）
+### 5.1 InvoiceAuditDelegate —— 逐张发票复核（多实例元素注入）
 
 ```java
 package com.dsh.flowable.delegate.custom;
@@ -716,7 +773,7 @@ public class InvoiceAuditDelegate implements JavaDelegate {
 }
 ```
 
-### 7.2 LogDelegate —— 通用通知/归档（一个 bean 多处复用）
+### 5.2 LogDelegate —— 通用通知/归档（一个 bean 多处复用）
 
 ```java
 package com.dsh.flowable.delegate.custom;
@@ -728,10 +785,10 @@ import org.flowable.engine.delegate.JavaDelegate;
 import org.springframework.stereotype.Component;
 
 /**
- * 通用日志通知(演示版:所有通知/归档节点共用,按当前活动 id 区分场景)。
+ * 通用日志通知(演示版:通知/归档节点共用,按当前活动 id 区分场景)。
  * BPMN: flowable:delegateExpression="${logDelegate}"
- * 用于 notifyPayment/notifyDone/archive/urgeFinance/notifyRejected(P1)
- * 与 archive/notifyDone/notifyRejected(P2)。
+ * 用于 notifyPayment/notifyDone/archive/urgeFinance/notifyRejected(P1);
+ * P2 发文流程的通知/归档由 NotifyDelegate/ArchiveDelegate 承担。
  */
 @Component("logDelegate")
 public class LogDelegate implements JavaDelegate {
@@ -746,7 +803,7 @@ public class LogDelegate implements JavaDelegate {
 }
 ```
 
-### 7.3 SorExpenseDelegate —— 读取报销单（调 SOR 写流程变量）
+### 5.3 SorExpenseDelegate —— 读取报销单（调 SOR 写流程变量）
 
 ```java
 package com.dsh.flowable.delegate.custom;
@@ -817,7 +874,7 @@ public class SorExpenseDelegate implements JavaDelegate {
 }
 ```
 
-### 7.4 SorApprovalDelegate —— 登记审批（直属/专线/财务验票三节点共用）
+### 5.4 SorApprovalDelegate —— 登记审批（直属/专线/财务验票三节点共用）
 
 ```java
 package com.dsh.flowable.delegate.custom;
@@ -897,7 +954,7 @@ public class SorApprovalDelegate implements JavaDelegate {
 }
 ```
 
-### 7.5 SorPaymentDelegate —— 登记打款（写打款记录即迁 paid）
+### 5.5 SorPaymentDelegate —— 登记打款（写打款记录即迁 paid）
 
 ```java
 package com.dsh.flowable.delegate.custom;
@@ -949,11 +1006,170 @@ public class SorPaymentDelegate implements JavaDelegate {
 }
 ```
 
-## 8. SKILL.md（3 个）
+### 5.6 NotifyDelegate —— 发文流程通知（通知发起人/通知发文被否共用）
 
-三个 skill 的分工：`expense-submit` 供员工发起报销（建单 + 启动流程，P1 唯一入口）；`expense-lookup` 供各审批节点读单核对（P1 四个审批节点都挂它）；`universal-approver` 供审批节点输出结论 JSON。SOR 地址 demo 固定 `http://localhost:8091/api`。
+```java
+package com.dsh.flowable.delegate.custom;
 
-### 8.1 报销单提报助手（P1 发起入口）
+import com.dsh.flowable.delegate.ProcessLog;
+import com.dsh.flowable.repository.DshUserRepository;
+
+import org.flowable.engine.delegate.DelegateExecution;
+import org.flowable.engine.delegate.JavaDelegate;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 通知 delegate:发文流程的通知类节点(通知发起人/通知发文被否)共用,把通知内容落到流程实例日志。
+ * BPMN: flowable:delegateExpression="${dshNotifyDelegate}"
+ *
+ * <p>通知对象取 {@code initiator}(系统注入 object:userId/name/email)的显示名,
+ * name 缺失时按 userId 反查 platform_users;通知正文为标题附加会签意见(完成场景)
+ * 或 AI 评审说明(被否场景)。后续接真实通知渠道(如 IM webhook)时在本类扩展投递实现。
+ */
+@Component("dshNotifyDelegate")
+public class NotifyDelegate implements JavaDelegate {
+
+    private final DshUserRepository userRepository;
+
+    public NotifyDelegate(DshUserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public void execute(DelegateExecution execution) {
+        ProcessLog.log(execution, "通知发起人 {}: {}", resolveInitiatorName(execution), buildMessage(execution));
+        execution.setVariable("lastNotifyActivity", execution.getCurrentActivityId());
+    }
+
+    /** 发起人显示名:优先 initiator.name,缺失时按 initiator.userId 反查,再缺失回退 userId。 */
+    private String resolveInitiatorName(DelegateExecution execution) {
+        Object initiator = execution.getVariable("initiator");
+        if (initiator instanceof Map<?, ?> map) {
+            Object name = map.get("name");
+            if (name instanceof String s && !s.isBlank()) {
+                return s;
+            }
+            Object userId = map.get("userId");
+            if (userId instanceof String id && !id.isBlank()) {
+                return userRepository.findDisplayNamesByAuthSubjects(List.of(id)).getOrDefault(id, id);
+            }
+        }
+        return "未知";
+    }
+
+    /**
+     * 通知正文:发文标题,附加会签意见(完成场景,{@code leaderOpinions} 逐条)或
+     * AI 评审说明(被否场景,{@code reviewNotes})。被否时会签尚未执行、意见列表
+     * 必为空,按数据形态自然分派,无需区分节点。
+     */
+    private String buildMessage(DelegateExecution execution) {
+        Object title = execution.getVariable("title");
+        StringBuilder sb = new StringBuilder("发文《").append(title == null ? "未命名" : title).append("》");
+        Object opinions = execution.getVariable("leaderOpinions");
+        if (opinions instanceof List<?> list && !list.isEmpty()) {
+            for (int i = 0; i < list.size(); i++) {
+                sb.append("\n  会签意见[").append(i + 1).append("]: ").append(list.get(i));
+            }
+            return sb.toString();
+        }
+        Object notes = execution.getVariable("reviewNotes");
+        if (notes instanceof String s && !s.isBlank()) {
+            sb.append("；评审说明: ").append(s);
+        }
+        return sb.toString();
+    }
+}
+```
+
+### 5.7 ArchiveDelegate —— 发文流程归档（会签意见留痕）
+
+```java
+package com.dsh.flowable.delegate.custom;
+
+import com.dsh.flowable.delegate.ProcessLog;
+import com.dsh.flowable.repository.DshUserRepository;
+
+import org.flowable.engine.HistoryService;
+import org.flowable.engine.delegate.DelegateExecution;
+import org.flowable.engine.delegate.JavaDelegate;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.springframework.stereotype.Component;
+
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * 归档 delegate:发文流程收尾留痕,把标题/摘要、多实例会签意见聚合与人工参与名单落到流程实例日志。
+ * BPMN: flowable:delegateExpression="${dshArchiveDelegate}"
+ *
+ * <p>会签意见来自 {@code leaderOpinions}(array,员工提交链路逐实例 append,
+ * 见 {@code DshTaskCompletionService} 的 array 聚合);参与名单按本实例已完成
+ * 历史任务的 assignee 去重后反查显示名。意见与参与人分别成册、不逐人配对——
+ * 并行提交的 append 顺序与任务完成顺序在并发下不保证一致。
+ */
+@Component("dshArchiveDelegate")
+public class ArchiveDelegate implements JavaDelegate {
+
+    private final HistoryService historyService;
+    private final DshUserRepository userRepository;
+
+    public ArchiveDelegate(HistoryService historyService, DshUserRepository userRepository) {
+        this.historyService = historyService;
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public void execute(DelegateExecution execution) {
+        Object title = execution.getVariable("title");
+        ProcessLog.log(execution, "归档: 发文《{}》", title);
+
+        Object opinions = execution.getVariable("leaderOpinions");
+        if (opinions instanceof List<?> list && !list.isEmpty()) {
+            for (int i = 0; i < list.size(); i++) {
+                ProcessLog.log(execution, "会签意见[{}]: {}", i + 1, list.get(i));
+            }
+        } else {
+            ProcessLog.log(execution, "会签意见: 无");
+        }
+
+        Set<String> assignees = collectAssignees(execution.getProcessInstanceId());
+        if (assignees.isEmpty()) {
+            ProcessLog.log(execution, "人工参与: 无");
+            return;
+        }
+        Map<String, String> nameById = userRepository.findDisplayNamesByAuthSubjects(assignees);
+        ProcessLog.log(execution, "人工参与: {}", assignees.stream()
+                .map(id -> nameById.getOrDefault(id, id))
+                .collect(Collectors.joining("、")));
+    }
+
+    /** 本实例全部已完成人工任务的 assignee 去重(保持查询返回顺序)。 */
+    private Set<String> collectAssignees(String processInstanceId) {
+        Set<String> assignees = new LinkedHashSet<>();
+        for (HistoricTaskInstance task : historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .finished()
+                .list()) {
+            if (task.getAssignee() != null && !task.getAssignee().isBlank()) {
+                assignees.add(task.getAssignee());
+            }
+        }
+        return assignees;
+    }
+}
+```
+
+## 6. SKILL.md（4 个）
+
+四个 skill 的分工：`expense-submit` 供员工发起报销（建单 + 启动流程，P1 唯一入口）；`expense-lookup` 供各审批节点读单核对（P1 四个审批节点都挂它）；`universal-approver` 供审批节点输出结论 JSON；`document-submit` 供员工发起发文审批（P2 唯一入口）。SOR 地址 demo 固定 `http://localhost:8091/api`。
+
+### 6.1 报销单提报助手（P1 发起入口）
 
 **目录**: `%USERPROFILE%\.dsh\skills\expense-submit\SKILL.md`
 
@@ -1003,7 +1219,7 @@ triggers:
 - 单据状态流转：opened（已提交）→ ongoing（任一人审批过）→ approved（最后审批节点通过，正式批准）→ paid（已打款）；被拒 rejected；ongoing/approved 阶段可撤回 cancelled
 ````
 
-### 8.2 报销单查询助手（审批节点读单）
+### 6.2 报销单查询助手（审批节点读单）
 
 **目录**: `%USERPROFILE%\.dsh\skills\expense-lookup\SKILL.md`
 
@@ -1037,7 +1253,7 @@ triggers:
   rejected=已拒绝、paid=已打款、cancelled=已撤回
 ```
 
-### 8.3 通用审批决策助手（直属/专线/财务复核/出纳共用）
+### 6.3 通用审批决策助手（直属/专线/财务复核/出纳共用）
 
 **目录**: `%USERPROFILE%\.dsh\skills\universal-approver\SKILL.md`
 
@@ -1071,4 +1287,89 @@ triggers:
 
 - 打款类任务的 transactionId 用模拟号（如 20260921-0001），不要编造真实流水
 - 结论与意见要有依据，不复读指令
+```
+
+### 6.4 发文提交助手（P2 发起入口）
+
+**目录**: `%USERPROFILE%\.dsh\skills\document-submit\SKILL.md`
+
+````markdown
+---
+name: document-submit
+description: 引导员工发起发文审批：收集发文标题与正文 → 以 title/content 为启动参数启动发文审批(会签)流程，AI 润色与多 AI 合规评审自动推进
+triggers:
+  - 发文
+  - 起草发文
+  - 发起发文
+---
+
+# 发文提交助手
+
+## 你要做的事
+
+1. **收集信息**：请员工提供发文标题与发文正文（Markdown 纯文本即可）。
+   缺哪项追问哪项，收集齐再继续；标题过长时建议员工精简。
+2. **启动流程**：先调用 `dsh_process_list` 拿到「发文审批(会签)」流程的 workflowDefinitionId，
+   再调用 `dsh_process_start`，输入变量只传：
+
+   ```json
+   { "title": "<发文标题>", "content": "<发文正文>" }
+   ```
+
+3. **回复员工**：流程已启动，后续自动推进——AI 润色正文 → 多 AI 合规评审（全部通过才进入会签）→
+   下级负责人会签；各负责人会签待办会出现在他们的 DSH 待办列表，评审否决时流程直接结束并通知。
+
+## 注意
+
+- 只需要 title 与 content 两个启动参数，其余变量（润色稿、评审意见、会签意见）由流程自动产出，
+  不要替员工填写或编造
+- 流程启动失败时把错误如实告诉员工（如服务不可用），不要编造实例 id，也不要重复发起
+- 同一篇发文不要重复启动；员工要求改稿重发时，提醒新实例会从头走润色与评审
+````
+
+## 7. P2 发文示例素材（合规测试数据）
+
+### 7.1 示例：信息安全规定类
+
+```text
+华信科技有限公司文件
+
+华信司行〔2026〕12号
+
+关于加强办公区域信息安全管理的通知
+
+各部门：
+
+根据《中华人民共和国网络安全法》（2025年修正）、《中华人民共和国数据安全法》及公司《信息安全管理制度》第三章有关规定，为防范信息泄露风险，保障业务系统与数据安全，现就办公区域信息安全管理的有关要求通知如下：
+
+一、适用范围
+
+本通知适用于公司全体员工及外来人员（含访客、合作方人员）。
+
+二、具体要求
+
+（一）员工应使用公司统一配置的办公电脑处理日常业务，设置开机密码并启用锁屏策略，离开工位时锁定屏幕；
+
+（二）载有客户信息与业务数据的纸质材料，使用完毕后应立即归档，作废材料须经碎纸机销毁，不得随意丢弃；
+
+（三）未经公司 VPN 或加密通道，不得在公共网络环境下处理涉密信息及敏感商业信息；业务系统账号与密码仅限本人使用，不得告知无关人员；
+
+（四）外来人员（含访客、合作方人员）进入办公区域，须佩戴由接待部门核发的访客证件，并由接待部门全程陪同。
+
+三、责任与监督
+
+行政部负责本通知的组织实施与监督检查，各部门负责人对本部门执行情况负管理责任。违反本通知要求的，视情节轻重给予提醒告诫或全司通报；涉及违规行为的，依据《信息安全管理制度》相应条款追究责任。
+
+四、施行时间
+
+本通知自发布之日起施行。
+
+特此通知。
+
+华信科技有限公司
+2026年9月25日
+
+抄送：总经理、副总经理，各部门。
+
+华信科技有限公司办公室　　2026年9月25日印发
 ```
