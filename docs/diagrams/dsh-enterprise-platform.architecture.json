@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DSH 企业级应用平台架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "dsh-enterprise-platform.html",
+    "views": [
+      {
+        "id": "user-task-path",
+        "label": "user task 通路",
+        "focus": ["employee", "engine", "pgflow"],
+        "note": "员工在待办中心以对话办理 user task，JSON 产出按 outputMappings 回写流程变量。"
+      },
+      {
+        "id": "backend-task-path",
+        "label": "backend task 通路",
+        "focus": ["engine", "backendprofile"],
+        "note": "常驻 backend profile 自动执行 AI 节点，引擎提交 + 轮询。"
+      },
+      {
+        "id": "auth-model",
+        "label": "JWT 认证模型",
+        "focus": ["supabase", "employee", "webconsole", "engine", "backendprofile"],
+        "note": "Supabase 只签发 JWT；各方本地 JWKS 验签（仅校验 iss+exp）。"
+      },
+      {
+        "id": "sor-integration",
+        "label": "SOR 接入",
+        "focus": ["sor", "engine"],
+        "note": "expense-ctrl 为 legacy SOR 示例，更多 SOR 按同一契约接入。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "supabase", "type": "cloud", "label": "Supabase Auth", "sublabel": "仅 JWT 签发 + JWKS", "pos": [40, 50], "size": [170, 60] },
+    { "id": "webconsole", "type": "backend", "label": "web-console", "sublabel": "设计器 · 发布 · Analytics :8080", "pos": [470, 50], "size": [190, 68] },
+    { "id": "pgpublic", "type": "database", "label": "本地 PostgreSQL · public schema", "sublabel": "治理元数据 + dsh_metrics_sample", "pos": [940, 50], "size": [230, 64] },
+    { "id": "employee", "type": "frontend", "label": "员工端 enterprise profile", "sublabel": "Electron · 本地 webserver :3080", "pos": [40, 230], "size": [180, 68] },
+    { "id": "engine", "type": "backend", "label": "flowable-engine", "sublabel": "Spring Boot 3 · Flowable 7 :8090", "tag": "BPMN 核心", "pos": [460, 230], "size": [220, 80] },
+    { "id": "backendprofile", "type": "backend", "label": "backend profile", "sublabel": "常驻 AI 自动节点 enterprise-backend", "pos": [940, 230], "size": [200, 68] },
+    { "id": "sor", "type": "external", "label": "expense-ctrl（SOR 示例）", "sublabel": "企业 legacy 业务系统 :8091", "tag": "更多 SOR 接入中", "pos": [460, 420], "size": [180, 64] },
+    { "id": "pgflow", "type": "database", "label": "本地 PostgreSQL · flowable schema", "sublabel": "ACT_* 历史表（引擎专用）", "pos": [940, 420], "size": [230, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "企业内网 · 自托管运行面（除认证外零云依赖）", "wraps": ["webconsole", "pgpublic", "engine", "backendprofile", "sor", "pgflow"], "pad": 22 }
+  ],
+  "connections": [
+    { "from": "employee", "to": "engine", "label": "办理 user task（AI 对话）", "variant": "emphasis" },
+    { "from": "engine", "to": "backendprofile", "label": "DSH backend task（提交+轮询）", "variant": "emphasis" },
+    { "from": "webconsole", "to": "engine", "label": "部署 BPMN · 发布校验 · Analytics 代理", "fromSide": "bottom", "toSide": "top" },
+    { "from": "webconsole", "to": "pgpublic", "label": "治理元数据（public schema）" },
+    { "from": "engine", "to": "pgflow", "label": "读写 ACT_*", "labelAt": [830, 392] },
+    { "from": "sor", "to": "engine", "label": "发起流程实例（Service Key）", "fromSide": "top", "toSide": "bottom", "labelAt": [660, 366] },
+    { "from": "engine", "to": "sor", "label": "审批结果回调", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [495, 372] },
+    { "from": "supabase", "to": "employee", "label": "签发 JWT", "variant": "dashed", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "AI 双通路（高亮）", "items": [
+      "user task：员工端待办中心对话办理，产出 JSON 按 outputMappings 映射回流程变量",
+      "backend task：backend profile 常驻自动执行，引擎提交 + 轮询",
+      "两条通路共用 prompt / skillRefs / 会签计票语义"
+    ] },
+    { "dot": "emerald", "title": "数据 · 存储 · 认证", "items": [
+      "同一本地 PG 双 schema：flowable（ACT_*，引擎专用）/ public（治理元数据）",
+      "Supabase 仅 JWT 签发；员工端 / web-console / 引擎 / backend profile 各自 JWKS 本地验签（iss+exp），流程身份 = JWT sub",
+      "运维指标采样落 public.dsh_metrics_sample"
+    ] },
+    { "dot": "rose", "title": "SOR 接入范式", "items": [
+      "expense-ctrl（:8091）为企业 legacy SOR 示例",
+      "服务间认证 ServiceKey：发起实例 / 接收审批回调",
+      "更多 SOR 系统按同一契约接入流程总线"
+    ] }
+  ]
+}
