@@ -76,6 +76,21 @@ export interface HistoricActivityDto {
   durationInMillis: number | null
 }
 
+/**
+ * 流程实例业务日志条目(引擎实例日志文件的结构化回读)。
+ *
+ * 来源:backend task / service task 等自动节点的 ProcessLog 输出。
+ * activityId 与画布元素 id 对齐(点击节点高亮相关条目的匹配键);
+ * raw 非 null 表示该行不符合标准格式,按原文展示。
+ */
+export interface ProcessLogEntryDto {
+  timestamp: string | null
+  activityId: string | null
+  activityName: string | null
+  message: string | null
+  raw: string | null
+}
+
 export interface CompleteTaskRequest {
   variables?: Record<string, unknown>
 }
@@ -123,6 +138,9 @@ export const instancesApi = {
   /** 取实例部署版 BPMN XML(活动路径图渲染用)。 */
   getBpmnXml: (instanceId: string) =>
     get<string>(`/api/process-instances/${instanceId}/bpmn-xml`),
+  /** 回读实例业务日志(backend task/service task 等自动节点的运行轨迹)。 */
+  listProcessLog: (instanceId: string) =>
+    get<ProcessLogEntryDto[]>(`/api/process-instances/${instanceId}/process-log`),
   terminate: (instanceId: string, reason?: string) =>
     del<void>(`/api/process-instances/${instanceId}`, reason ? { reason } : undefined),
   completeTask: (instanceId: string, taskId: string, body?: CompleteTaskRequest) =>

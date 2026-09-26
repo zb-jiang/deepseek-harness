@@ -303,6 +303,23 @@ public class FlowableRestClient {
     }
 
     /**
+     * 回读实例业务日志(引擎实例日志文件的结构化条目)。
+     *
+     * <p>调引擎 {@code GET /dsh/history/process-log?processInstanceId=}:引擎读
+     * {@code logs/process/<实例id>.log} 逐行解析;文件不存在返回空数组。
+     * 返回 plain JSON 数组。
+     */
+    public JsonNode getProcessLog(String instanceId) {
+        return flowableRestClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/dsh/history/process-log")
+                .queryParam("processInstanceId", instanceId)
+                .build())
+            .retrieve()
+            .body(JsonNode.class);
+    }
+
+    /**
      * 查实例历史任务(实例级审计,返回该实例全部任务)。
      *
      * <p>调引擎 {@code GET /dsh/history/tasks?processInstanceId=}:引擎在带实例范围时

@@ -23,3 +23,18 @@
   stroke: #1677ff !important;
   stroke-width: 2px !important;
 }
+
+/*
+ * 日志联动闪亮:点击日志表条目时对应节点短暂高亮(橙色描边 + 淡橙填充),
+ * 由 React 侧加挂/摘除 dsh-log-flash marker 驱动(约 1.6 秒后自动摘除)。
+ */
+.dsh-history-viewer .dsh-log-flash:not(.djs-connection) .djs-visual > :nth-child(1) {
+  fill: #ffe7ba !important;
+  stroke: #fa8c16 !important;
+  stroke-width: 2.5px !important;
+}
+
+.dsh-history-viewer .dsh-log-flash.djs-connection .djs-visual > :nth-child(1) {
+  stroke: #fa8c16 !important;
+  stroke-width: 3px !important;
+}

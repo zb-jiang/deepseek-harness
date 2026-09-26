@@ -12,19 +12,21 @@ import {
   Popconfirm,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
   Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   instancesApi,
   type ContextVariableDto,
   type HistoricActivityDto,
   type ProcessInstanceDto,
+  type ProcessLogEntryDto,
   type ProcessVariableDto,
   type StartFormVariableDto,
   type TaskDto,
@@ -410,6 +412,11 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
   const [variables, setVariables] = useState<ProcessVariableDto[]>([])
   const [activities, setActivities] = useState<HistoricActivityDto[]>([])
   const [bpmnXml, setBpmnXml] = useState('')
+  // 流程日志(引擎实例日志文件回读)与画布点击联动状态
+  const [processLog, setProcessLog] = useState<ProcessLogEntryDto[]>([])
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [flash, setFlash] = useState<{ id: string; seq: number } | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(false)
   const [loading, setLoading] = useState(false)
   const [terminateOpen, setTerminateOpen] = useState(false)
   const [terminateForm] = Form.useForm<{ reason?: string }>()
@@ -423,19 +430,21 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
     if (!instanceId) return
     setLoading(true)
     try {
-      // 概要/任务失败提示;变量/活动/图属于历史视图,拉不到时优雅降级为空
-      const [instance, taskList, varList, actList, xml] = await Promise.all([
+      // 概要/任务失败提示;变量/活动/图/日志属于历史视图,拉不到时优雅降级为空
+      const [instance, taskList, varList, actList, xml, logList] = await Promise.all([
         instancesApi.get(instanceId),
         instancesApi.listTasks(instanceId),
         instancesApi.listVariables(instanceId).catch(() => [] as ProcessVariableDto[]),
         instancesApi.listActivities(instanceId).catch(() => [] as HistoricActivityDto[]),
         instancesApi.getBpmnXml(instanceId).catch(() => ''),
+        instancesApi.listProcessLog(instanceId).catch(() => [] as ProcessLogEntryDto[]),
       ])
       setInst(instance)
       setTasks(taskList ?? [])
       setVariables(varList ?? [])
       setActivities(actList ?? [])
       setBpmnXml(xml ?? '')
+      setProcessLog(logList ?? [])
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载实例失败')
     } finally {
@@ -446,6 +455,58 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  // ===== 流程日志 × 画布联动 =====
+
+  /** 画布节点点击:记住元素 id 作为日志过滤键(无匹配条目的节点自然清除高亮)。 */
+  const handleCanvasClick = useCallback((elementId: string) => {
+    setSelectedNodeId(elementId)
+  }, [])
+
+  /** 画布选中的节点在日志表中的命中条目(按 activityId 匹配)。 */
+  const hitEntries = useMemo(
+    () => (selectedNodeId ? processLog.filter(e => e.activityId === selectedNodeId) : []),
+    [processLog, selectedNodeId],
+  )
+
+  /** 被选中节点的展示名:优先日志条目记录的节点名,退回活动时间线的节点名,再退回元素 id。 */
+  const selectedNodeName = useMemo(() => {
+    if (!selectedNodeId) return null
+    return hitEntries.find(e => e.activityName)?.activityName
+      ?? activities.find(a => a.activityId === selectedNodeId && a.activityName)?.activityName
+      ?? selectedNodeId
+  }, [selectedNodeId, hitEntries, activities])
+
+  // 命中条目存在时滚动到第一条(平滑滚到表格中部,便于看到高亮上下文)
+  const logTableRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!selectedNodeId || hitEntries.length === 0) return
+    // 等 antd Table 渲染完高亮行再滚动
+    const timer = setTimeout(() => {
+      const row = logTableRef.current?.querySelector('.dsh-log-hit-row')
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [selectedNodeId, hitEntries.length])
+
+  // 点日志行反向定位:同一节点反复点击也重新闪亮(seq 自增)
+  const flashSeqRef = useRef(0)
+  const flashFromLog = (entry: ProcessLogEntryDto) => {
+    if (!entry.activityId) return
+    flashSeqRef.current += 1
+    setFlash({ id: entry.activityId, seq: flashSeqRef.current })
+  }
+
+  // 运行中实例的自动刷新(10 秒轮询日志,backend task 跑着时可见实时轨迹)
+  useEffect(() => {
+    if (!autoRefresh || !inst || inst.ended) return
+    const timer = setInterval(() => {
+      instancesApi.listProcessLog(instanceId)
+        .then(setProcessLog)
+        .catch(() => { /* 轮询失败静默,下个周期重试 */ })
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [autoRefresh, inst, instanceId])
 
   const submitTerminate = async () => {
     if (!inst) return
@@ -645,6 +706,33 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
     },
   ]
 
+  const logColumns: ColumnsType<ProcessLogEntryDto> = [
+    {
+      title: '时间戳',
+      dataIndex: 'timestamp',
+      key: 'timestamp',
+      width: 200,
+      render: (v: string | null) => v ?? '-',
+    },
+    {
+      title: '节点名称',
+      key: 'node',
+      width: 200,
+      render: (_, entry) => entry.activityName ?? entry.activityId ?? '-',
+    },
+    {
+      title: '日志详情',
+      key: 'detail',
+      render: (_, entry) => (
+        <Typography.Text
+          style={{ fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
+        >
+          {entry.message ?? entry.raw ?? '-'}
+        </Typography.Text>
+      ),
+    },
+  ]
+
   return (
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
@@ -722,7 +810,13 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
               已走过连线
             </span>
           </Space>
-          <BpmnHistoryViewer xml={bpmnXml} activities={activities} />
+          <BpmnHistoryViewer
+            xml={bpmnXml}
+            activities={activities}
+            onElementClick={handleCanvasClick}
+            flashElementId={flash?.id ?? null}
+            flashSeq={flash?.seq}
+          />
         </>
       ) : (
         <Alert
@@ -733,6 +827,51 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
           style={{ marginBottom: 16 }}
         />
       )}
+
+      <Typography.Title level={5} style={{ marginTop: 24, fontSize: 14 }}>
+        流程日志
+        {selectedNodeId && (
+          <Tag
+            color="orange"
+            closable
+            style={{ marginLeft: 8, fontWeight: 'normal' }}
+            onClose={() => setSelectedNodeId(null)}
+          >
+            {selectedNodeName}:{hitEntries.length} 条日志
+          </Tag>
+        )}
+      </Typography.Title>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12 }}
+      >
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          自动节点(backend task / service task)的运行轨迹;点击上方流程图节点可高亮该节点的日志,点击日志行可在图中定位节点。
+        </Typography.Text>
+        {inst && !inst.ended && (
+          <Space size={4} style={{ flexShrink: 0 }}>
+            <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} />
+            <span style={{ fontSize: 12, color: '#888' }}>自动刷新(10s)</span>
+          </Space>
+        )}
+      </div>
+      <div ref={logTableRef} className="dsh-process-log-table">
+        <Table<ProcessLogEntryDto>
+          rowKey={(_, index) => String(index)}
+          columns={logColumns}
+          dataSource={processLog}
+          loading={loading}
+          pagination={processLog.length > 50 ? { pageSize: 50, showSizeChanger: false } : false}
+          size="small"
+          locale={{ emptyText: '暂无流程日志(仅自动节点写入;user task / 网关不产生日志)' }}
+          rowClassName={entry =>
+            selectedNodeId && entry.activityId === selectedNodeId ? 'dsh-log-hit-row' : ''
+          }
+          onRow={entry => ({
+            onClick: () => flashFromLog(entry),
+            style: entry.activityId ? { cursor: 'pointer' } : undefined,
+          })}
+        />
+      </div>
 
       <Typography.Title level={5} style={{ marginTop: 24, fontSize: 14 }}>活动时间线</Typography.Title>
       <Table<HistoricActivityDto>

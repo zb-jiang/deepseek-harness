@@ -5,6 +5,7 @@ import com.dsh.console.runtime.dto.CompleteTaskRequest;
 import com.dsh.console.runtime.dto.ContextVariableDto;
 import com.dsh.console.runtime.dto.HistoricActivityDto;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
+import com.dsh.console.runtime.dto.ProcessLogEntryDto;
 import com.dsh.console.runtime.dto.ProcessVariableDto;
 import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
@@ -172,6 +173,17 @@ public class ProcessInstanceController {
     public ApiResponse<String> getBpmnXml(@PathVariable String instanceId,
                                           @AuthenticationPrincipal AuthContext auth) {
         return ApiResponse.ok(instanceService.getBpmnXml(instanceId, auth));
+    }
+
+    /**
+     * 回读实例业务日志(时间戳/节点名称/日志详情,详情页流程日志表渲染用;
+     * activityId 与画布元素 id 对齐,支持点击节点高亮相关条目)。
+     */
+    @GetMapping("/{instanceId}/process-log")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<List<ProcessLogEntryDto>> listProcessLog(@PathVariable String instanceId,
+                                                                 @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(instanceService.listProcessLog(instanceId, auth));
     }
 
     /**

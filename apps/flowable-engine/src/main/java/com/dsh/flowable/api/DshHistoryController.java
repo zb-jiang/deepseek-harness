@@ -1,17 +1,26 @@
 package com.dsh.flowable.api;
 
+import com.dsh.flowable.delegate.ProcessLog;
 import com.dsh.flowable.listener.DshExtensionProperties;
 import com.dsh.flowable.listener.DshTaskListener;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
@@ -44,6 +53,8 @@ import org.springframework.web.server.ResponseStatusException;
  *   <li>{@code GET /dsh/history/variables}:查历史变量(按实例 id 必填,实例上下文变量当前/最终值)。</li>
  *   <li>{@code GET /dsh/history/bpmn-xml}:查流程定义的部署版 BPMN XML(按定义 id 必填,
  *       员工工作台迷你流程图与实例路径图渲染共用)。</li>
+ *   <li>{@code GET /dsh/history/process-log}:回读流程实例业务日志文件(按实例 id 必填,
+ *       backend task / service task 等自动节点的运行轨迹,与 ACT_* 历史互补)。</li>
  * </ul>
  *
  * <p><b>历史级别</b>:由 {@link com.dsh.flowable.config.FlowableConfig} 配置 {@code HistoryLevel.FULL},
@@ -319,6 +330,82 @@ public class DshHistoryController {
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "Failed to read process model for definition: " + processDefinitionId, e);
         }
+    }
+
+    /**
+     * 回读流程实例业务日志(按实例 id 必填)。
+     *
+     * <p>数据源是 {@link com.dsh.flowable.delegate.ProcessLog} 落盘的实例日志文件
+     * {@code logs/process/<实例id>.log},与引擎后台日志完全分离;backend task /
+     * service task 等 delegate 的运行轨迹都在这里,UserTask/网关等无代码执行的节点
+     * 天然没有条目。文件不存在(老实例/尚无自动节点执行)返回空列表,不报 404。
+     *
+     * <p>解析规则:按 {@code 时间 [节点名(节点id)] 消息} 逐行解析为结构化条目;
+     * 消息本身含换行时续行并入同一条目;不符合行格式的行降级为 raw 原文条目。
+     *
+     * <p>安全:实例 id 必须是 UUID 形状(Flowable 实例 id 即 UUID)且解析后路径
+     * 仍位于日志目录内,防止路径穿越读取任意文件。
+     *
+     * @param processInstanceId 必填;流程实例 id
+     */
+    @GetMapping("/process-log")
+    public List<ProcessLogEntryDto> getProcessLog(
+        @RequestParam(name = "processInstanceId", required = false) String processInstanceId
+    ) {
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "processInstanceId parameter is required for /dsh/history/process-log");
+        }
+        try {
+            UUID.fromString(processInstanceId);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "processInstanceId must be a UUID: " + processInstanceId);
+        }
+        Path file = ProcessLog.fileOf(processInstanceId).normalize();
+        if (!file.startsWith(ProcessLog.logDir()) || !Files.exists(file)) {
+            return List.of();
+        }
+        try {
+            return parseLogLines(Files.readAllLines(file, StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to read process log for instance: " + processInstanceId, e);
+        }
+    }
+
+    /**
+     * 实例日志行格式:{@code yyyy-MM-dd HH:mm:ss.SSS [节点名(节点id)] 消息}。
+     * 节点名用贪婪匹配(名称本身可含括号),节点 id 不含括号。
+     */
+    private static final Pattern PROCESS_LOG_LINE = Pattern.compile(
+        "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}) \\[(.*)\\(([^()]*)\\)\\] (.*)$");
+
+    /** 行文本 → 结构化条目;续行并入上一条,无法解析的行降级为 raw 原文条目。 */
+    private static List<ProcessLogEntryDto> parseLogLines(List<String> lines) {
+        List<ProcessLogEntryDto> entries = new ArrayList<>();
+        for (String line : lines) {
+            if (line.isBlank()) {
+                continue;
+            }
+            Matcher m = PROCESS_LOG_LINE.matcher(line);
+            if (m.matches()) {
+                String name = "null".equals(m.group(2)) ? null : m.group(2);
+                entries.add(new ProcessLogEntryDto(m.group(1), m.group(3), name, m.group(4), null));
+            } else if (!entries.isEmpty() && entries.get(entries.size() - 1).raw() == null) {
+                // 消息含换行:续行是上一条消息的一部分
+                ProcessLogEntryDto prev = entries.get(entries.size() - 1);
+                entries.set(entries.size() - 1, new ProcessLogEntryDto(
+                    prev.timestamp(), prev.activityId(), prev.activityName(),
+                    prev.message() + "\n" + line, null));
+            } else {
+                entries.add(new ProcessLogEntryDto(null, null, null, null, line));
+            }
+        }
+        return entries;
     }
 
     private HistoricTaskDto toDto(HistoricTaskInstance task) {

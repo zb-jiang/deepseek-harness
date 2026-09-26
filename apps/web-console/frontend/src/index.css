@@ -365,3 +365,8 @@ body {
     transform: translate(90px, 70px) scale(1.15);
   }
 }
+
+/* 流程日志表:画布选中节点命中的日志行高亮(淡橙底,与画布闪亮同色系) */
+.dsh-process-log-table .dsh-log-hit-row > td {
+  background: #fff7e6 !important;
+}

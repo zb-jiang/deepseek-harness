@@ -30,6 +30,19 @@ public final class ProcessLog {
     private ProcessLog() {
     }
 
+    /** 日志根目录({@code logs/process}),端点回读时用它做越界校验。 */
+    public static Path logDir() {
+        return LOG_DIR;
+    }
+
+    /**
+     * 实例 id → 日志文件路径({@code logs/process/<实例id>.log})。
+     * 与 {@link #log} 使用同一目录常量,供历史/审计端点回读,避免两处路径字面量漂移。
+     */
+    public static Path fileOf(String instanceId) {
+        return LOG_DIR.resolve(instanceId + ".log");
+    }
+
     /**
      * 记录一条流程实例日志;format 支持 slf4j 风格 {@code {}} 与 {@link String#format} 的
      * {@code %s} 两种占位符(按出现顺序对应 args),兼容 delegate 的两种书写习惯。

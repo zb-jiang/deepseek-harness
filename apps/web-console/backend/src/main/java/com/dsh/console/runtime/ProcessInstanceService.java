@@ -7,6 +7,7 @@ import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
 import com.dsh.console.runtime.dto.ContextVariableDto;
 import com.dsh.console.runtime.dto.HistoricActivityDto;
 import com.dsh.console.runtime.dto.ProcessInstanceDto;
+import com.dsh.console.runtime.dto.ProcessLogEntryDto;
 import com.dsh.console.runtime.dto.ProcessVariableDto;
 import com.dsh.console.runtime.dto.StartFormVariableDto;
 import com.dsh.console.runtime.dto.StartProcessInstanceRequest;
@@ -482,6 +483,32 @@ public class ProcessInstanceService {
             throw new NotFoundException("实例缺少 processDefinitionId,无法取 BPMN XML: " + instanceId);
         }
         return flowableRestClient.getProcessDefinitionBpmnXml(procdefId);
+    }
+
+    /**
+     * 回读实例业务日志(引擎实例日志文件的结构化条目)。
+     *
+     * <p>数据源是引擎磁盘上的 {@code logs/process/<实例id>.log}(backend task /
+     * service task 等 delegate 写入);UserTask/网关等无代码执行的节点天然没有条目。
+     * 访问权限与查详情一致(requireAccessibleInstance)。
+     */
+    public List<ProcessLogEntryDto> listProcessLog(String instanceId, AuthContext auth) {
+        requireAccessibleInstance(instanceId, auth);
+        JsonNode resp = flowableRestClient.getProcessLog(instanceId);
+        List<ProcessLogEntryDto> result = new ArrayList<>();
+        if (resp == null || !resp.isArray()) {
+            return result;
+        }
+        for (JsonNode node : resp) {
+            result.add(new ProcessLogEntryDto(
+                textOrNull(node, "timestamp"),
+                textOrNull(node, "activityId"),
+                textOrNull(node, "activityName"),
+                textOrNull(node, "message"),
+                textOrNull(node, "raw")
+            ));
+        }
+        return result;
     }
 
     /**
