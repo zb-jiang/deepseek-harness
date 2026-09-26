@@ -51,6 +51,7 @@ $env:SKILLHUB_URL="http://127.0.0.1:8095"
 $env:SKILLHUB_API_TOKEN="sk_It1SA2xPE_J8vRl_boCDEsRpjcD3rX6tq6tkaPkn7kA"
 cd d:\works\deepseek-harness
 pnpm dsh --profile enterprise
+pnpm run dev:desktop
 
 ----------------------------------------------------------------------------------------------------------------------
 
@@ -112,10 +113,15 @@ java -jar target/expense-sor-1.0.0.jar
 ----------------------------------------------------------------------------------------------------------------------
 
 从upstream merge完验证命令
+
+# 0. 先看本地feat/enterprise-platform分支是否包含最新tag的内容? 如果是"未包含"才往下进行
+git fetch upstream --tags
+git merge-base --is-ancestor dsh-v0.1.7-rc.2 feat/enterprise-platform; if ($?) { "已包含" } else { "未包含" }
+
 # 1. 切到 master，同步官方最新
 git checkout master
-git fetch upstream
-git merge upstream/master
+git fetch upstream --tags
+git reset --hard dsh-v0.16  # 推进到最新稳定 tag（替换成实际 tag 名）
 
 # 2. 切到开发分支，合并 master
 git checkout feat/enterprise-platform
