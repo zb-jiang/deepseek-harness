@@ -1,0 +1,149 @@
+/* WorkspacePickerDialog:选择工作空间弹窗样式(与 TaskSubmitDialog 同构)。 */
+.modal {
+  width: min(520px, 90vw);
+  padding: 0;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  padding: 24px;
+}
+
+.header {
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding-bottom: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 120px;
+  max-height: 320px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.option:hover {
+  border-color: var(--dsw-alias-border-l3);
+}
+
+.optionSelected {
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+}
+
+.radio {
+  margin-top: 2px;
+  accent-color: var(--dsw-alias-brand-primary);
+}
+
+.optionMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.optionTitle {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionPath {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 12px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.browse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.browse:hover:not(:disabled) {
+  border-color: var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-primary);
+}
+
+.browse:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.browseError {
+  margin-top: -10px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+}
+
+.warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-business-primary)) 12%, transparent);
+  color: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-business-primary));
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  padding-top: 12px;
+}

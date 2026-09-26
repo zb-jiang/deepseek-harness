@@ -15,6 +15,11 @@
  * 与图片移交过去,认领即跟随);已有对话历史的任务会话不迁移,点击待办回到原会话
  * (历史留在原地可达)。
  *
+ * <p>首次点击未绑定待办不再自动挑选工作区:进入"选择工作空间"弹窗,由员工显式
+ * 选定并确认(弹窗明示选定后不可修改)后才新建专属会话并绑定;取消或未确认时不
+ * 产生任何会话,可反复重新选择。绑定(含草稿期迁移后的重绑)写入 localStorage,
+ * 刷新后回到原会话,不再产生孤儿会话。
+ *
  * <p>绑定状态刻意用普通对象而非 Map/Set:快照存储引擎经 immer produce 起草,
  * 而运行时导入的 immer 未启用 MapSet 插件,Map 草稿在首次变更时抛
  * "[Immer] minified error nr: 0"。已完成任务的会话映射另存 localStorage,
@@ -23,8 +28,8 @@
  */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { IWorkspaces, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IWorkspaces, WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ISidebarRight } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
@@ -56,6 +61,11 @@ export type WorkbenchTasksState = {
   prefillNotice: string | null
   /** 档案栏正在只读查看的已完成任务(无本地会话时的回看入口)。 */
   selectedCompleted: CompletedTask | null
+  /**
+   * 等待员工在"选择工作空间"弹窗中确认的待办(首次点击未绑定待办时置入;
+   * 确认/取消后清空)。null = 无待确认任务。
+   */
+  pendingTask: Task | null
   /** 正在确保待办 skill 就绪(打开待办前的即时安装窗口;侧栏提示+防连点)。 */
   skillPreparing: boolean
   /** 最近一次 skill 就绪失败的降级提示;null = 无失败或未触发(侧栏提示)。 */
@@ -85,6 +95,9 @@ export type WorkbenchBindingsState = {
 /** localStorage 键:已完成任务的会话映射(刷新后回看聊天历史的入口)。 */
 const COMPLETED_SESSIONS_KEY = 'dsh-enterprise-completed-sessions'
 
+/** localStorage 键:进行中任务的会话绑定(刷新后回到原会话)。 */
+const TASK_SESSIONS_KEY = 'dsh-enterprise-task-sessions'
+
 /** 读取持久化的已完成任务→会话映射;无存储或条目损坏按空处理。 */
 function loadCompletedSessions(): Record<string, SessionId> {
   if (typeof window === 'undefined') return {}
@@ -111,6 +124,32 @@ function saveCompletedSessions(map: Record<string, SessionId>): void {
   }
 }
 
+/** 读取持久化的进行中任务→会话绑定;无存储或条目损坏按空处理。 */
+function loadTaskSessions(): Record<string, SessionId> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(TASK_SESSIONS_KEY)
+    if (raw === null) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return {}
+    return parsed as Record<string, SessionId>
+  } catch {
+    // localStorage 条目损坏(JSON 解析失败):按无绑定处理,待办重新走
+    // 工作空间选择弹窗,不阻断工作台。
+    return {}
+  }
+}
+
+/** 写回持久化的进行中任务绑定;存储不可写(私隐模式/配额)时仅内存生效。 */
+function saveTaskSessions(map: Record<string, SessionId>): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(TASK_SESSIONS_KEY, JSON.stringify(map))
+  } catch {
+    // 写失败只损失刷新后的绑定恢复,内存绑定当次会话仍有效。
+  }
+}
+
 /** 控制器依赖的六个跨插件服务面。 */
 export interface WorkbenchDeps {
   readonly sessions: ISessions
@@ -122,20 +161,17 @@ export interface WorkbenchDeps {
   readonly sidebarRight: ISidebarRight
 }
 
-/**
- * 主区当前打开的会话 id。官方 0.1.6 重构把"当前会话"从 SessionListState.current
- * 移交视图层:navigation 归 ui-workspace 所有,经 mainView 保留计数暴露
- * (ui-workspace navigation.ts replaceMain 的 retain source)。
- */
-function currentMainSessionId(sessions: SessionListState): SessionId | undefined {
-  return Object.values(sessions.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
-}
-
 /** 任务档案标签页的类型标识(rightbar 标签页系统 openTab 的 kind)。 */
 export const ARCHIVE_TAB_KIND = 'dsh-enterprise-archive'
 
 /** 任务档案标签页实现的注册 id(stage-two keyed 座位的 key)。 */
 export const ARCHIVE_TAB_ID = '@deepseek-ai/dsh-client-ui-enterprise/archive'
+
+/** "浏览本地文件夹"选目录的结果(WorkspacePickerDialog 据此更新选中/提示)。 */
+export type WorkspacePickResult =
+  | { status: 'picked'; workspaceId: WorkspaceId }
+  | { status: 'cancelled' }
+  | { status: 'error'; message: string }
 
 /**
  * 工作台编排器。apply 时构造一次,经各插槽 inject 面闭包分发;
@@ -159,11 +195,19 @@ export class EnterpriseWorkbench {
     this.deps = deps
     this.tasks = createSnapshotStore<WorkbenchTasksState>({
       items: [], completed: [], loading: false, error: null,
-      prefillNotice: null, selectedCompleted: null,
+      prefillNotice: null, selectedCompleted: null, pendingTask: null,
       skillPreparing: false, skillNotice: null,
     })
+    // 刷新恢复:持久化的进行中绑定先入 store(反向索引同步重建),绑定会话
+    // 已被删除时 openTask 的存续检查会退回工作空间选择弹窗。
+    const persistedTasks = loadTaskSessions()
+    const persistedReverse: Record<string, string> = {}
+    for (const [taskId, sessionId] of Object.entries(persistedTasks)) {
+      persistedReverse[sessionId] = taskId
+    }
     this.bindings = createSnapshotStore<WorkbenchBindingsState>({
-      taskToSession: {}, sessionToTask: {}, completedBySession: {}, completedByTask: {},
+      taskToSession: persistedTasks, sessionToTask: persistedReverse,
+      completedBySession: {}, completedByTask: {},
     })
     this.completedSessions = loadCompletedSessions()
   }
@@ -192,17 +236,12 @@ export class EnterpriseWorkbench {
 
   /**
    * 打开一个待办:先确保 skillRefs 就绪(即时安装,降级不阻断;见
-   * ensureSkillsReady),然后回到已绑定会话,或为任务建立专属会话并预填
-   * 任务指令。建会话走 createTaskSession(每任务一个干净会话;connectWorkspace
+   * ensureSkillsReady),然后回到已绑定会话;未绑定时进入"选择工作空间"
+   * 弹窗(pendingTask 置位,由 TaskQueueSidebar 渲染),员工显式选定并
+   * 确认后才经 confirmPendingTaskWorkspace 新建专属会话并预填任务指令。
+   * 建会话走 createTaskSession(每任务一个干净会话;connectWorkspace
    * 会复用工作区的空白会话,其残留草稿会拦截预填且多任务会错绑到同一会话)。
-   * create 的解析保证会话已入列表且 binding 同步可解析,因此预填可在
-   * open 之前写入新会话的输入机(原生 New Session 的 draft hand-off 模式)。
-   * 预填失败原因记入 prefillNotice 供侧栏提示。无可用工作区时清空当前
-   * 选择(与原生 New Session 行为一致);建连失败记入队列错误面。
-   *
-   * <p>绑定会话仍存续时先尝试 adoptCurrentBlank:员工切换到其他工作区的
-   * 空白会话(原生目录选择已移交草稿/图片)后重新点击待办,任务绑定迁移过去,
-   * 工作区不再退回原会话所在地;不满足迁移守卫时维持回到原会话。
+   * 预填失败原因记入 prefillNotice 供侧栏提示。
    * @param task - 队列中选中的待办。
    */
   async openTask(task: Task): Promise<void> {
@@ -212,34 +251,72 @@ export class EnterpriseWorkbench {
     const bound = this.bindings.getSnapshot().taskToSession[task.id]
     const sessionLive = bound !== undefined
       && this.deps.sessions.list.getSnapshot().byId[bound] !== undefined
-    let sessionId: SessionId | undefined = sessionLive === true ? bound : undefined
-    if (sessionId === undefined) {
-      const workspaces = this.deps.workspaces.list.getSnapshot()
-      const sessions = this.deps.sessions.list.getSnapshot()
-      // 与原生 startSession 同判据:当前会话所在工作区 → 最近活跃工作区 → 首个。
-      const currentSessionId = currentMainSessionId(sessions)
-      const currentWorkspaceId = currentSessionId === undefined
-        ? undefined
-        : workspaces.items.find(item => item.sessionIds.includes(currentSessionId))?.workspaceId
-      const workspaceId = currentWorkspaceId
-        ?? this.recentWorkspaceId(workspaces.items, sessions.byId)
-        ?? workspaces.items[0]?.workspaceId
-      if (workspaceId === undefined) {
-        // 无任何工作区:官方 startSession 无目标时清空主区选择回到 New Session 纯视图。
-        this.deps.uiWorkspace.startSession()
-        return
-      }
-      sessionId = await this.createTaskSession(workspaceId)
-      if (sessionId === undefined) return
-      this.bind(task.id, sessionId)
-    } else {
-      const adopted = this.adoptCurrentBlank(task.id, sessionId)
-      if (adopted !== undefined) sessionId = adopted
+    if (sessionLive && bound !== undefined) {
+      const sessionId = bound
+      const prefillNotice = this.prefillPrompt(task, sessionId)
+      this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
+      this.deps.uiWorkspace.openSession(sessionId)
+      this.openArchiveTab(sessionId)
+      return
     }
+    // 未绑定(首次点击,或持久绑定对应的会话已不存在):交给员工显式
+    // 选择工作空间,不自动挑选、不预建会话;取消前不产生任何绑定。
+    this.tasks.update((draft) => { draft.pendingTask = task })
+  }
+
+  /**
+   * 员工在"选择工作空间"弹窗中确认后调用:在选定工作区新建专属会话、
+   * 建立绑定(含 localStorage 持久化)、预填任务指令并进入会话与档案栏。
+   * 建会话失败时保留弹窗(pendingTask 不清空),员工可重试或取消。
+   * @param workspaceId - 员工在弹窗中选定的工作区。
+   */
+  async confirmPendingTaskWorkspace(workspaceId: WorkspaceId): Promise<void> {
+    const task = this.tasks.getSnapshot().pendingTask
+    if (task === null) return
+    const sessionId = await this.createTaskSession(workspaceId)
+    if (sessionId === undefined) return
+    this.bind(task.id, sessionId)
     const prefillNotice = this.prefillPrompt(task, sessionId)
-    this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
+    this.tasks.update((draft) => {
+      draft.pendingTask = null
+      draft.prefillNotice = prefillNotice
+    })
     this.deps.uiWorkspace.openSession(sessionId)
-    this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND)
+    this.openArchiveTab(sessionId)
+  }
+
+  /** 员工取消"选择工作空间"弹窗:清空待确认任务,不产生会话与绑定。 */
+  cancelPendingTask(): void {
+    if (this.tasks.getSnapshot().pendingTask === null) return
+    this.tasks.update((draft) => { draft.pendingTask = null })
+  }
+
+  /**
+   * 弹窗内"浏览本地文件夹"入口:打开宿主目录选择器(桌面版是 OS 原生
+   * 文件夹对话框,Web 端由 in-app browse 后端承接),选定后把该路径注册为
+   * 新工作区(Host 幂等:路径已注册时返回既有工作区)并返回其 id,弹窗随之
+   * 选中新工作区,员工仍需显式确认才建会话绑定。
+   * @returns picked 携带新建(或既有)工作区 id;cancelled 为员工取消选择;
+   *          error 携带可供弹窗展示的失败原因。
+   */
+  async pickNewWorkspace(): Promise<WorkspacePickResult> {
+    let path: string | null
+    try {
+      path = await this.deps.uiWorkspace.pickDirectory()
+    } catch (error: unknown) {
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      }
+    }
+    if (path === null) return { status: 'cancelled' }
+    try {
+      const workspace = await this.deps.workspaces.create({ path })
+      return { status: 'picked', workspaceId: workspace.workspaceId }
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return { status: 'error', message: `注册工作区失败:${detail}` }
+    }
   }
 
   /**
@@ -267,10 +344,42 @@ export class EnterpriseWorkbench {
         draft.completedByTask[task.id] = sessionId
       })
       this.deps.uiWorkspace.openSession(sessionId)
+      this.openArchiveTab(sessionId)
     } else {
       this.tasks.update((draft) => { draft.selectedCompleted = task })
+      // 只读档案路径不切换会话:档案标签落到当前已挂载会话的表面即可。
+      this.openArchiveTab(undefined)
     }
-    this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND)
+  }
+
+  /**
+   * 打开任务档案标签页,并保证它落在目标会话的 rightbar 表面上。
+   *
+   * <p>openSession 与 rightbar 座位的挂载/绑定不在同一帧:点击后同步调
+   * openTab,经 require() 拿到的是"上一个已挂载会话"的绑定,标签会落错
+   * 表面——新会话的座位随后以空表面挂载且默认收起,表现为档案栏不再弹出、
+   * 刷新后才恢复几次(官方 mounted 可观测面正是为此暴露:等座位发布目标
+   * 会话后再开)。目标会话 3 秒内仍未挂载(主区被切走/无会话)时放弃并
+   * 退订,避免悬挂订阅。
+   * @param target - 要显示档案栏的会话;undefined 表示落到当前已挂载会话
+   *   (只读档案路径:不切换会话,当前会话即可)。
+   */
+  private openArchiveTab(target: SessionId | undefined): void {
+    const mounted = this.deps.sidebarRight.mounted
+    const open = (): void => { this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND) }
+    const current = mounted.getSnapshot()
+    if (current === target || (target === undefined && current !== undefined)) {
+      open()
+      return
+    }
+    const timer = setTimeout(() => { unsubscribe() }, 3000)
+    const unsubscribe = mounted.subscribe(() => {
+      const now = mounted.getSnapshot()
+      if (now === undefined || (target !== undefined && now !== target)) return
+      unsubscribe()
+      clearTimeout(timer)
+      open()
+    })
   }
 
   /**
@@ -401,103 +510,13 @@ export class EnterpriseWorkbench {
     return this.deps.conversation.input.for(actx)
   }
 
-  /**
-   * 最近活跃工作区(与原生 navigation.recentWorkspace 同判据):取各工作区
-   * 内会话的最新 updatedAt,无会话时退化为创建时间,并列时保持 Host 顺序。
-   */
-  private recentWorkspaceId(
-    workspaces: readonly WorkspaceView[],
-    sessions: Record<string, { updatedAt: number }>,
-  ): WorkspaceId | undefined {
-    let selected: WorkspaceId | undefined
-    let selectedTime = Number.NEGATIVE_INFINITY
-    for (const workspace of workspaces) {
-      let latest = Number.NEGATIVE_INFINITY
-      for (const sessionId of workspace.sessionIds) {
-        const session = sessions[sessionId]
-        if (session !== undefined) latest = Math.max(latest, session.updatedAt)
-      }
-      if (latest === Number.NEGATIVE_INFINITY) latest = Date.parse(workspace.createdAt)
-      if (selected === undefined || latest > selectedTime) {
-        selected = workspace.workspaceId
-        selectedTime = latest
-      }
-    }
-    return selected
-  }
-
-  /** 建立任务↔会话双向绑定(重绑时覆盖旧正向记录)。 */
+  /** 建立任务↔会话双向绑定(重绑时覆盖旧正向记录),并持久化正向映射。 */
   private bind(taskId: string, sessionId: SessionId): void {
     this.bindings.update((draft) => {
       draft.taskToSession[taskId] = sessionId
       draft.sessionToTask[sessionId] = taskId
     })
-  }
-
-  /**
-   * 把仍处草稿期的任务迁移到当前空白会话(员工切换工作区后重新点击待办)。
-   *
-   * <p>原生对话区顶部的目录选择会把当前会话的草稿与图片移交给新工作区的
-   * 空白会话再导航过去;绑定仍指向旧工作区的原会话时,点击待办会跳回旧工作区,
-   * 员工无法在自选目录下处理待办。这里在守卫全过时把绑定认领到当前空白会话,
-   * 移交过来的草稿/图片原地可用。
-   *
-   * <p>守卫(任一不满足即返回 undefined,维持回到原会话的现状):
-   * <ol>
-   *   <li>当前会话存在、≠ 绑定会话、是空白会话、且未绑定其他任务
-   *       (认领会话不能劫持已有对话或他人任务);</li>
-   *   <li>绑定会话仍是空白(未发送过消息)且输入框无草稿/图片
-   *       (有内容滞留说明内容还在原会话,迁移会丢;已有对话历史的
-   *       任务会话同样不迁移——历史留在原地仍可达);</li>
-   *   <li>两会话分属不同工作区,且当前会话的工作区可解析
-   *       (绑定会话的工作区已被删除时视为不同,允许迁移)。</li>
-   * </ol>
-   *
-   * @param taskId - 目标待办 id。
-   * @param boundId - 当前绑定的会话。
-   * @returns 迁移后的会话 id;未迁移为 undefined。
-   */
-  private adoptCurrentBlank(taskId: string, boundId: SessionId): SessionId | undefined {
-    const sessions = this.deps.sessions.list.getSnapshot()
-    const current = currentMainSessionId(sessions)
-    if (current === undefined || current === boundId) return undefined
-    const currentRow = sessions.byId[current]
-    const boundRow = sessions.byId[boundId]
-    if (currentRow === undefined || boundRow === undefined) return undefined
-    if (!currentRow.blank || !boundRow.blank) return undefined
-    if (this.bindings.getSnapshot().sessionToTask[current] !== undefined) return undefined
-    const boundState = this.sessionInput(boundId)?.state.getSnapshot()
-    if (boundState === undefined || boundState.draft !== '' || boundState.attachmentIds.length > 0) {
-      return undefined
-    }
-    const workspaces = this.deps.workspaces.list.getSnapshot()
-    const workspaceOf = (id: SessionId): WorkspaceId | undefined =>
-      workspaces.items.find(item => item.sessionIds.includes(id))?.workspaceId
-    const currentWorkspace = workspaceOf(current)
-    if (currentWorkspace === undefined || currentWorkspace === workspaceOf(boundId)) {
-      return undefined
-    }
-    this.rebind(taskId, current)
-    // 迁移后的指令补填只面向空草稿:已携带的草稿本就是移交过来的任务指令
-    // (或员工自己的内容),标记已填避免 prefillPrompt 误报"输入框已有内容"。
-    const draft = this.sessionInput(current)?.state.getSnapshot().draft ?? ''
-    if (draft === '') this.prefilledTasks.delete(taskId)
-    else this.prefilledTasks.add(taskId)
-    return current
-  }
-
-  /** 迁移任务绑定到新会话,并清掉旧会话上的反向索引(旧会话退化为普通会话)。 */
-  private rebind(taskId: string, sessionId: SessionId): void {
-    this.bindings.update((draft) => {
-      const previous = draft.taskToSession[taskId]
-      if (previous !== undefined && previous !== sessionId) {
-        // spread+rest 移除键,绕开 lint 的 no-dynamic-delete(与 unbind 同理)
-        const { [previous]: _stale, ...rest } = draft.sessionToTask
-        draft.sessionToTask = rest
-      }
-      draft.taskToSession[taskId] = sessionId
-      draft.sessionToTask[sessionId] = taskId
-    })
+    saveTaskSessions(this.bindings.getSnapshot().taskToSession)
   }
 
   /** 解除绑定;'completed' 时在会话上留完成回执并把映射持久化。 */
@@ -527,5 +546,7 @@ export class EnterpriseWorkbench {
       this.completedSessions[task.id] = persisted
       saveCompletedSessions(this.completedSessions)
     }
+    // 提交完成后任务不再"进行中":从持久化绑定中移除,避免刷新后残留。
+    saveTaskSessions(this.bindings.getSnapshot().taskToSession)
   }
 }

@@ -5,7 +5,9 @@
  * enterpriseLayout 分支在 navArea 渲染它,原生 workspaces 会话浏览、
  * New Session 与 Settings 保留在各自座位(企业 profile 与上游 DSH 的
  * 合并面最大化保留原生能力)。宽态渲染待办/已完成两组列表,任务驱动
- * 导航:待办点击经 workbench.openTask 绑定专属会话;已完成来自引擎
+ * 导航:待办点击经 workbench.openTask —— 未绑定时弹出"选择工作空间"
+ * 确认弹窗(WorkspacePickerDialog,选定后不可修改),确认后才建会话绑定;
+ * 已绑定回到原会话。已完成来自引擎
  * 历史数据(持久,刷新仍在),点击回看本地会话或只读档案。窄轨(wide=
  * false,56px)渲染计数徽标,点击展开。未登录时由 shell.overlay 认证
  * 遮罩盖住整帧,这里只渲染占位。
@@ -15,6 +17,7 @@ import clsx from 'clsx'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { EnterpriseWorkbench } from './enterprise-workbench.ts'
 import { useAuth } from './EnterpriseUi.tsx'
+import { WorkspacePickerDialog } from './WorkspacePickerDialog.tsx'
 import { formatShortTime, useSnapshot } from './workbench/hooks.ts'
 import css from './TaskQueueSidebar.module.css'
 
@@ -23,16 +26,18 @@ export type TaskQueueSidebarInjected = {
   workbench: EnterpriseWorkbench
 }
 
-/** nav 座位组件 props:owner(wide)+ 注入面 + 全局标准 kit(useSessions)。 */
+/** nav 座位组件 props:owner(wide)+ 注入面 + 全局标准 kit(useSessions/useWorkspaces)。 */
 export type TaskQueueSidebarProps =
   & PropsRuntime<'sidebar.nav'>
   & TaskQueueSidebarInjected
 
 /** 待办队列 nav 座位(见模块文档)。 */
-export function TaskQueueSidebar({ wide, workbench, useSessions }: TaskQueueSidebarProps) {
+export function TaskQueueSidebar({ wide, workbench, useSessions, useWorkspaces }: TaskQueueSidebarProps) {
   const { currentUser, loading: authLoading, switchAccount } = useAuth()
   const tasks = useSnapshot(workbench.tasks)
   const bindings = useSnapshot(workbench.bindings)
+  // 工作区列表:工作空间选择弹窗的选项来源(创建/删除后实时刷新)。
+  const workspaceItems = useWorkspaces(s => s.items)
   // 当前主区会话:官方重构后 navigation 归 ui-workspace,经 mainView 保留计数暴露。
   const currentSession = useSessions(s => Object.values(s.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id)
   const authed = !authLoading && currentUser !== null && currentUser.status === 'active'
@@ -166,6 +171,17 @@ export function TaskQueueSidebar({ wide, workbench, useSessions }: TaskQueueSide
           </button>
         </div>
       )}
+
+      {/* 工作空间选择弹窗:key 按任务重挂载,选项状态不跨任务残留。 */}
+      <WorkspacePickerDialog
+        key={tasks.pendingTask?.id ?? 'none'}
+        open={tasks.pendingTask !== null}
+        task={tasks.pendingTask}
+        workspaces={workspaceItems}
+        onClose={() => { workbench.cancelPendingTask() }}
+        onConfirm={(workspaceId) => { void workbench.confirmPendingTaskWorkspace(workspaceId) }}
+        onBrowse={() => workbench.pickNewWorkspace()}
+      />
     </div>
   )
 }
