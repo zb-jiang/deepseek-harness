@@ -1,7 +1,7 @@
 /**
  * 分析看板(设计 2026-09-25):业务分析 + 运维健康两个 tab。
  *
- * - 业务分析(system_admin + app_admin):概览卡/每日吞吐/办理人时效/节点热力图,
+ * - 业务分析(system_admin + app_admin):概览卡/每日流程数量/办理人耗时/节点热力图,
  *   数据经 web-console 代理引擎 /dsh/analytics/*;
  *   system_admin 看全局,app_admin 后端收敛到名下应用的已发布流程(下拉同样只列名下流程);
  * - 运维健康(仅 system_admin):引擎指标实时卡 + 趋势折线,
@@ -21,8 +21,10 @@ import {
   Statistic,
   Table,
   Tabs,
+  Tooltip,
   Typography,
 } from 'antd'
+import { QuestionCircleOutlined } from '@ant-design/icons'
 import { Line } from '@ant-design/charts'
 import { useAuth } from '../auth/AuthContext'
 import { PLATFORM_ROLE } from '../api/types'
@@ -53,12 +55,29 @@ function procdefKey(workflow: WorkflowDefinitionDto): string | null {
   return key || null
 }
 
-/** 每日吞吐折线数据(双序列拉平为长表)。 */
+/** 每日流程数量折线数据(双序列拉平为长表;序列名与概览卡名称一致)。 */
 function toVolumeSeries(volumes: DailyVolume[]) {
   return volumes.flatMap(v => [
-    { date: v.date, value: v.started, type: '发起' },
-    { date: v.date, value: v.completed, type: '完成' },
+    { date: v.date, value: v.started, type: '发起流程' },
+    { date: v.date, value: v.completed, type: '正常完成' },
   ])
+}
+
+/** 卡片标题 + 悬浮解释(把统计口径写成业务语言)。 */
+function TitleWithHint({ title, hint }: { title: string; hint: string }) {
+  return (
+    <Space size={4}>
+      {title}
+      <Tooltip title={hint}>
+        <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+      </Tooltip>
+    </Space>
+  )
+}
+
+/** 数值 + 单位的 Statistic 属性;无数据('-')时不显示单位。 */
+function unitStat(value: number | string, unit: string): { value: number | string; suffix?: string } {
+  return value === '-' ? { value } : { value, suffix: unit }
 }
 
 function BusinessTab() {
@@ -153,31 +172,44 @@ function BusinessTab() {
       </Space>
       {error && <Alert type="error" showIcon message={error} />}
       <Row gutter={16}>
-        <Col span={4}><Card size="small"><Statistic title="发起" value={overview?.started ?? 0} /></Card></Col>
-        <Col span={4}><Card size="small"><Statistic title="正常完成" value={overview?.completed ?? 0} /></Card></Col>
-        <Col span={4}><Card size="small"><Statistic title="运行中" value={overview?.running ?? 0} /></Card></Col>
-        <Col span={4}><Card size="small"><Statistic title="已终止" value={overview?.terminated ?? 0} /></Card></Col>
+        <Col span={4}><Card size="small"><Statistic title="发起流程" value={overview?.started ?? 0} suffix="个" /></Card></Col>
+        <Col span={4}><Card size="small"><Statistic title="正常完成" value={overview?.completed ?? 0} suffix="个" /></Card></Col>
+        <Col span={4}><Card size="small"><Statistic title="运行中" value={overview?.running ?? 0} suffix="个" /></Card></Col>
+        <Col span={4}><Card size="small"><Statistic title="已终止" value={overview?.terminated ?? 0} suffix="个" /></Card></Col>
         <Col span={4}>
           <Card size="small">
-            <Statistic title="平均端到端时长" value={formatMs(overview?.avgDurationMs ?? null)} />
+            <Statistic
+              title={<TitleWithHint title="平均完成耗时" hint="流程从发起到正常完成平均花费的时间(只统计已完成的流程)" />}
+              value={formatMs(overview?.avgDurationMs ?? null)}
+            />
           </Card>
         </Col>
         <Col span={4}>
           <Card size="small">
-            <Statistic title="P95 端到端时长" value={formatMs(overview?.p95DurationMs ?? null)} />
+            <Statistic
+              title={<TitleWithHint title="95%流程的完成耗时" hint="把窗口内正常完成的流程按耗时从快到慢排队,95%的流程都在这个时间内完成;它代表比较慢的那部分流程的耗时水平" />}
+              value={formatMs(overview?.p95DurationMs ?? null)}
+            />
           </Card>
         </Col>
       </Row>
-      <Card size="small" title="每日吞吐">
+      <Card size="small" title="每日流程数量">
         {volumes.length > 0 ? (
-          <Line
-            data={toVolumeSeries(volumes)}
-            xField="date"
-            yField="value"
-            seriesField="type"
-            height={260}
-            smooth
-          />
+          <>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              每天新发起和正常完成的流程个数(条数即流程个数)。
+            </Typography.Paragraph>
+            <Line
+              data={toVolumeSeries(volumes)}
+              xField="date"
+              yField="value"
+              colorField="type"
+              legend={{ color: { position: 'top' } }}
+              axis={{ y: { labelFormatter: (v: number) => `${v} 个` } }}
+              height={260}
+              smooth
+            />
+          </>
         ) : (
           <Empty description="窗口内无数据" />
         )}
@@ -191,7 +223,7 @@ function BusinessTab() {
       </Card>
       <Row gutter={16}>
         <Col span={12}>
-          <Card size="small" title="办理人时效榜(完成任务 Top 50)">
+          <Card size="small" title="办理人耗时榜(完成任务数 Top 50)">
             <Table<TaskStat>
               size="small"
               rowKey="assignee"
@@ -204,15 +236,15 @@ function BusinessTab() {
                   dataIndex: 'assignee',
                   render: (_, r) => r.displayName ?? r.assignee,
                 },
-                { title: '完成份数', dataIndex: 'count', width: 100 },
+                { title: '完成任务数(个)', dataIndex: 'count', width: 120 },
                 {
-                  title: '平均时长',
+                  title: '平均耗时',
                   dataIndex: 'avgDurationMs',
                   width: 110,
                   render: v => formatMs(v),
                 },
                 {
-                  title: '最长时长',
+                  title: '最长耗时',
                   dataIndex: 'maxDurationMs',
                   width: 110,
                   render: v => formatMs(v),
@@ -222,7 +254,7 @@ function BusinessTab() {
           </Card>
         </Col>
         <Col span={12}>
-          <Card size="small" title="最慢节点 Top 10">
+          <Card size="small" title="最慢节点 Top 10(按平均耗时)">
             <Table<ActivityStat>
               size="small"
               rowKey="activityId"
@@ -232,9 +264,9 @@ function BusinessTab() {
               columns={[
                 { title: '节点', dataIndex: 'activityName', render: (v, r) => v ?? r.activityId },
                 { title: '类型', dataIndex: 'activityType', width: 110 },
-                { title: '执行份数', dataIndex: 'count', width: 90 },
+                { title: '执行次数(次)', dataIndex: 'count', width: 110 },
                 {
-                  title: '平均时长',
+                  title: '平均耗时',
                   dataIndex: 'avgDurationMs',
                   width: 110,
                   render: v => formatMs(v),
@@ -255,16 +287,33 @@ const OPS_WINDOW_OPTIONS = [
 ]
 
 const OPS_SERIES_METRICS = [
-  { value: 'dsh.flowable.jobs.async', label: 'async job 积压' },
-  { value: 'dsh.flowable.jobs.timer', label: 'timer job 积压' },
-  { value: 'dsh.flowable.jobs.deadletter', label: 'dead-letter job 积压' },
-  { value: 'dsh.flowable.jobs.suspended', label: '挂起 job 数' },
-  { value: 'hikaricp.connections.active', label: '活跃连接数' },
-  { value: 'jvm.memory.used', label: 'JVM 内存用量' },
-  { value: 'dsh.task.escalation', label: '超时升级(累计)' },
-  { value: BACKEND_TASK_SUCCESS, label: 'backend task 成功(累计)' },
-  { value: BACKEND_TASK_FAILED, label: 'backend task 失败(累计)' },
+  { value: 'dsh.flowable.jobs.async', label: '待执行的后台作业数(个)' },
+  { value: 'dsh.flowable.jobs.timer', label: '待触发的定时作业数(个)' },
+  { value: 'dsh.flowable.jobs.deadletter', label: '执行失败的后台作业数(个)' },
+  { value: 'dsh.flowable.jobs.suspended', label: '已挂起的后台作业数(个)' },
+  { value: 'hikaricp.connections.active', label: '数据库活跃连接数(个)' },
+  { value: 'jvm.memory.used', label: '服务内存占用(MB)' },
+  { value: 'dsh.task.escalation', label: '超时自动升级次数(累计,次)' },
+  { value: BACKEND_TASK_SUCCESS, label: '自动节点任务成功数(累计,次)' },
+  { value: BACKEND_TASK_FAILED, label: '自动节点任务失败数(累计,次)' },
 ]
+
+/**
+ * 趋势图纵轴的业务化展示(一次画一条指标曲线):
+ * jvm.memory.used 落库为字节,换算成 MB;COUNT 类指标是次数,其余是个数。
+ */
+function opsMetricDisplay(metric: string): { toDisplay: (v: number) => number; tick: (v: number) => string } {
+  if (metric === 'jvm.memory.used') {
+    return {
+      toDisplay: v => v / 1024 / 1024,
+      tick: v => `${v < 10 ? v.toFixed(1) : Math.round(v)} MB`,
+    }
+  }
+  if (metric.includes('dsh.backend.task') || metric === 'dsh.task.escalation') {
+    return { toDisplay: v => v, tick: v => `${v} 次` }
+  }
+  return { toDisplay: v => v, tick: v => `${v} 个` }
+}
 
 function OpsTab() {
   const [summary, setSummary] = useState<OpsSummary | null>(null)
@@ -322,19 +371,49 @@ function OpsTab() {
   }, [loadSeries])
 
   const jobValue = (name: string) => summary?.latest[name] ?? '-'
+  // 趋势图取值换算与纵轴单位随所选指标变化
+  const display = opsMetricDisplay(metric)
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {summaryError && <Alert type="error" showIcon message={summaryError} />}
       <Row gutter={16}>
-        <Col span={3}><Card size="small"><Statistic title="async job" value={jobValue('dsh.flowable.jobs.async')} /></Card></Col>
-        <Col span={3}><Card size="small"><Statistic title="timer job" value={jobValue('dsh.flowable.jobs.timer')} /></Card></Col>
-        <Col span={3}><Card size="small"><Statistic title="dead-letter job" value={jobValue('dsh.flowable.jobs.deadletter')} /></Card></Col>
-        <Col span={3}><Card size="small"><Statistic title="挂起 job" value={jobValue('dsh.flowable.jobs.suspended')} /></Card></Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic
+              title={<TitleWithHint title="待执行作业" hint="流程引擎排队等待执行的后台作业数量" />}
+              {...unitStat(jobValue('dsh.flowable.jobs.async'), '个')}
+            />
+          </Card>
+        </Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic
+              title={<TitleWithHint title="定时作业" hint="等待到达设定时间再执行的后台作业(如定时器、节点超时检查)" />}
+              {...unitStat(jobValue('dsh.flowable.jobs.timer'), '个')}
+            />
+          </Card>
+        </Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic
+              title={<TitleWithHint title="失败作业" hint="自动重试多次仍然失败、需要管理员处理的后台作业(即 dead-letter job)" />}
+              {...unitStat(jobValue('dsh.flowable.jobs.deadletter'), '个')}
+            />
+          </Card>
+        </Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic
+              title={<TitleWithHint title="挂起作业" hint="被暂停、暂不执行的后台作业数量" />}
+              {...unitStat(jobValue('dsh.flowable.jobs.suspended'), '个')}
+            />
+          </Card>
+        </Col>
         <Col span={4}>
           <Card size="small">
             <Statistic
-              title="backend task 成功率(1h)"
+              title={<TitleWithHint title="自动节点成功率(近1小时)" hint="服务器端自动运行的 AI 节点任务(DSH backend task)近 1 小时的成功率" />}
               value={summary?.backendTaskSuccessRate != null
                 ? `${(summary.backendTaskSuccessRate * 100).toFixed(1)}%`
                 : '-'}
@@ -344,12 +423,19 @@ function OpsTab() {
         <Col span={4}>
           <Card size="small">
             <Statistic
-              title="backend task 平均时延(1h)"
+              title={<TitleWithHint title="自动节点平均耗时(近1小时)" hint="服务器端自动运行的 AI 节点任务近 1 小时的平均处理时长" />}
               value={formatMs(summary?.backendTaskAvgLatencyMs ?? null)}
             />
           </Card>
         </Col>
-        <Col span={4}><Card size="small"><Statistic title="升级触发(1h)" value={summary?.escalationCount1h ?? '-'} /></Card></Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic
+              title={<TitleWithHint title="超时自动升级(近1小时)" hint="任务在规定时间内没办完,按超时策略自动转交给其他人处理的次数" />}
+              {...unitStat(summary?.escalationCount1h ?? '-', '次')}
+            />
+          </Card>
+        </Col>
       </Row>
       {seriesError && <Alert type="error" showIcon message={seriesError} />}
       <Card
@@ -372,7 +458,14 @@ function OpsTab() {
         }
       >
         {series.length > 0 ? (
-          <Line data={series.map(p => ({ ts: p.ts, value: p.value }))} xField="ts" yField="value" height={280} loading={loading} />
+          <Line
+            data={series.map(p => ({ ts: p.ts, value: display.toDisplay(p.value) }))}
+            xField="ts"
+            yField="value"
+            axis={{ y: { labelFormatter: display.tick } }}
+            height={280}
+            loading={loading}
+          />
         ) : (
           <Empty description="窗口内无采样数据(轮询采集约 30s 一次,请稍后)" />
         )}

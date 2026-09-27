@@ -51,11 +51,19 @@ function percentile(sorted: number[], p: number): number {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
 }
 
+/** 时长格式化为业务可读中文(数值自带单位):不到1秒 / 45秒 / 3分20秒 / 2小时15分 / 3天2小时。 */
 function formatMs(ms: number | null): string {
   if (ms == null) return '-'
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.floor(ms / 60_000)}m${Math.round((ms % 60_000) / 1000)}s`
+  const totalSeconds = Math.round(ms / 1000)
+  if (totalSeconds < 1) return '不到1秒'
+  const days = Math.floor(totalSeconds / 86_400)
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600)
+  const minutes = Math.floor((totalSeconds % 3_600) / 60)
+  const seconds = totalSeconds % 60
+  if (days > 0) return hours > 0 ? `${days}天${hours}小时` : `${days}天`
+  if (hours > 0) return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`
+  if (minutes > 0) return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分`
+  return `${seconds}秒`
 }
 
 /** 按节点平均时长 P33/P66 分桶决定 marker 类名。 */
@@ -187,13 +195,13 @@ export default function BpmnAnalyticsViewer({ xml, stats }: BpmnAnalyticsViewerP
       )}
       <div className="dsh-ana-legend">
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          节点平均时长:
+          节点平均耗时:
         </Typography.Text>
         <span><span className="dsh-ana-legend-swatch" style={{ background: '#d9f7be', border: '1px solid #52c41a' }} />快</span>
         <span><span className="dsh-ana-legend-swatch" style={{ background: '#fff1b8', border: '1px solid #faad14' }} />中</span>
         <span><span className="dsh-ana-legend-swatch" style={{ background: '#ffd6d6', border: '1px solid #ff4d4f' }} />慢</span>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          (按当前流程节点 P33/P66 自动分桶;低频连线淡化)
+          (与本流程内其他节点相比自动分成快/中/慢三档;连线颜色越淡,走这条路完成的任务越少)
         </Typography.Text>
       </div>
     </div>

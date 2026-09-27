@@ -58,8 +58,9 @@ class DshAnalyticsQueryTest {
         configuration.setHistoryLevel(HistoryLevel.FULL);
 
         processEngine = configuration.buildProcessEngine();
+        // H2 内存库建在默认 schema,databaseSchema 未配置 → 空前缀(与生产 flowable 前缀相对)
         queryService = new DshAnalyticsQueryService(new JdbcTemplate(
-            processEngine.getProcessEngineConfiguration().getDataSource()));
+            processEngine.getProcessEngineConfiguration().getDataSource()), "");
         runtimeService = processEngine.getRuntimeService();
         taskService = processEngine.getTaskService();
     }

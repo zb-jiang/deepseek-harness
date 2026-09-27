@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +23,13 @@ import org.springframework.stereotype.Service;
  * Flowable 6 起由 Activiti 时代的 DURATION_IN_MILLISECOND_ 改名),进行中活动/任务该列
  * 为 NULL——全部聚合显式剔除 NULL 行。列结构依据 flowable-engine jar 内
  * {@code org/flowable/db/create/flowable.h2.create.history.sql}。
+ *
+ * <p><b>schema 限定</b>:ACT_* 表落在 {@code flowable.database-schema} 指定的 PG schema
+ * (引擎自身查询由 Flowable 按该配置限定,不走 search_path),而 datasource URL 未配置
+ * {@code currentSchema},连接的默认 search_path 不含该 schema——本服务所有 SQL 表名
+ * 必须带 schema 前缀(先例:DshApplicationRepository 等业务表查询显式 {@code public.} 限定)。
+ * 前缀取自同一 {@code flowable.database-schema} 属性,配置为空则不加(H2 单测内存库
+ * 建在默认 schema)。
  *
  * <p>SQL 兼容性:聚合写法(CASE WHEN 求和、AVG/MAX 忽略 NULL、CAST AS DATE、
  * PERCENTILE_CONT、FULL OUTER JOIN、LIMIT)在 PostgreSQL 与 H2 2.x 上语义一致,
@@ -42,9 +50,14 @@ import org.springframework.stereotype.Service;
 public class DshAnalyticsQueryService {
 
     private final JdbcTemplate jdbcTemplate;
+    /** SQL 表名的 schema 限定前缀(如 {@code "flowable."});未配置 schema 时空串。 */
+    private final String tablePrefix;
 
-    public DshAnalyticsQueryService(JdbcTemplate jdbcTemplate) {
+    public DshAnalyticsQueryService(JdbcTemplate jdbcTemplate,
+                                    @Value("${flowable.database-schema:}") String databaseSchema) {
         this.jdbcTemplate = jdbcTemplate;
+        this.tablePrefix = databaseSchema == null || databaseSchema.isBlank()
+            ? "" : databaseSchema.strip() + ".";
     }
 
     /**
@@ -63,8 +76,8 @@ public class DshAnalyticsQueryService {
                    AVG(CASE WHEN END_TIME_ IS NOT NULL THEN DURATION_ END) AS avg_duration,
                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN END_TIME_ IS NOT NULL
                        THEN DURATION_ END) AS p95_duration
-            FROM ACT_HI_PROCINST
-            WHERE START_TIME_ >= ?""");
+            FROM %sACT_HI_PROCINST
+            WHERE START_TIME_ >= ?""".formatted(tablePrefix));
         List<Object> params = new ArrayList<>();
         params.add(cutoff);
         appendKeyFilter(sql, params, processDefinitionKeys);
@@ -89,15 +102,17 @@ public class DshAnalyticsQueryService {
         Timestamp cutoff = cutoff(days);
         Map<String, Long> startedByDay = toDayCountMap(jdbcTemplate.query("""
                         SELECT CAST(START_TIME_ AS DATE) AS stat_date, COUNT(*) AS cnt
-                        FROM ACT_HI_PROCINST
-                        WHERE START_TIME_ >= ?""" + keyFilterSuffix(processDefinitionKeys)
+                        FROM %sACT_HI_PROCINST
+                        WHERE START_TIME_ >= ?""".formatted(tablePrefix)
+                        + keyFilterSuffix(processDefinitionKeys)
                         + "\nGROUP BY CAST(START_TIME_ AS DATE)",
             (rs, rowNum) -> Map.entry(rs.getDate("stat_date").toLocalDate().toString(), rs.getLong("cnt")),
             params(cutoff, processDefinitionKeys)));
         Map<String, Long> completedByDay = toDayCountMap(jdbcTemplate.query("""
                         SELECT CAST(END_TIME_ AS DATE) AS stat_date, COUNT(*) AS cnt
-                        FROM ACT_HI_PROCINST
-                        WHERE END_TIME_ IS NOT NULL AND END_TIME_ >= ? AND DELETE_REASON_ IS NULL""" + keyFilterSuffix(processDefinitionKeys)
+                        FROM %sACT_HI_PROCINST
+                        WHERE END_TIME_ IS NOT NULL AND END_TIME_ >= ? AND DELETE_REASON_ IS NULL""".formatted(tablePrefix)
+                        + keyFilterSuffix(processDefinitionKeys)
                         + "\nGROUP BY CAST(END_TIME_ AS DATE)",
             (rs, rowNum) -> Map.entry(rs.getDate("stat_date").toLocalDate().toString(), rs.getLong("cnt")),
             params(cutoff, processDefinitionKeys)));
@@ -125,8 +140,8 @@ public class DshAnalyticsQueryService {
                    COUNT(*) AS cnt,
                    AVG(DURATION_) AS avg_duration,
                    MAX(DURATION_) AS max_duration
-            FROM ACT_HI_ACTINST
-            WHERE START_TIME_ >= ? AND DURATION_ IS NOT NULL""");
+            FROM %sACT_HI_ACTINST
+            WHERE START_TIME_ >= ? AND DURATION_ IS NOT NULL""".formatted(tablePrefix));
         List<Object> params = new ArrayList<>();
         params.add(cutoff);
         appendKeyFilter(sql, params, processDefinitionKeys);
@@ -155,9 +170,9 @@ public class DshAnalyticsQueryService {
                    COUNT(*) AS cnt,
                    AVG(DURATION_) AS avg_duration,
                    MAX(DURATION_) AS max_duration
-            FROM ACT_HI_ACTINST
+            FROM %sACT_HI_ACTINST
             WHERE START_TIME_ >= ? AND ACT_TYPE_ = 'userTask'
-              AND ASSIGNEE_ IS NOT NULL AND DURATION_ IS NOT NULL""");
+              AND ASSIGNEE_ IS NOT NULL AND DURATION_ IS NOT NULL""".formatted(tablePrefix));
         List<Object> params = new ArrayList<>();
         params.add(cutoff);
         appendKeyFilter(sql, params, processDefinitionKeys);
@@ -182,7 +197,7 @@ public class DshAnalyticsQueryService {
     }
 
     /** key 过滤片段(有 key 才拼,否则空串);用于字符串拼接式 SQL。 */
-    private static String keyFilterSuffix(List<String> processDefinitionKeys) {
+    private String keyFilterSuffix(List<String> processDefinitionKeys) {
         return hasKeys(processDefinitionKeys) ? keyFilterSql(processDefinitionKeys) : "";
     }
 
@@ -200,8 +215,8 @@ public class DshAnalyticsQueryService {
     }
 
     /** 有 key 过滤时把子查询片段追加到 SQL 并登记参数(保持参数顺序与占位符一致)。 */
-    private static void appendKeyFilter(StringBuilder sql, List<Object> params,
-                                        List<String> processDefinitionKeys) {
+    private void appendKeyFilter(StringBuilder sql, List<Object> params,
+                                 List<String> processDefinitionKeys) {
         if (hasKeys(processDefinitionKeys)) {
             sql.append(keyFilterSql(processDefinitionKeys));
             params.addAll(processDefinitionKeys);
@@ -210,14 +225,14 @@ public class DshAnalyticsQueryService {
 
     /**
      * 按 key 集合过滤历史表的子查询片段(历史表均含 PROC_DEF_ID_ 列,直接拼子查询):
-     * {@code AND PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ IN (?, …))}。
+     * {@code AND PROC_DEF_ID_ IN (SELECT ID_ FROM <schema>ACT_RE_PROCDEF WHERE KEY_ IN (?, …))}。
      * 占位符按入参顺序生成,调用方负责按同一顺序登记参数。
      */
-    private static String keyFilterSql(List<String> processDefinitionKeys) {
+    private String keyFilterSql(List<String> processDefinitionKeys) {
         String placeholders = String.join(", ", java.util.Collections.nCopies(
             processDefinitionKeys.size(), "?"));
-        return " AND PROC_DEF_ID_ IN (SELECT ID_ FROM ACT_RE_PROCDEF WHERE KEY_ IN ("
-            + placeholders + "))";
+        return (" AND PROC_DEF_ID_ IN (SELECT ID_ FROM %sACT_RE_PROCDEF WHERE KEY_ IN ("
+            + placeholders + "))").formatted(tablePrefix);
     }
 
     /** 统计窗口起点(当前时刻往前 days 天);Java 侧计算,避免数据库方言 interval 语法。 */
