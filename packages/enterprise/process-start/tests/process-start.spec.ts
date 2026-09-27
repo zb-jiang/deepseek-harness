@@ -49,9 +49,11 @@ function stubFetch(routes: { match: (url: string) => boolean; response: () => Re
   })
 }
 
+const volatileOf = <T>(value: T): { get: () => T } => ({ get: () => value })
+
 const CONFIG = {
-  // 尾斜杠覆盖 apply 的去尾逻辑;断言里的上游地址是无尾斜杠形态。
-  webConsoleBaseUrl: 'http://console:8080/',
+  // 尾斜杠由插件在请求期去尾;断言里的上游地址是无尾斜杠形态。
+  webConsoleBaseUrl: volatileOf('http://console:8080/'),
 }
 
 /** 合法 UUID 形态(既有用例走「UUID 透传」路径,不触发名称解析)。 */
@@ -115,11 +117,16 @@ describe('process-start', () => {
     ])
   })
 
-  it('apply 校验配置:非法 baseUrl 立即抛错(misconfiguration fails loud)', () => {
+  it('webConsoleBaseUrl 非法:apply 照常注册,工具执行报错(volatile 请求期校验)', async () => {
     vi.stubGlobal('fetch', stubFetch([]))
-    ctx.provide('tools', stubTools() as never)
+    const tools = stubTools()
+    ctx.provide('tools', tools as never)
     ctx.provide('currentUser', stubCurrentUser('jwt') as never)
-    expect(() => apply(ctx, { ...CONFIG, webConsoleBaseUrl: 'not-a-url' })).toThrow()
+    apply(ctx, { ...CONFIG, webConsoleBaseUrl: volatileOf('not-a-url') })
+    expect(tools.registered).toHaveLength(3)
+
+    const list = toolOf(tools, 'dsh_process_list')
+    await expect(execute(list, {})).rejects.toThrow('webConsoleBaseUrl 配置无效')
   })
 
   it('dsh_process_list:映射 appName 与 description,null 说明省略,render/presentCall 可用', async () => {

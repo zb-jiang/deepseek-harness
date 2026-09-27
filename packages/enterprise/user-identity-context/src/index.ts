@@ -19,7 +19,7 @@
  * @module @deepseek-ai/dsh-user-identity-context
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -37,12 +37,12 @@ export const inject = ['agents'] as const
 
 /** 插件配置:web-console 基地址(组织身份清单拉取目标)。 */
 export interface Config {
-  /** web-console 基地址(协议+主机+端口,无路径)。 */
-  webConsoleBaseUrl: string
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
 }
 
-export const Config: z<Config> = z.object({
-  webConsoleBaseUrl: z.string().default('http://127.0.0.1:8080'),
+export const Config = z.object({
+  webConsoleBaseUrl: z.string().required().volatile(),
 })
 
 /** This package's message-source kind: the identity block's package ownership in the durable log. */
@@ -118,26 +118,44 @@ export class CurrentUserService extends Service {
 const POSITIONS_TTL_MILLIS = 5 * 60_000
 
 /**
+ * 读取并校验当前 web-console 基地址(volatile 值请求期读取)。
+ * @returns 去尾斜杠且形状合法的基地址;无效返回 undefined(调用方按本轮降级处理)。
+ */
+function resolveWebConsoleBaseUrl(raw: string): string | undefined {
+  const value = raw.replace(/\/+$/, '')
+  try {
+    new URL(value)
+    return value === '' ? undefined : value
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Mount the current-user store and register the identity-injection listener.
  * Injection happens at step 1 of every turn: one deterministic block per turn
  * keeps the identity fresh in context without per-step duplicates, and the
  * store being empty (no verified login yet) injects nothing.
  *
- * <p>webConsoleBaseUrl 在注册前解析一次,格式非法立即失败(misconfiguration
- * fails loud),否则表现为每次注入一条难排查的 fetch 错误。
+ * <p>webConsoleBaseUrl 为 volatile 配置:每次注入读取当前值,设置面板修改后
+ * 无需重载即生效;值无效时按本轮降级(身份块不含组织位置),与 fetch 失败
+ * 同一语义,不中断身份注入。
  *
  * @param ctx - plugin context; the listener and store are disposed with it.
  * @param config - 插件配置,提供 web-console 基地址。
  */
 export function apply(ctx: Context, config: Config): void {
-  const webConsoleBaseUrl = config.webConsoleBaseUrl.replace(/\/+$/, '')
-  new URL(webConsoleBaseUrl)
   new CurrentUserService(ctx)
 
   /** 单条组织身份缓存(按 token 失效;失败不缓存,下一轮重试)。 */
   let positionsCache: { token: string; expiresAt: number; positions: OrgPosition[] } | undefined
 
   const loadPositions = async (token: string): Promise<OrgPosition[]> => {
+    const webConsoleBaseUrl = resolveWebConsoleBaseUrl(config.webConsoleBaseUrl.get() ?? '')
+    if (webConsoleBaseUrl === undefined) {
+      ctx.logger.warn('user-identity-context: webConsoleBaseUrl 配置无效,本轮身份块不含组织位置')
+      return []
+    }
     const now = Date.now()
     if (positionsCache !== undefined && positionsCache.token === token
       && positionsCache.expiresAt > now) {

@@ -7,7 +7,8 @@
  * @module @deepseek-ai/dsh-platform-user-console
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import z from '@deepseek-ai/schemastery'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type {} from '@deepseek-ai/dsh-platform-user'
@@ -30,15 +31,15 @@ export const inject = ['platformUsers']
 
 /** Plugin config for the Web-Console-backed provider. */
 export interface Config {
-  /** Supabase project URL; only its Auth issuer is used for JWT verification. */
-  supabaseUrl?: string
-  /** Web Console backend base URL serving `GET /api/users/me`. */
-  webConsoleBaseUrl?: string
+  /** Supabase project URL; only its Auth issuer is used for JWT verification;volatile:设置面板可改,即时生效。 */
+  supabaseUrl: Volatile<string>
+  /** Web Console backend base URL serving `GET /api/users/me`;volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
 }
 
-export const Config: z<Config> = z.object({
-  supabaseUrl: z.string(),
-  webConsoleBaseUrl: z.string().default(DEFAULT_WEB_CONSOLE_BASE_URL),
+export const Config = z.object({
+  supabaseUrl: z.string().required().volatile(),
+  webConsoleBaseUrl: z.string().required().volatile(),
 })
 
 /** Complete config after schemastery applies defaults. */
@@ -57,17 +58,25 @@ function requireNonEmpty(name: string, value: string): string {
 }
 
 /**
- * Resolve the runtime spec from plugin config.
- * @param config - raw plugin config.
+ * Resolve the runtime spec from a plain config snapshot.
+ * @param config - plain config values(Volatile 字段请先经 {@link snapshotConfig} 解包)。
  * @returns the fully resolved config.
  */
-export function resolveConfig(config: Config): ResolvedConfig {
+export function resolveConfig(config: { supabaseUrl?: string; webConsoleBaseUrl?: string }): ResolvedConfig {
   return {
     supabaseUrl: requireNonEmpty('supabaseUrl', config.supabaseUrl ?? ''),
     webConsoleBaseUrl: requireNonEmpty(
       'webConsoleBaseUrl',
       config.webConsoleBaseUrl ?? DEFAULT_WEB_CONSOLE_BASE_URL,
     ).replace(/\/+$/, ''),
+  }
+}
+
+/** 解包 volatile 配置引用为普通值快照。 */
+export function snapshotConfig(config: Config): { supabaseUrl?: string; webConsoleBaseUrl?: string } {
+  return {
+    supabaseUrl: config.supabaseUrl.get(),
+    webConsoleBaseUrl: config.webConsoleBaseUrl.get(),
   }
 }
 
@@ -296,11 +305,44 @@ export class ConsolePlatformUserProvider implements PlatformUserProvider {
  * @param config - plugin config.
  */
 export function apply(ctx: Context, config: Config): void {
-  const resolved = resolveConfig(config)
-  const jwksUrl = `${resolved.supabaseUrl}/auth/v1/.well-known/jwks.json`
-  ctx.platformUsers.registerProvider(new ConsolePlatformUserProvider(
-    resolved.supabaseUrl,
-    resolved.webConsoleBaseUrl,
-    createRemoteJWKSet(new URL(jwksUrl)),
-  ))
+  // provider 构造时把 JWKS 集合绑定到 supabaseUrl,无法惰性切换;
+  // volatile 变更(loader/volatile-update)到达时注销旧 provider 并按新值重建。
+  let unregister: (() => void) | undefined
+  const mount = (): void => {
+    const raw = snapshotConfig(config)
+    unregister?.()
+    // 未配置合法化:登录页是首次配置入口,启动时 SUPABASE_URL 为空是合法态
+    //(patch 兜底 `?? ''`),不阻塞挂载;以"未配置"provider 顶替,登录会得到
+    // 明确的未配置错误,配置完成后 volatile-update 到达自动重建真 provider。
+    if (raw.supabaseUrl === undefined || raw.supabaseUrl.trim() === ''
+      || raw.webConsoleBaseUrl === undefined || raw.webConsoleBaseUrl.trim() === '') {
+      unregister = ctx.platformUsers.registerProvider({
+        getUserByToken: async () => {
+          throw new PlatformUserError(
+            '认证服务未配置(SUPABASE_URL 为空),请在登录页「服务配置」中完成设置',
+            'PROVIDER_REQUEST_FAILED',
+          )
+        },
+      })
+      ctx.logger.warn('platform-user-console: SUPABASE_URL/WEB_CONSOLE_URL 未配置,认证 provider 以未配置模式挂载')
+      return
+    }
+    const resolved = resolveConfig(raw)
+    const jwksUrl = `${resolved.supabaseUrl}/auth/v1/.well-known/jwks.json`
+    unregister = ctx.platformUsers.registerProvider(new ConsolePlatformUserProvider(
+      resolved.supabaseUrl,
+      resolved.webConsoleBaseUrl,
+      createRemoteJWKSet(new URL(jwksUrl)),
+    ))
+  }
+  mount()
+  ctx.on('loader/volatile-update', () => {
+    try {
+      mount()
+      ctx.logger.info('platform-user-console: 配置已更新,provider 已按新地址重建')
+    } catch (error) {
+      // 重建失败保留旧 provider(旧值快照仍在服务),只报告错误
+      ctx.logger.warn('platform-user-console: 配置更新后 provider 重建失败,沿用旧配置', error)
+    }
+  })
 }

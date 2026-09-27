@@ -72,7 +72,10 @@ function upstreamResponse(status: number, body: string, contentType?: string): R
   return new Response(new TextEncoder().encode(body), { status, headers })
 }
 
-const CONFIG = { engineBaseUrl: 'http://engine:8090' }
+/** 构造测试用 volatile 配置引用(插件运行时仅调用 get())。 */
+const volatileOf = <T>(value: T): { get: () => T } => ({ get: () => value })
+
+const CONFIG = { engineBaseUrl: volatileOf('http://engine:8090') }
 
 describe('flowable-task-proxy', () => {
   let ctx: Context
@@ -98,13 +101,17 @@ describe('flowable-task-proxy', () => {
   })
 
   it('engineBaseUrl 带尾斜杠时归一化后再使用', () => {
-    apply(ctx, { engineBaseUrl: 'http://engine:8090///' })
+    apply(ctx, { engineBaseUrl: volatileOf('http://engine:8090///') })
     expect(stubWebServer.routes).toHaveLength(2)
   })
 
-  it('engineBaseUrl 非法时 apply 立即抛错', () => {
-    expect(() => apply(ctx, { engineBaseUrl: 'not-a-url' })).toThrow()
-    expect(stubWebServer.routes).toHaveLength(0)
+  it('engineBaseUrl 非法时转发降级为 502(volatile 值在请求期校验)', async () => {
+    apply(ctx, { engineBaseUrl: volatileOf('not-a-url') })
+    expect(stubWebServer.routes).toHaveLength(2)
+    const handler = stubWebServer.routes[0]!.handler
+    const { res, state } = mockRes()
+    await handler(mockReq('GET', '/dsh/tasks/x'), res)
+    expect(state.statusCode).toBe(502)
   })
 
   it('GET 请求转发路径、Authorization 头与查询串', async () => {
@@ -121,7 +128,7 @@ describe('flowable-task-proxy', () => {
     const [target, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
     expect(String(target)).toBe('http://engine:8090/dsh/tasks/my-tasks?active=true')
     expect(init.method).toBe('GET')
-    expect(init.body).toBeUndefined()
+    expect(init.body).toBeNull()
     expect(init.headers).toEqual({ authorization: 'Bearer jwt-token' })
     expect(state.statusCode).toBe(200)
     expect(state.headers['content-type']).toBe('application/json')
@@ -141,7 +148,7 @@ describe('flowable-task-proxy', () => {
     const [target, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
     expect(String(target)).toBe('http://engine:8090/dsh/tasks/task-1/complete')
     expect(init.method).toBe('POST')
-    expect(String(init.body)).toBe('{"variables":{}}')
+    expect(Buffer.from(init.body as Uint8Array).toString()).toBe('{"variables":{}}')
     expect(init.headers).toEqual({ authorization: 'Bearer t', 'content-type': 'application/json' })
     expect(state.statusCode).toBe(200)
   })
@@ -154,7 +161,7 @@ describe('flowable-task-proxy', () => {
     const { res } = mockRes()
     await handler(mockReq('HEAD', '/dsh/tasks/my-tasks'), res)
     const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
-    expect(init.body).toBeUndefined()
+    expect(init.body).toBeNull()
   })
 
   it('无 authorization 头时不转发该头', async () => {

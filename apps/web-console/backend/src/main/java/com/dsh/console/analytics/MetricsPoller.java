@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 
 /**
  * 引擎运维指标轮询采集(分析看板「运维健康」tab 的数据管道,设计 2026-09-25 §8.2)。
@@ -67,6 +68,10 @@ public class MetricsPoller {
         for (String metric : properties.getMetrics()) {
             try {
                 pollMetric(metric, now);
+            } catch (HttpClientErrorException.NotFound e) {
+                // counter 类指标(如 dsh.task.escalation)首次触发前 meter 未注册,
+                // actuator 返回 404 属预期态,降级 debug 避免每轮刷 WARN
+                log.debug("引擎暂无该指标(meter 未注册),本轮跳过: metric={}", metric);
             } catch (RuntimeException e) {
                 log.warn("引擎指标轮询失败,下轮重试: metric={}, cause={}", metric, e.getMessage());
             }

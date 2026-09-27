@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-platform-user'
@@ -74,9 +74,12 @@ function mockRes() {
   return { res, state }
 }
 
+/** 构造测试用 volatile 配置引用(插件运行时仅调用 get())。 */
+const volatileOf = <T>(value: T): { get: () => T } => ({ get: () => value })
+
 const TEST_CONFIG = {
-  supabaseUrl: 'https://example.supabase.co',
-  supabaseAnonKey: 'anon-secret',
+  supabaseUrl: volatileOf('https://example.supabase.co'),
+  supabaseAnonKey: volatileOf('anon-secret'),
 }
 
 describe('platform-user-api', () => {
@@ -90,6 +93,10 @@ describe('platform-user-api', () => {
     stubUsers = createStubPlatformUsers()
     ctx.provide('webServer', stubWebServer as unknown as import('@deepseek-ai/dsh-host-webserver').WebServer)
     ctx.provide('platformUsers', stubUsers as unknown as import('@deepseek-ai/dsh-platform-user').PlatformUserService)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('注册 /api/enterprise/auth 前缀路由', () => {
@@ -187,6 +194,50 @@ describe('platform-user-api', () => {
     const parsed = JSON.parse(state.body)
     expect(parsed.url).toBe('https://example.supabase.co')
     expect(parsed.anonKey).toBe('anon-secret')
+  })
+
+  /** 模拟带 JSON 体的异步可迭代请求(readJsonBody 经 for-await 读体)。 */
+  function mockJsonReq(method: string, url: string, body: unknown): IncomingMessage {
+    return {
+      method,
+      url,
+      headers: { 'content-type': 'application/json' },
+      [Symbol.asyncIterator]: async function* () {
+        yield Buffer.from(JSON.stringify(body))
+      },
+    } as unknown as IncomingMessage
+  }
+
+  it('POST /connectivity-check 无效 url 返回 400', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    const { res, state } = mockRes()
+    await handler(mockJsonReq('POST', '/api/enterprise/auth/connectivity-check', { url: 'not-a-url' }), res)
+    expect(state.statusCode).toBe(400)
+  })
+
+  it('POST /connectivity-check 探测可达目标返回 ok=true 与状态码', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
+    const { res, state } = mockRes()
+    await handler(mockJsonReq('POST', '/api/enterprise/auth/connectivity-check', { url: 'http://engine:8090/actuator/health' }), res)
+    expect(state.statusCode).toBe(200)
+    const parsed = JSON.parse(state.body)
+    expect(parsed.ok).toBe(true)
+    expect(parsed.status).toBe(200)
+  })
+
+  it('POST /connectivity-check 探测不可达目标返回 200 + ok=false(Node 侧兜住网络错误)', async () => {
+    apply(ctx, TEST_CONFIG)
+    const handler = stubWebServer.routes[0]!.handler
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED') }))
+    const { res, state } = mockRes()
+    await handler(mockJsonReq('POST', '/api/enterprise/auth/connectivity-check', { url: 'http://engine:8090/actuator/health' }), res)
+    expect(state.statusCode).toBe(200)
+    const parsed = JSON.parse(state.body)
+    expect(parsed.ok).toBe(false)
+    expect(parsed.error).toContain('ECONNREFUSED')
   })
 
   it('未匹配的路由返回 404', async () => {

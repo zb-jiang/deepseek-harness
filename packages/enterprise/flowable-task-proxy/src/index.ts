@@ -20,7 +20,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
@@ -32,12 +32,12 @@ export const inject = ['webServer'] as const
 
 /** 插件配置:flowable-engine 的基地址。 */
 export interface Config {
-  /** flowable-engine 基地址(协议+主机+端口,无路径)。 */
-  engineBaseUrl: string
+  /** flowable-engine 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  engineBaseUrl: Volatile<string>
 }
 
-export const Config: z<Config> = z.object({
-  engineBaseUrl: z.string(),
+export const Config = z.object({
+  engineBaseUrl: z.string().required().volatile(),
 })
 
 /** 代理的引擎 API 前缀,与引擎 `/dsh` 命名空间的控制器路径一一对应。 */
@@ -113,24 +113,41 @@ async function proxyRequest(
 /**
  * 注册 `/dsh` 命名空间前缀路由,把员工端任务 API 代理到 flowable-engine。
  *
- * <p>engineBaseUrl 在注册前解析一次,格式非法立即失败(misconfiguration fails
- * loud),否则会表现为每条请求一个难排查的 502。
+ * <p>engineBaseUrl 为 volatile 配置:每次转发读取当前值,设置面板修改后无需
+ * 重载即生效;值无效时该次转发降级为 502,不阻断后续请求。
  *
  * @param ctx - 携带 `webServer` 的 Cordis 上下文。
  * @param config - 插件配置,提供 engineBaseUrl。
  */
 export function apply(ctx: Context, config: Config): void {
-  const engineBaseUrl = config.engineBaseUrl.replace(/\/+$/, '')
-  new URL(engineBaseUrl)
   for (const prefix of PROXIED_PREFIXES) {
     ctx.effect(
       () =>
         ctx.webServer.register({
           kind: 'prefix',
           path: prefix,
-          handler: (req, res) => proxyRequest(engineBaseUrl, req, res),
+          // volatile 配置:每次转发读当前值,设置面板修改后无需重载即生效;
+          // handler 返回转发 Promise,webserver 可等待完成(测试亦由此确定性断言)
+          handler: (req, res) => {
+            const engineBaseUrl = config.engineBaseUrl.get().replace(/\/+$/, '')
+            if (validateBaseUrl(engineBaseUrl) !== undefined) {
+              sendJson(res, 502, { error: `flowable-task-proxy: engineBaseUrl 配置无效: ${engineBaseUrl}` })
+              return Promise.resolve()
+            }
+            return proxyRequest(engineBaseUrl, req, res)
+          },
         }),
       `flowable-task-proxy: ${prefix} prefix route`,
     )
+  }
+}
+
+/** 校验基地址形状(协议+主机),无效返回错误消息。 */
+function validateBaseUrl(value: string): string | undefined {
+  try {
+    new URL(value)
+    return undefined
+  } catch {
+    return `invalid base URL: ${value}`
   }
 }

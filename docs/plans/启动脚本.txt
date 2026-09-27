@@ -46,6 +46,7 @@ pnpm exec vite --host 127.0.0.1 --port 3000
 $env:SUPABASE_URL="https://tmommaaeuqnhanbtqmti.supabase.co"
 $env:SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtb21tYWFldXFuaGFuYnRxbXRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDYxMTgsImV4cCI6MjEwMjcyMjExOH0.TRUg-O36QkIH9QbJYi9FPL6j1PucKnrulecamWRSnkI"
 $env:FLOWABLE_ENGINE_URL="http://127.0.0.1:8090"
+$env:WEB_CONSOLE_URL="http://127.0.0.1:8080"
 $env:SKILL_SYNC_INTERVAL_MS=600000
 $env:SKILLHUB_URL="http://127.0.0.1:8095"
 $env:SKILLHUB_API_TOKEN="sk_It1SA2xPE_J8vRl_boCDEsRpjcD3rX6tq6tkaPkn7kA"

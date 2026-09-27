@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
@@ -102,11 +102,14 @@ function stubResponse() {
   return res
 }
 
+/** 构造测试用 volatile 配置引用(插件运行时仅调用 get())。 */
+const volatileOf = <T>(value: T): { get: () => T } => ({ get: () => value })
+
 const CONFIG_DEFAULTS = {
-  flowableBaseUrl: 'http://flowable:8090',
-  skillhubBaseUrl: 'http://skillhub:8095',
-  skillhubToken: 'hub-token',
-  intervalMs: 60_000,
+  flowableBaseUrl: volatileOf('http://flowable:8090'),
+  skillhubBaseUrl: volatileOf('http://skillhub:8095'),
+  skillhubToken: volatileOf('hub-token'),
+  intervalMs: volatileOf(60_000),
 }
 
 describe('skill-sync', () => {
@@ -154,12 +157,27 @@ describe('skill-sync', () => {
     ctx.provide('skills', stubSkills() as never)
     ctx.provide('currentUser', stubCurrentUser('token') as never)
     ctx.provide('webServer', stubWebServer() as never)
-    expect(() => apply(ctx, { ...config, flowableBaseUrl: 'not-a-url' })).toThrow()
-    expect(() => apply(ctx, { ...config, skillhubBaseUrl: 'nope' })).toThrow()
+    expect(() => apply(ctx, { ...config, flowableBaseUrl: volatileOf('not-a-url') })).toThrow()
+    expect(() => apply(ctx, { ...config, skillhubBaseUrl: volatileOf('nope') })).toThrow()
   })
 
   it('未登录(getToken undefined)时 sync 直接跳过,不出站请求', async () => {
     mount(undefined)
+    const fetchMock = stubFetch([])
+    vi.stubGlobal('fetch', fetchMock)
+    await ctx.skillSync.sync()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('apply 未配置合法化:端点为空串时照常挂载,sync 跳过不出站', async () => {
+    ctx.provide('skills', stubSkills() as never)
+    ctx.provide('currentUser', stubCurrentUser('jwt') as never)
+    ctx.provide('webServer', stubWebServer() as never)
+    expect(() => apply(ctx, {
+      ...config,
+      flowableBaseUrl: volatileOf(''),
+      skillhubBaseUrl: volatileOf(''),
+    })).not.toThrow()
     const fetchMock = stubFetch([])
     vi.stubGlobal('fetch', fetchMock)
     await ctx.skillSync.sync()
@@ -204,6 +222,7 @@ describe('skill-sync', () => {
     await writeFile(join(skillDir, '..', 'state.json'), JSON.stringify({
       skills: { 'expense-form': { namespace: 'dsh-demo', fingerprint: 'sha256:abc' } },
     }))
+    await mkdir(join(skillDir, 'expense-form'), { recursive: true })
     await writeFile(join(skillDir, 'expense-form', 'SKILL.md'), 'existing')
     const fetchMock = stubFetch([
       {
@@ -232,6 +251,7 @@ describe('skill-sync', () => {
     await writeFile(join(skillDir, '..', 'state.json'), JSON.stringify({
       skills: { 'expense-form': { namespace: 'dsh-demo', fingerprint: 'sha256:old' } },
     }))
+    await mkdir(join(skillDir, 'expense-form'), { recursive: true })
     await writeFile(join(skillDir, 'expense-form', 'SKILL.md'), 'old')
     const fetchMock = stubFetch([
       {
@@ -261,7 +281,7 @@ describe('skill-sync', () => {
     ])
     vi.stubGlobal('fetch', fetchMock)
     await ctx.skillSync.sync()
-    expect(readdir(skillDir)).resolves.toEqual([])
+    await expect(readdir(skillDir)).resolves.toEqual([])
   })
 
   it('无 namespace 的清单项跳过,不触碰 SkillHub', async () => {
@@ -290,7 +310,7 @@ describe('skill-sync', () => {
     ])
     vi.stubGlobal('fetch', fetchMock)
     await ctx.skillSync.sync()
-    expect(readdir(skillDir)).resolves.toEqual([])
+    await expect(readdir(skillDir)).resolves.toEqual([])
   })
 
   it('skill 不在命名空间已发布清单中时跳过安装', async () => {
@@ -309,7 +329,7 @@ describe('skill-sync', () => {
     ])
     vi.stubGlobal('fetch', fetchMock)
     await ctx.skillSync.sync()
-    expect(readdir(skillDir)).resolves.toEqual([])
+    await expect(readdir(skillDir)).resolves.toEqual([])
   })
 
   it('zip 条目路径穿越被拒绝且不产生残留目录', async () => {
@@ -333,7 +353,7 @@ describe('skill-sync', () => {
     ])
     vi.stubGlobal('fetch', fetchMock)
     await ctx.skillSync.sync()
-    expect(readdir(skillDir)).resolves.toEqual([])
+    await expect(readdir(skillDir)).resolves.toEqual([])
     expect(join(tmpdir(), 'escape.md')).toBeTruthy()
   })
 
@@ -342,6 +362,7 @@ describe('skill-sync', () => {
     await writeFile(join(skillDir, '..', 'state.json'), JSON.stringify({
       skills: { ready: { namespace: 'ns', fingerprint: 'f' } },
     }))
+    await mkdir(join(skillDir, 'ready'), { recursive: true })
     await writeFile(join(skillDir, 'ready', 'SKILL.md'), 'ok')
     await expect(ctx.skillSync.ensureInstalled(['ready'])).resolves.toEqual([])
     const fetchMock = stubFetch([
@@ -421,24 +442,30 @@ describe('skill-sync', () => {
   })
 
   it('daemon 定时器按 intervalMs 触发同步,插件卸载后停止', async () => {
-    vi.useFakeTimers()
-    ctx.provide('skills', stubSkills() as never)
-    ctx.provide('currentUser', stubCurrentUser('jwt') as never)
-    ctx.provide('webServer', stubWebServer() as never)
-    const fiber = ctx.plugin(skillSync, config)
-    await fiber
+    // 用真实短间隔而非 fake timers:fetch 链路(undici)依赖真实宏任务排队,
+    // fake timers 会冻结其内部 setImmediate 使同步轮卡死在合并门闩上。
     const fetchMock = stubFetch([
       { match: url => url.endsWith('/dsh/skills/required'), response: () => jsonResponse(200, { skills: [] }) },
     ])
     vi.stubGlobal('fetch', fetchMock)
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(fetchMock).toHaveBeenCalled()
+    ctx.provide('skills', stubSkills() as never)
+    ctx.provide('currentUser', stubCurrentUser('jwt') as never)
+    ctx.provide('webServer', stubWebServer() as never)
+    const fiber = await ctx.plugin(skillSync, {
+      flowableBaseUrl: 'http://flowable:8090',
+      skillhubBaseUrl: 'http://skillhub:8095',
+      skillhubToken: 'hub-token',
+      intervalMs: 20,
+      skillDir,
+    })
+    // 挂载即首轮(start),之后每 20ms 一轮
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1))
     const calls = fetchMock.mock.calls.length
-    await vi.advanceTimersByTimeAsync(120_000)
+    await new Promise(resolve => setTimeout(resolve, 150))
     expect(fetchMock.mock.calls.length).toBeGreaterThan(calls)
     await fiber.dispose()
     const afterDispose = fetchMock.mock.calls.length
-    await vi.advanceTimersByTimeAsync(120_000)
+    await new Promise(resolve => setTimeout(resolve, 100))
     expect(fetchMock.mock.calls.length).toBe(afterDispose)
   })
 
@@ -448,9 +475,8 @@ describe('skill-sync', () => {
     ])
     await rm(skillDir, { recursive: true, force: true })
     mount('jwt', fetchMock)
-    await new Promise(resolve => setImmediate(resolve))
-    // fetch 命中即证明 start() 走完 mkdir 并发起了首轮同步
-    expect(fetchMock).toHaveBeenCalled()
+    // start() 链路含真实 fs(mkdir)异步步骤,轮询等待首轮同步发起
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
   })
 
   it('清单分页:nextCursor 非空时翻页取全量', async () => {

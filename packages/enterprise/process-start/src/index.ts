@@ -13,7 +13,7 @@
  * @module @deepseek-ai/dsh-process-start
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-identity-context'
@@ -24,27 +24,25 @@ export const name = 'process-start'
 /** 等待登录身份存储与工具注册表就绪后才挂载。 */
 export const inject = ['currentUser', 'tools'] as const
 
-/** web-console 基地址默认值(企业服务器常驻部署)。 */
-const DEFAULT_WEB_CONSOLE_BASE_URL = 'http://127.0.0.1:8080'
-
 /** 插件配置,来自 enterprise profile 的 cordis.yml config 段。 */
 export interface Config {
-  /** web-console 基地址(协议+主机+端口,无路径)。 */
-  webConsoleBaseUrl: string
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
 }
 
-export const Config: z<Config> = z.object({
-  webConsoleBaseUrl: z.string().default(DEFAULT_WEB_CONSOLE_BASE_URL),
+export const Config = z.object({
+  webConsoleBaseUrl: z.string().required().volatile(),
 })
 
 /**
- * 已解析的运行选项(apply 阶段完成校验)。
+ * 已解析的运行选项(apply 阶段完成装配)。
  *
- * <p>token 取值函数注入而非内联,便于测试桩替换登录态。
+ * <p>token 与 web-console 基地址取值函数注入而非内联,便于测试桩替换登录态
+ * 与 volatile 基地址(设置面板修改后无需重载即生效)。
  */
 export interface ProcessStartOptions {
-  /** web-console 基地址(无尾斜杠)。 */
-  readonly webConsoleBaseUrl: string
+  /** 当前 web-console 基地址(无尾斜杠;每次调用读取 volatile 最新值)。 */
+  readonly webConsoleBaseUrl: () => string
   /** 当前登录员工的 Supabase JWT;未登录为 undefined。 */
   readonly token: () => string | undefined
 }
@@ -100,20 +98,25 @@ async function requestJson<T>(
   if (token === undefined) {
     throw new Error('未登录,无法发起流程')
   }
+  // volatile 配置:每次调用读取当前值,设置面板修改后无需重载即生效
+  const webConsoleBaseUrl = options.webConsoleBaseUrl().replace(/\/+$/, '')
+  if (validateBaseUrl(webConsoleBaseUrl) !== undefined) {
+    throw new Error(`process-start: webConsoleBaseUrl 配置无效: ${webConsoleBaseUrl}`)
+  }
   const headers: Record<string, string> = { authorization: `Bearer ${token}` }
   if (init?.body !== undefined) {
     headers['content-type'] = 'application/json'
   }
   let resp: Response
   try {
-    resp = await fetch(new URL(path, options.webConsoleBaseUrl), {
+    resp = await fetch(new URL(path, webConsoleBaseUrl), {
       method: init?.method ?? 'GET',
       headers,
       body: init?.body === undefined ? null : JSON.stringify(init.body),
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`web-console 不可达(${options.webConsoleBaseUrl}): ${message}`)
+    throw new Error(`web-console 不可达(${webConsoleBaseUrl}): ${message}`)
   }
   let body: ApiEnvelope<T>
   try {
@@ -132,6 +135,16 @@ async function requestJson<T>(
 
 /** 标准 UUID 形态;dsh_process_* 的 workflowDefinitionId 命中时直接透传。 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 校验基地址形状(协议+主机),无效返回错误消息。 */
+function validateBaseUrl(value: string): string | undefined {
+  try {
+    new URL(value)
+    return undefined
+  } catch {
+    return `invalid base URL: ${value}`
+  }
+}
 
 /**
  * 解析 workflowDefinitionId:标准 UUID 原样返回;否则视为传了流程名/BPMN key,
@@ -177,18 +190,16 @@ async function resolveWorkflowDefinitionId(options: ProcessStartOptions, input: 
 /**
  * 注册 dsh_process_list / dsh_process_start_form / dsh_process_start 工具。
  *
- * <p>webConsoleBaseUrl 在注册前解析一次,格式非法立即失败(misconfiguration
- * fails loud)。工具经 {@code ctx.tools.register} 注册,随调用方 fiber 生命周期
- * 自动反注册。
+ * <p>webConsoleBaseUrl 为 volatile 配置:每次工具执行读取当前值,设置面板修改
+ * 后无需重载即生效(值无效时该次执行报错,不阻断后续)。工具经
+ * {@code ctx.tools.register} 注册,随调用方 fiber 生命周期自动反注册。
  *
  * @param ctx - 携带 `currentUser` / `tools` 的 Cordis 上下文。
  * @param config - 插件配置。
  */
 export function apply(ctx: Context, config: Config): void {
-  const webConsoleBaseUrl = config.webConsoleBaseUrl.replace(/\/+$/, '')
-  new URL(webConsoleBaseUrl)
   const options: ProcessStartOptions = {
-    webConsoleBaseUrl,
+    webConsoleBaseUrl: () => config.webConsoleBaseUrl.get(),
     token: () => ctx.currentUser.getToken(),
   }
 

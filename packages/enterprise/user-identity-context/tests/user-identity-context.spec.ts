@@ -25,7 +25,8 @@ afterEach(() => {
 async function mount() {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
-  const fiber = await ctx.plugin(userIdentityContext)
+  // volatile 配置经 schemastery 包装;传普通值即可(运行时仅调用 get())
+  const fiber = await ctx.plugin(userIdentityContext, { webConsoleBaseUrl: 'http://console:8080' })
   return { ctx, fiber }
 }
 
@@ -320,6 +321,23 @@ describe('org positions injection (design 2026-09-19 §6.4)', () => {
     expect(identityTexts(session)).toEqual([renderIdentityText(user, [], 'jwt-1')])
   })
 
+  it('degrades to a positions-free block when webConsoleBaseUrl is invalid (volatile per-read)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(userIdentityContext, { webConsoleBaseUrl: 'not-a-url' })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const user = platformUser()
+    ctx.emit('platform-user/verified', user, 'jwt-1')
+    const session = Session.create(SessionId('invalid-base-url'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(identityTexts(session)).toEqual([renderIdentityText(user, [], 'jwt-1')])
+  })
+
   it('skips the positions fetch when no verified token exists', async () => {
     const { ctx } = await mount()
     const fetchMock = vi.fn()
@@ -347,7 +365,8 @@ describe('real Loader export path', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const plugin = loader.unwrapExports(userIdentityContext) as Parameters<Context['plugin']>[0]
-    await ctx.plugin(plugin)
+    // volatile 配置必填(无默认值),测试显式提供
+    await ctx.plugin(plugin, { webConsoleBaseUrl: 'http://console:8080' })
     ctx.currentUser.observe(platformUser())
     const session = Session.create(SessionId('loader'))
     openMessageTurn(session, 1)

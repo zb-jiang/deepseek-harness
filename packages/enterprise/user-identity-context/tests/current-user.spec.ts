@@ -7,7 +7,8 @@ import { platformUser } from './helpers.ts'
 async function mount(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(userIdentityContext)
+  // volatile 配置必填(无默认值),测试显式提供
+  await ctx.plugin(userIdentityContext, { webConsoleBaseUrl: 'http://console:8080' })
   return ctx
 }
 

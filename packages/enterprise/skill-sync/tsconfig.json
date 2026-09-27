@@ -8,6 +8,9 @@
     "src"
   ],
   "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../../vendor/loader" },
     { "path": "../user-identity-context" },
     { "path": "../../host/webserver" },
     { "path": "../../runtime-diagnostics/invariants" },

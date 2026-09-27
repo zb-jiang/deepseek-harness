@@ -49,10 +49,12 @@ export class SidebarSessionViews {
    */
   mount(reference: SessionReference): () => void {
     const view = this.viewsByReference.get(reference)
-    if (view === undefined) {
-      if (this.closed) return () => {}
-      throw new Error('Sidebar Session view reference is no longer owned')
-    }
+    // A view pruned between its snapshot's publication and React's committed
+    // mount is stale here: nothing is retained for it, and the SessionView
+    // unmounts with the next published snapshot. Throwing instead would crash
+    // the whole rightbar entry mid-commit (its error boundary has no retry),
+    // so a stale or post-shutdown reference degrades to a no-op mount.
+    if (view === undefined) return () => {}
     return view.mount()
   }
 

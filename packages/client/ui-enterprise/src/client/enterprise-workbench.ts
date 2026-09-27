@@ -50,6 +50,17 @@ type SessionsCreatePort = {
   create(opts: { workspaceId: WorkspaceId }): Promise<SessionId>
 }
 
+/**
+ * SidebarRight 控制器的 Tab 域端口:openTabIn 直接写目标会话自己的 adopted
+ * store(openContent 自带展开与 surface 物化),与"哪个座位正挂载"完全解耦
+ * ——公开面 ISidebarRight.openTab 只作用于当前挂载座位,切换会话的瞬间会
+ * 把标签写进上一个会话的表面。与 SessionsCreatePort 同思路的结构化断言:
+ * 断言留在企业包内,上游契约零改动。
+ */
+type SidebarRightTabDomainPort = {
+  openTabIn(sessionId: SessionId, kind: string): void
+}
+
 /** 待办队列状态(侧栏与档案栏共享)。 */
 export type WorkbenchTasksState = {
   items: readonly Task[]
@@ -186,6 +197,20 @@ export class EnterpriseWorkbench {
   private readonly completedSessions: Record<string, SessionId>
   /** 已完成预填的任务 id(避免切回任务时重复覆盖草稿)。 */
   private readonly prefilledTasks = new Set<string>()
+  /**
+   * 已武装的档案栏补开(至多一个;新目标替换旧目标并退订,无定时器):
+   * openTabIn 需要 adopted store,而会话视图被剪枝后重建的瞬间 store 尚未
+   * 创建(座位渲染才创建),此时直接调用是静默 no-op——等 mounted 发布
+   * 目标会话后重放一次。undefined = 无待补开。
+   */
+  private archiveReplay: { target: SessionId | undefined; unsubscribe(): void } | undefined
+  /**
+   * 导航序号(single-flight):openTask 的 ensureSkillsReady 与建会话是
+   * 异步缺口,期间用户的新点击(待办/已完成/确认)应使旧点击的续跑作废,
+   * 否则迟到的 openSession 会把主区又切回去。每个导航入口先自增,await 后
+   * 比对,不一致即放弃本次导航动作。
+   */
+  private navigationSeq = 0
   private readonly deps: WorkbenchDeps
 
   /**
@@ -245,9 +270,17 @@ export class EnterpriseWorkbench {
    * @param task - 队列中选中的待办。
    */
   async openTask(task: Task): Promise<void> {
+    const seq = ++this.navigationSeq
+    this.note(`openTask ${task.id} seq=${seq}`)
     this.tasks.update((draft) => { draft.selectedCompleted = null })
     // 工作项 3:先确保 skillRefs 就绪再进入会话(已就绪时是纯本地目录检查,无出站)
     await this.ensureSkillsReady(task)
+    // single-flight:等待就绪期间用户又触发了其它导航,本次点击作废,
+    // 不再把主区切回旧任务(乱序续跑是"点着点着档案栏错乱"的放大器)。
+    if (seq !== this.navigationSeq) {
+      this.note(`openTask ${task.id} superseded (seq=${seq} < ${this.navigationSeq})`)
+      return
+    }
     const bound = this.bindings.getSnapshot().taskToSession[task.id]
     const sessionLive = bound !== undefined
       && this.deps.sessions.list.getSnapshot().byId[bound] !== undefined
@@ -255,6 +288,7 @@ export class EnterpriseWorkbench {
       const sessionId = bound
       const prefillNotice = this.prefillPrompt(task, sessionId)
       this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
+      this.note(`openTask ${task.id} -> session ${sessionId}`)
       this.deps.uiWorkspace.openSession(sessionId)
       this.openArchiveTab(sessionId)
       return
@@ -273,14 +307,21 @@ export class EnterpriseWorkbench {
   async confirmPendingTaskWorkspace(workspaceId: WorkspaceId): Promise<void> {
     const task = this.tasks.getSnapshot().pendingTask
     if (task === null) return
+    const seq = ++this.navigationSeq
     const sessionId = await this.createTaskSession(workspaceId)
     if (sessionId === undefined) return
     this.bind(task.id, sessionId)
     const prefillNotice = this.prefillPrompt(task, sessionId)
     this.tasks.update((draft) => {
-      draft.pendingTask = null
+      // 只清自己置入的弹窗任务:等待建会话期间用户可能又点击了其它未绑定
+      // 待办(新的 pendingTask),不能一并清掉。
+      if (draft.pendingTask?.id === task.id) draft.pendingTask = null
       draft.prefillNotice = prefillNotice
     })
+    // single-flight:等待建会话期间有更新导航时,会话与绑定保留(员工显式
+    // 确认的产物,不绑就成了孤儿),但不再抢主区与档案栏。
+    if (seq !== this.navigationSeq) return
+    this.note(`confirm ${task.id} -> session ${sessionId}`)
     this.deps.uiWorkspace.openSession(sessionId)
     this.openArchiveTab(sessionId)
   }
@@ -326,6 +367,9 @@ export class EnterpriseWorkbench {
    * @param task - 侧栏"已完成"分组中选中的历史任务。
    */
   openCompletedTask(task: CompletedTask): void {
+    // 同步入口也推进导航序号:使等待中的 openTask/确认续跑作废。
+    this.navigationSeq++
+    this.note(`openCompletedTask ${task.id} seq=${this.navigationSeq}`)
     const memory = this.bindings.getSnapshot().completedByTask[task.id]
     const sessionId = memory ?? this.completedSessions[task.id]
     const sessionLive = sessionId !== undefined
@@ -355,31 +399,240 @@ export class EnterpriseWorkbench {
   /**
    * 打开任务档案标签页,并保证它落在目标会话的 rightbar 表面上。
    *
-   * <p>openSession 与 rightbar 座位的挂载/绑定不在同一帧:点击后同步调
-   * openTab,经 require() 拿到的是"上一个已挂载会话"的绑定,标签会落错
-   * 表面——新会话的座位随后以空表面挂载且默认收起,表现为档案栏不再弹出、
-   * 刷新后才恢复几次(官方 mounted 可观测面正是为此暴露:等座位发布目标
-   * 会话后再开)。目标会话 3 秒内仍未挂载(主区被切走/无会话)时放弃并
-   * 退订,避免悬挂订阅。
+   * <p>经 openTabIn 直接写目标会话自己的 adopted store(openContent 自带
+   * planSetExpanded(true) 与 surface 物化):座位挂没挂载、挂的是谁,都不
+   * 影响写入落点——旧实现经公开面 openTab(require() 取当前挂载座位的绑定),
+   * 切换会话的瞬间会把标签与展开写进上一个会话的表面;后来改为"等 mounted
+   * 发布目标会话再 openTab"的订阅式修复,又因每次点击挂独立订阅、互不取消、
+   * 3 秒超时静默放弃,在快速来回切换时留下错位的展开残留(按钮与面板一起
+   * 消失,刷新才恢复)。
+   *
+   * <p>仅剩一个时序缺口:目标会话的视图被剪枝后重建的瞬间,store 实例尚未
+   * 创建(座位渲染才创建,adoption 随之),openTabIn 静默 no-op——由
+   * armArchiveReplay 在 mounted 发布目标会话后补开一次(单订阅、可替换、
+   * 无定时器,见该方法文档)。
+   *
    * @param target - 要显示档案栏的会话;undefined 表示落到当前已挂载会话
    *   (只读档案路径:不切换会话,当前会话即可)。
    */
   private openArchiveTab(target: SessionId | undefined): void {
-    const mounted = this.deps.sidebarRight.mounted
-    const open = (): void => { this.deps.sidebarRight.openTab(ARCHIVE_TAB_KIND) }
-    const current = mounted.getSnapshot()
-    if (current === target || (target === undefined && current !== undefined)) {
-      open()
+    const mounted = this.deps.sidebarRight.mounted.getSnapshot()
+    if (target !== undefined) {
+      this.note(`archiveTab target=${target} mounted=${mounted ?? 'none'}`)
+      this.archiveTabPort.openTabIn(target, ARCHIVE_TAB_KIND)
+      this.armArchiveReplay(target)
       return
     }
-    const timer = setTimeout(() => { unsubscribe() }, 3000)
+    // 只读档案路径:落到当前挂载的会话;尚无挂载会话时等第一个座位发布。
+    if (mounted !== undefined) {
+      this.note(`archiveTab read-only mounted=${mounted}`)
+      this.archiveTabPort.openTabIn(mounted, ARCHIVE_TAB_KIND)
+      return
+    }
+    this.note('archiveTab read-only awaiting first seat')
+    this.armArchiveReplay(undefined)
+  }
+
+  /**
+   * 武装档案栏补开(同一时刻至多一个;新目标替换旧目标并退订)。
+   *
+   * <p>与旧订阅式修复的差别:订阅全局唯一、可被后续点击替换、无 3 秒超时
+   * ——不会积累悬挂订阅,也没有"超时后放弃、残留展开状态"的路径。目标
+   * 会话在补开前又来了新点击时,新目标直接替换旧目标(旧订阅退订)。目标
+   * 会话一直不挂载时,订阅静默闲置:仅在 mounted 恰好变成该会话时才补开,
+   * 而那正是当初点击想要的语义。
+   */
+  private armArchiveReplay(target: SessionId | undefined): void {
+    if (this.archiveReplay !== undefined && this.archiveReplay.target === target) return
+    if (this.archiveReplay !== undefined) this.note(`replay replace ${String(this.archiveReplay.target)} -> ${target ?? 'any'}`)
+    this.archiveReplay?.unsubscribe()
+    const mounted = this.deps.sidebarRight.mounted
     const unsubscribe = mounted.subscribe(() => {
       const now = mounted.getSnapshot()
-      if (now === undefined || (target !== undefined && now !== target)) return
+      if (now === undefined) return
+      if (target !== undefined && now !== target) return
+      this.archiveReplay = undefined
       unsubscribe()
-      clearTimeout(timer)
-      open()
+      this.note(`replay fire target=${target ?? 'any'} mounted=${now}`)
+      // 此刻目标会话的座位已挂载,store 实例必已创建,openTabIn 必然落地。
+      this.archiveTabPort.openTabIn(now, ARCHIVE_TAB_KIND)
     })
+    this.archiveReplay = { target, unsubscribe }
+  }
+
+  /** SidebarRight 控制器的 Tab 域端口(结构化断言;见 SidebarRightTabDomainPort)。 */
+  private get archiveTabPort(): SidebarRightTabDomainPort {
+    return this.deps.sidebarRight as ISidebarRight & SidebarRightTabDomainPort
+  }
+
+  /**
+   * 导航/档案事件面包屑(环形,卡死诊断用):卡死形态是跨组件状态机脱节,
+   * 事后无法从现场反推时序——所有会改变"哪个会话挂载/档案栏何时开"的路径
+   * 都在此留痕,哨兵发现卡死时随日志倾倒。
+   */
+  private breadcrumbs: string[] = []
+  private note(event: string): void {
+    const at = new Date()
+    const stamp = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}:${String(at.getSeconds()).padStart(2, '0')}.${String(at.getMilliseconds()).padStart(3, '0')}`
+    this.breadcrumbs.push(`${stamp} ${event}`)
+    if (this.breadcrumbs.length > 20) this.breadcrumbs.shift()
+  }
+
+  /** 卡死哨兵状态。 */
+  private stuckCheckTimer: ReturnType<typeof setTimeout> | undefined
+  private stuckSeatGraceTimer: ReturnType<typeof setTimeout> | undefined
+  private stuckPollTimer: ReturnType<typeof setInterval> | undefined
+  /** "右边栏不可达"形态首次发现时刻(连续两个轮询周期才定性,防瞬时误报)。 */
+  private unreachableSeenAt: number | undefined
+  private lastHealAt = 0
+
+  /**
+   * 右边栏卡死哨兵 v3:两轮修复都没能根除"按钮+面板一起消失",与其继续盲改,
+   * 不如把卡死状态变成可观测、可自愈的——
+   *
+   * <p>形态零(DOM 级"不可达",v3 新增):主会话在选、无全局面板,但 DOM 里
+   * 既没有展开按钮([data-sidebar-right-expand])也没有可见的右栏会话座位
+   * ([data-sidebar-right-session]:not([hidden]))——用户从任何入口都打不开
+   * 右边栏。该谓词不依赖任何内部可观测面(mounted/isExpanded 对"视图选中
+   * 与主区脱钩"类卡死全部失明),纯 DOM 取证,任何形态都逃不掉。轮询 2 秒
+   * 且需连续命中才定性(开合过渡/懒挂载不会误报);定性后倾倒现场并尝试
+   * 自愈(重新 openSession + openTabIn,均为幂等公开面)。
+   *
+   * <p>形态一(可自愈):座位已挂载 + surface 展开 + frame 轨道收起,自愈为
+   * layout.openRightbar(true,false),冷却 1.5 秒。
+   *
+   * <p>形态二(只记日志):主会话已选中但 600ms 后座位仍未挂载。
+   *
+   * <p>驱动:mounted/panelInfo 订阅(250ms 去抖)+ 2 秒轮询兜底——若卡死发生在
+   * 最后一次事件之后且状态不再变化,订阅驱动永远不会再触发,轮询是唯一的
+   * 收口。启动时打横幅证明新 bundle 已生效,并挂 window.__yunhanRightbar()
+   * 手动取证入口。
+   * @returns 解除哨兵的清理函数(挂载到 ctx.effect)。
+   */
+  armStuckSentinel(): () => void {
+    console.info('[yunhan] 右边栏哨兵 v3 已布防;卡死取证可调 window.__yunhanRightbar()')
+    const mounted = this.deps.sidebarRight.mounted
+    const panelInfo = this.deps.layout.panelInfo
+    const schedule = (): void => {
+      if (this.stuckCheckTimer !== undefined) return
+      this.stuckCheckTimer = setTimeout(() => {
+        this.stuckCheckTimer = undefined
+        this.evaluateStuck()
+      }, 250)
+    }
+    const unsubscribeMounted = mounted.subscribe(schedule)
+    const unsubscribePanel = panelInfo.subscribe(() => {
+      this.note(`panel -> ${panelInfo.getSnapshot().activePanelId ?? 'null'}`)
+      schedule()
+    })
+    this.stuckPollTimer = setInterval(() => this.evaluateStuck(), 2000)
+    if (typeof window !== 'undefined') {
+      ;(window as unknown as Record<string, unknown>).__yunhanRightbar = () => {
+        const dump = this.dumpRightbarState('manual')
+        console.log('[yunhan] 右边栏状态(手动取证)', dump)
+        return dump
+      }
+    }
+    schedule()
+    return () => {
+      unsubscribeMounted()
+      unsubscribePanel()
+      if (this.stuckCheckTimer !== undefined) { clearTimeout(this.stuckCheckTimer); this.stuckCheckTimer = undefined }
+      if (this.stuckSeatGraceTimer !== undefined) { clearTimeout(this.stuckSeatGraceTimer); this.stuckSeatGraceTimer = undefined }
+      if (this.stuckPollTimer !== undefined) { clearInterval(this.stuckPollTimer); this.stuckPollTimer = undefined }
+      this.unreachableSeenAt = undefined
+    }
+  }
+
+  /** 右边栏现场快照(哨兵日志与手动取证共用):内部可观测面 + DOM 取证。 */
+  private dumpRightbarState(reason: string): Record<string, unknown> {
+    const seats = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>('[data-sidebar-right-session]')]
+      .map(el => ({ session: el.dataset.sidebarRightSession, hidden: el.hidden }))
+    return {
+      reason,
+      at: new Date().toISOString(),
+      mounted: this.deps.sidebarRight.mounted.getSnapshot(),
+      isExpanded: this.deps.sidebarRight.isExpanded(),
+      panel: this.deps.layout.panelInfo.getSnapshot().activePanelId,
+      mainSession: this.mainSessionId(),
+      viewport: typeof window === 'undefined' ? undefined : window.innerWidth,
+      dom: {
+        expandButton: typeof document === 'undefined' ? undefined : document.querySelector('[data-sidebar-right-expand]') !== null,
+        visibleSeat: seats.some(seat => !seat.hidden),
+        seats,
+        trackCollapsed: typeof document === 'undefined' ? undefined : document.querySelector('[data-rightbar-collapsed]') !== null,
+      },
+      breadcrumbs: [...this.breadcrumbs],
+    }
+  }
+
+  /** 当前主区会话(官方 retain 计数是唯一可信来源)。 */
+  private mainSessionId(): SessionId | undefined {
+    return Object.values(this.deps.sessions.list.getSnapshot().byId)
+      .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  }
+
+  /** 哨兵评估:见 armStuckSentinel。 */
+  private evaluateStuck(): void {
+    if (typeof document === 'undefined') return
+    const mountedSession = this.deps.sidebarRight.mounted.getSnapshot()
+    // 形态零(DOM 级不可达):按钮与可见座位同时缺席,且非全局面板遮挡。
+    // 连续命中 2 秒才定性;定性即倾倒现场并尝试幂等自愈(重放导航意图)。
+    const mainSession = this.mainSessionId()
+    const panelActive = this.deps.layout.panelInfo.getSnapshot().activePanelId !== null
+    const unreachable = mainSession !== undefined && !panelActive
+      && document.querySelector('[data-sidebar-right-expand]') === null
+      && document.querySelector('[data-sidebar-right-session]:not([hidden])') === null
+    if (unreachable) {
+      if (this.unreachableSeenAt === undefined) {
+        this.unreachableSeenAt = Date.now()
+        this.note(`unreachable? main=${mainSession}`)
+        return
+      }
+      if (Date.now() - this.unreachableSeenAt < 2000 || Date.now() - this.lastHealAt < 1500) return
+      this.unreachableSeenAt = undefined
+      this.lastHealAt = Date.now()
+      const detail = this.dumpRightbarState('unreachable')
+      console.error('[yunhan] 右边栏不可达(按钮与面板同时消失),已尝试重放导航自愈', detail)
+      this.note(`unreachable-healed main=${mainSession}`)
+      // 幂等公开面重放:replaceMain 会重新 selectPanel(null),openTabIn 重新
+      // 物化目标会话 surface(若 adoption 尚在)——无论脱钩在哪一层,这一对
+      // 组合都是"用户点击想要的结果"的安全重放。
+      this.deps.uiWorkspace.openSession(mainSession)
+      this.archiveTabPort.openTabIn(mainSession, ARCHIVE_TAB_KIND)
+      return
+    }
+    this.unreachableSeenAt = undefined
+    // 形态一(可自愈):座位 active + surface 展开 + frame 轨道收起。
+    if (mountedSession !== undefined && this.deps.sidebarRight.isExpanded()
+      && document.querySelector('[data-rightbar-collapsed]') !== null
+      && window.innerWidth >= 768) {
+      if (Date.now() - this.lastHealAt > 1500) {
+        this.lastHealAt = Date.now()
+        const detail = this.dumpRightbarState('form1')
+        console.error('[yunhan] 右边栏卡死已自动恢复(surface 展开 但 frame 轨道为 0)', detail)
+        this.note(`stuck-healed mounted=${mountedSession}`)
+        this.deps.layout.openRightbar(true, false)
+      }
+      return
+    }
+    // 形态二(只记日志):主会话在选但座位迟迟不挂载。
+    if (mainSession !== undefined && mountedSession === undefined) {
+      if (this.stuckSeatGraceTimer !== undefined) return
+      this.stuckSeatGraceTimer = setTimeout(() => {
+        this.stuckSeatGraceTimer = undefined
+        if (this.deps.sidebarRight.mounted.getSnapshot() !== undefined) return
+        const stillMain = this.mainSessionId()
+        if (stillMain === undefined) return
+        console.error('[yunhan] 右边栏座位 600ms 未挂载(主会话已选中)', this.dumpRightbarState('seat-missing'))
+        this.note(`seat-not-mounted session=${stillMain}`)
+      }, 600)
+      return
+    }
+    if (this.stuckSeatGraceTimer !== undefined) {
+      clearTimeout(this.stuckSeatGraceTimer)
+      this.stuckSeatGraceTimer = undefined
+    }
   }
 
   /**

@@ -271,14 +271,18 @@ function OpsTab() {
   const [metric, setMetric] = useState(OPS_SERIES_METRICS[0].value)
   const [windowHours, setWindowHours] = useState(6)
   const [series, setSeries] = useState<SeriesPoint[]>([])
-  const [error, setError] = useState<string | null>(null)
+  // 两个请求的错误分开记录:早期共用一个 state,序列加载成功会清掉汇总的错误,
+  // 汇总 30s 轮询失败又设回来,表现为错误提示"时有时无"
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [seriesError, setSeriesError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const loadSummary = useCallback(async () => {
     try {
       setSummary(await analyticsApi.opsSummary())
+      setSummaryError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '运维汇总加载失败')
+      setSummaryError(e instanceof Error ? e.message : '运维汇总加载失败')
     }
   }, [])
 
@@ -298,9 +302,9 @@ function OpsTab() {
           to: to.toISOString(),
         }),
       )
-      setError(null)
+      setSeriesError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '指标序列加载失败')
+      setSeriesError(e instanceof Error ? e.message : '指标序列加载失败')
     } finally {
       setLoading(false)
     }
@@ -321,7 +325,7 @@ function OpsTab() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {error && <Alert type="error" showIcon message={error} />}
+      {summaryError && <Alert type="error" showIcon message={summaryError} />}
       <Row gutter={16}>
         <Col span={3}><Card size="small"><Statistic title="async job" value={jobValue('dsh.flowable.jobs.async')} /></Card></Col>
         <Col span={3}><Card size="small"><Statistic title="timer job" value={jobValue('dsh.flowable.jobs.timer')} /></Card></Col>
@@ -347,6 +351,7 @@ function OpsTab() {
         </Col>
         <Col span={4}><Card size="small"><Statistic title="升级触发(1h)" value={summary?.escalationCount1h ?? '-'} /></Card></Col>
       </Row>
+      {seriesError && <Alert type="error" showIcon message={seriesError} />}
       <Card
         size="small"
         title="指标趋势"

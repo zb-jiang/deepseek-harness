@@ -54,13 +54,21 @@ public class MetricsJdbcRepository {
         }
     }
 
-    /** 单指标时间序列(折线图;按时间升序)。 */
+    /**
+     * 单指标时间序列(折线图;按时间升序)。
+     *
+     * <p>同时匹配裸名与 tag 展开名({@code name{tag=val}}):轮询器把带 tag 的指标
+     * (hikaricp.connections.active / jvm.memory.used)落库为逐 tag 值的展开名,
+     * 前端趋势图按裸名查询。同一 ts 的各变体求和为单条曲线——单池连接数求和不变,
+     * jvm heap+nonheap 求和即总用量。传精确 tag 名时 LIKE 分支不命中,行为不变。
+     */
     public List<SeriesPoint> series(String metric, String statistic,
                                     OffsetDateTime from, OffsetDateTime to) {
         return jdbcClient.sql("""
-                SELECT ts, value FROM public.dsh_metrics_sample
-                WHERE metric = :metric AND statistic = :statistic AND ts BETWEEN :from AND :to
-                ORDER BY ts ASC
+                SELECT ts, SUM(value) AS value FROM public.dsh_metrics_sample
+                WHERE statistic = :statistic AND ts BETWEEN :from AND :to
+                  AND (metric = :metric OR metric LIKE :metric || '{%')
+                GROUP BY ts ORDER BY ts ASC
                 """)
             .param("metric", metric)
             .param("statistic", statistic)
@@ -73,12 +81,15 @@ public class MetricsJdbcRepository {
 
     /**
      * 多指标各自最新 VALUE(实时卡片;DISTINCT ON 是 PostgreSQL 特有,本服务只连 PG)。
+     *
+     * <p>用 {@code IN (:metrics)} 而非 {@code ANY(:metrics)}:Spring 会把 List 参数
+     * 展开成多个占位符 {@code (?, ?, ...)},IN 合法而 ANY 只接受单个数组参数。
      */
     public Map<String, Double> latestValues(List<String> metrics) {
         return jdbcClient.sql("""
                 SELECT DISTINCT ON (metric) metric, value
                 FROM public.dsh_metrics_sample
-                WHERE statistic = 'VALUE' AND metric = ANY(:metrics)
+                WHERE statistic = 'VALUE' AND metric IN (:metrics)
                 ORDER BY metric, ts DESC
                 """)
             .param("metrics", metrics)
@@ -94,7 +105,7 @@ public class MetricsJdbcRepository {
     public List<MetricRow> rowsSince(List<String> metrics, OffsetDateTime from) {
         return jdbcClient.sql("""
                 SELECT metric, statistic, value, ts FROM public.dsh_metrics_sample
-                WHERE metric = ANY(:metrics) AND ts >= :from
+                WHERE metric IN (:metrics) AND ts >= :from
                 ORDER BY ts ASC
                 """)
             .param("metrics", metrics)

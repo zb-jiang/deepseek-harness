@@ -146,7 +146,8 @@ export default function BpmnHistoryViewer({ xml, activities, onElementClick, fla
     }
   }, [onElementClick])
 
-  // 日志表反向定位:flashElementId 变化 → 对应节点闪亮后摘除
+  // 日志表反向定位:flashElementId 变化 → 对应节点闪亮后摘除;
+  // flashSeq 递增使同一节点连续点击也能重新触发
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || !flashElementId) return
@@ -171,7 +172,7 @@ export default function BpmnHistoryViewer({ xml, activities, onElementClick, fla
         // 同上
       }
     }
-  }, [flashElementId])
+  }, [flashElementId, flashSeq])
 
   return (
     <div

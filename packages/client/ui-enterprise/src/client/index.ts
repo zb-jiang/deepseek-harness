@@ -32,8 +32,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-files/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: 拉入 settings 域的 SlotMap 声明('settings.section' 座位类型)。
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { EnterpriseOverlay } from './EnterpriseUi.tsx'
 import { ARCHIVE_TAB_ID, ARCHIVE_TAB_KIND, EnterpriseWorkbench } from './enterprise-workbench.ts'
+import { EnterpriseServicesSection } from './EnterpriseServicesSection.tsx'
+import { createEnterpriseServicesAccess } from './enterprise-services-access.ts'
 import { KnowledgeWorkbench } from './knowledge-workbench.ts'
 import { buildKbDocsSource } from './kb-trigger-source.ts'
 import { buildKbDocDecorator } from './kb-doc-decorator.tsx'
@@ -46,7 +50,7 @@ import type { KbUploadInjected } from './KbUploadAction.tsx'
 
 export const inject = [
   'slots', 'sessions', 'workspaces', 'uiWorkspace', 'layout', 'conversation', 'inputTriggers', 'sidebarRight',
-  'sidebarRightTabs', 'remote', 'remote.workspaceFiles',
+  'sidebarRightTabs', 'remote', 'remote.workspaceFiles', 'remote.settings',
 ]
 
 export function apply(ctx: ClientContext): void {
@@ -68,16 +72,29 @@ export function apply(ctx: ClientContext): void {
     conversation: ctx.conversation,
   })
 
+  // 企业服务配置读写面:设置面板座位与登录页「服务配置」弹层共用同一实例语义。
+  const servicesAccess = createEnterpriseServicesAccess(ctx.remote.settings)
+
   // 输入框 '@' 知识库文档触发源:待办会话候选 → 内联 chip(退订器由 effect 持有)。
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
   ctx.effect(() => inputTriggers.registerSource(buildKbDocsSource({ workbench, knowledge })), 'ui-enterprise: @kbDocs source')
 
+  // 右边栏卡死哨兵:按钮+面板一起消失的脱节状态自愈 + 证据日志(见
+  // workbench.armStuckSentinel;自愈只恢复 frame 轨道,不碰 surface)。
+  ctx.effect(() => workbench.armStuckSentinel(), 'ui-enterprise: rightbar stuck sentinel')
+
   // 历史消息的知识库文档徽标:wire 文本 `知识库文档 docid: <id>` → 文档 chip。
   ctx.effect(() => registerUserTextDecorator(buildKbDocDecorator()), 'ui-enterprise: kb doc history decorator')
 
-  // 认证遮罩:未登录/待审批/被禁用时盖住整帧。
+  // 认证遮罩:未登录/待审批/被禁用时盖住整帧;注入企业服务配置读写面,
+  // 登录页常驻「服务配置」弹层与设置面板共用同一套 load/save(含镜像与并发控制)。
   ctx.slots.register(
-    { name: 'shell.overlay', id: 'enterprise', order: 50 },
+    {
+      name: 'shell.overlay',
+      id: 'enterprise',
+      order: 50,
+      inject: () => ({ services: createEnterpriseServicesAccess(ctx.remote.settings) }),
+    },
     EnterpriseOverlay,
   )
 
@@ -126,4 +143,13 @@ export function apply(ctx: ClientContext): void {
     id: 'kb-upload',
     inject: () => ({ readWorkspaceFile }),
   }, KbUploadAction))
+
+  // 企业服务配置:settings.section 座位的聚合配置页(volatile 字段即时生效)。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'enterprise-services',
+    order: 30,
+    label: () => '企业服务配置',
+    inject: () => ({ load: servicesAccess.load, save: servicesAccess.save }),
+  }, EnterpriseServicesSection))
 }

@@ -22,7 +22,8 @@
 
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { Service, type Context } from '@deepseek-ai/cordis'
+import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { unzipSync } from 'fflate'
 import z from '@deepseek-ai/schemastery'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -38,31 +39,28 @@ export const name = 'skill-sync'
 /** 等待 skill 注册表、登录身份存储与本地 webserver 就绪后才挂载。 */
 export const inject = ['skills', 'currentUser', 'webServer'] as const
 
-/** daemon 默认扫描间隔:10 分钟(skill-repo-design §6.2)。 */
-const DEFAULT_INTERVAL_MS = 10 * 60 * 1000
-
 /** SkillHub 命名空间清单单页上限(服务端 CLI 端点上限 100)。 */
 const SKILLHUB_PAGE_LIMIT = 100
 
 /** 插件配置,全部来自 enterprise profile 的 cordis.yml config 段。 */
 export interface Config {
-  /** flowable-engine 基地址(协议+主机+端口,无路径)。 */
-  flowableBaseUrl: string
-  /** SkillHub 后端 API 基地址(协议+主机+端口,无路径)。 */
-  skillhubBaseUrl: string
-  /** SkillHub 只读分发 token;空串时跳过清单/下载(仅靠已装缓存)。 */
-  skillhubToken: string
-  /** daemon 扫描间隔毫秒。 */
-  intervalMs: number
+  /** flowable-engine 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  flowableBaseUrl: Volatile<string>
+  /** SkillHub 后端 API 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  skillhubBaseUrl: Volatile<string>
+  /** SkillHub 只读分发 token;空串时跳过清单/下载(仅靠已装缓存);volatile:设置面板可改,即时生效。 */
+  skillhubToken: Volatile<string>
+  /** daemon 扫描间隔毫秒;volatile:设置面板可改,变更即重排 daemon 定时器。 */
+  intervalMs: Volatile<number>
   /** 覆盖缓存目录;缺省用 `$DSH_HOME/skill-sync/skills`。 */
   skillDir?: string
 }
 
-export const Config: z<Config> = z.object({
-  flowableBaseUrl: z.string().default('http://127.0.0.1:8090'),
-  skillhubBaseUrl: z.string().default('http://127.0.0.1:8095'),
-  skillhubToken: z.string().default(''),
-  intervalMs: z.number().default(DEFAULT_INTERVAL_MS),
+export const Config = z.object({
+  flowableBaseUrl: z.string().required().volatile(),
+  skillhubBaseUrl: z.string().required().volatile(),
+  skillhubToken: z.string().required().volatile(),
+  intervalMs: z.number().required().volatile(),
   skillDir: z.string(),
 })
 
@@ -237,6 +235,10 @@ export class SkillSyncService extends Service {
   }
 
   private async runSync(): Promise<void> {
+    if (this.options.skillhubBaseUrl === '' || this.options.flowableBaseUrl === '') {
+      this.ctx.logger.warn('skill-sync: SKILLHUB_URL/FLOWABLE_ENGINE_URL 未配置,本轮跳过(可在登录页服务配置中设置)')
+      return
+    }
     const token = this.ctx.currentUser.getToken()
     if (token === undefined) {
       this.ctx.logger.info('skill-sync: 未登录,本轮跳过')
@@ -454,43 +456,86 @@ declare module '@deepseek-ai/cordis' {
  * @param config - 插件配置。
  */
 export function apply(ctx: Context, config: Config): void {
-  const flowableBaseUrl = config.flowableBaseUrl.replace(/\/+$/, '')
-  const skillhubBaseUrl = config.skillhubBaseUrl.replace(/\/+$/, '')
-  const skillDir = config.skillDir !== undefined && config.skillDir !== ''
-    ? config.skillDir
-    : dshHomePath('skill-sync', 'skills')
-  new URL(flowableBaseUrl)
-  new URL(skillhubBaseUrl)
-  if (!Number.isFinite(config.intervalMs) || config.intervalMs <= 0) {
-    throw new Error(`skill-sync: intervalMs 必须为正有限数,得到 ${config.intervalMs}`)
+  // volatile 配置:端点持有为可变对象,loader/volatile-update 到达时原位更新,
+  // 服务内每轮 sync 读到的都是当前值;intervalMs 变更额外重排 daemon 定时器。
+  const endpoints: SkillSyncOptions = {
+    flowableBaseUrl: '',
+    skillhubBaseUrl: '',
+    skillhubToken: '',
+    skillDir: '',
+  }
+  let timer: ReturnType<typeof setInterval> | undefined
+  const applySnapshot = (): number => {
+    const flowableBaseUrl = config.flowableBaseUrl.get().replace(/\/+$/, '')
+    const skillhubBaseUrl = config.skillhubBaseUrl.get().replace(/\/+$/, '')
+    const skillDir = config.skillDir !== undefined && config.skillDir !== ''
+      ? config.skillDir
+      : dshHomePath('skill-sync', 'skills')
+    // 未配置合法化:空值是合法态(登录页是首次配置入口),不阻塞挂载;
+    // sync/ensure 运行期检测到空端点时跳过并 WARN,配置后 volatile-update 生效
+    if (flowableBaseUrl !== '') {
+      new URL(flowableBaseUrl)
+    }
+    if (skillhubBaseUrl !== '') {
+      new URL(skillhubBaseUrl)
+    }
+    endpoints.flowableBaseUrl = flowableBaseUrl
+    endpoints.skillhubBaseUrl = skillhubBaseUrl
+    endpoints.skillhubToken = config.skillhubToken.get()
+    endpoints.skillDir = skillDir
+    const intervalMs = config.intervalMs.get()
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+      throw new Error(`skill-sync: intervalMs 必须为正有限数,得到 ${intervalMs}`)
+    }
+    return intervalMs
   }
   let providerControl: SkillProviderControl | undefined
   let provider: FileSystemSkillProvider | undefined
-  ctx.effect(
-    () => ctx.skills.registerProvider((control) => {
-      providerControl = control
-      provider = new FileSystemSkillProvider(ctx, control, {
-        providerName: 'skill-sync',
-        includeDefaultRoots: false,
-        customSkillDirs: [skillDir],
-        watch: false,
-      })
-      return provider
-    }),
-    'skill-sync: cache-root skill provider',
-  )
+  const mountProvider = (): void => {
+    ctx.effect(
+      () => ctx.skills.registerProvider((control) => {
+        providerControl = control
+        provider = new FileSystemSkillProvider(ctx, control, {
+          providerName: 'skill-sync',
+          includeDefaultRoots: false,
+          customSkillDirs: [endpoints.skillDir],
+          watch: false,
+        })
+        return provider
+      }),
+      'skill-sync: cache-root skill provider',
+    )
+  }
+  const initialIntervalMs = applySnapshot()
+  mountProvider()
   ctx.effect(() => () => { void provider?.dispose() }, 'skill-sync: provider disposal')
   const service = new SkillSyncService(
     ctx,
-    { flowableBaseUrl, skillhubBaseUrl, skillhubToken: config.skillhubToken, skillDir },
+    endpoints,
     () => providerControl,
   )
   // mkdir 失败(如 DSH_HOME 只读)不阻塞员工端启动,记日志后每轮 interval 重试
   void service.start().catch(error => ctx.logger.warn('skill-sync 启动失败', error))
-  const timer = setInterval(() => {
-    void service.sync().catch(error => ctx.logger.warn('skill-sync 周期同步异常', error))
-  }, config.intervalMs)
-  ctx.effect(() => () => { clearInterval(timer) }, 'skill-sync: daemon interval')
+  const schedule = (intervalMs: number): void => {
+    if (timer !== undefined) clearInterval(timer)
+    timer = setInterval(() => {
+      void service.sync().catch(error => ctx.logger.warn('skill-sync 周期同步异常', error))
+    }, intervalMs)
+  }
+  schedule(initialIntervalMs)
+  ctx.effect(() => () => {
+    if (timer !== undefined) clearInterval(timer)
+  }, 'skill-sync: daemon interval')
+  ctx.on('loader/volatile-update', () => {
+    try {
+      const next = applySnapshot()
+      schedule(next)
+      ctx.logger.info('skill-sync: 配置已更新(端点/间隔按新值生效)')
+    } catch (error) {
+      // 更新值非法(如 URL 残缺)时保留旧快照,只报告错误
+      ctx.logger.warn('skill-sync: 配置更新被拒绝,沿用旧配置', error)
+    }
+  })
   // 登录即触发一轮同步:启动首轮通常发生在登录前,不让用户等下一个 interval
   ctx.on('platform-user/verified', () => {
     void service.sync().catch(error => ctx.logger.warn('skill-sync 登录触发同步异常', error))
@@ -500,16 +545,15 @@ export function apply(ctx: Context, config: Config): void {
     ctx.webServer.register({
       kind: 'prefix',
       path: SKILL_ROUTE_PREFIX,
-      handler: (req, res) => {
-        const urlPath = new URL(req.url ?? '/', 'http://localhost').pathname
-        dispatchEnsure(service, req.method ?? 'GET', urlPath, req, res)
+      // handler 返回分发 Promise,webserver 可等待完成(测试亦由此确定性断言)
+      handler: (req, res) =>
+        dispatchEnsure(service, req.method ?? 'GET', new URL(req.url ?? '/', 'http://localhost').pathname, req, res)
           .catch((error) => {
             ctx.logger.warn('skill-sync: ensure 端点异常', error)
             if (!res.headersSent) {
               sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
             }
-          })
-      },
+          }),
     }),
   'skill-sync: /api/enterprise/skills prefix route',
   )

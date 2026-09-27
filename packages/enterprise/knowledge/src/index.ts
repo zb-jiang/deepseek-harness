@@ -17,7 +17,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -29,9 +29,6 @@ export const name = 'knowledge'
 /** 等待本地 webserver、登录身份存储与工具注册表就绪后才挂载。 */
 export const inject = ['webServer', 'currentUser', 'tools'] as const
 
-/** web-console 基地址默认值(企业服务器常驻部署)。 */
-const DEFAULT_WEB_CONSOLE_BASE_URL = 'http://127.0.0.1:8080'
-
 /** kb_read 全文返回上限默认值(字符;超出截断并注明)。 */
 const DEFAULT_READ_MAX_CHARS = 40_000
 
@@ -40,25 +37,26 @@ const DEFAULT_TOP_K = 8
 
 /** 插件配置,全部来自 enterprise profile 的 cordis.yml config 段。 */
 export interface Config {
-  /** web-console 基地址(协议+主机+端口,无路径)。 */
-  webConsoleBaseUrl: string
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
   /** kb_read 返回全文的最大字符数,超出截断并在结果中注明。 */
   readMaxChars: number
 }
 
-export const Config: z<Config> = z.object({
-  webConsoleBaseUrl: z.string().default(DEFAULT_WEB_CONSOLE_BASE_URL),
+export const Config = z.object({
+  webConsoleBaseUrl: z.string().required().volatile(),
   readMaxChars: z.number().default(DEFAULT_READ_MAX_CHARS),
 })
 
 /**
  * 已解析的运行选项(apply 阶段完成校验与默认值合并)。
  *
- * <p>token 取值函数注入而非内联,便于测试桩替换登录态。
+ * <p>token 与 web-console 基地址取值函数注入而非内联,便于测试桩替换登录态
+ * 与 volatile 基地址(设置面板修改后无需重载即生效)。
  */
 export interface KnowledgeOptions {
-  /** web-console 基地址(无尾斜杠)。 */
-  readonly webConsoleBaseUrl: string
+  /** 当前 web-console 基地址(无尾斜杠;每次调用读取 volatile 最新值)。 */
+  readonly webConsoleBaseUrl: () => string
   /** kb_read 全文返回上限(字符)。 */
   readonly readMaxChars: number
   /** 当前登录员工的 Supabase JWT;未登录为 undefined。 */
@@ -123,10 +121,21 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks)
 }
 
+/** 校验基地址形状(协议+主机),无效返回错误消息。 */
+function validateBaseUrl(value: string): string | undefined {
+  try {
+    new URL(value)
+    return undefined
+  } catch {
+    return `invalid base URL: ${value}`
+  }
+}
+
 /**
  * 把请求转发到 web-console(附当前登录 JWT),上游响应(状态码 + 体)原样回写。
  *
- * <p>未登录回 401;web-console 不可达回 JSON 502,浏览器侧永远不解析 HTML 错误页。
+ * <p>未登录回 401;webConsoleBaseUrl 配置无效或 web-console 不可达回 JSON 502,
+ * 浏览器侧永远不解析 HTML 错误页。
  *
  * @param options - 运行选项
  * @param localPrefix - 本地路由前缀(webserver 路由保证命中)
@@ -149,8 +158,14 @@ async function proxyRequest(
     sendJson(res, 401, { error: '未登录,无法访问企业知识库' })
     return
   }
+  // volatile 配置:每次转发读取当前值,设置面板修改后无需重载即生效
+  const webConsoleBaseUrl = options.webConsoleBaseUrl().replace(/\/+$/, '')
+  if (validateBaseUrl(webConsoleBaseUrl) !== undefined) {
+    sendJson(res, 502, { error: `knowledge: webConsoleBaseUrl 配置无效: ${webConsoleBaseUrl}` })
+    return
+  }
   const suffix = incoming.pathname.slice(localPrefix.length)
-  const target = new URL(`${upstreamPrefix}${suffix}${incoming.search}`, options.webConsoleBaseUrl)
+  const target = new URL(`${upstreamPrefix}${suffix}${incoming.search}`, webConsoleBaseUrl)
   const headers: Record<string, string> = { authorization: `Bearer ${token}` }
   const contentType = req.headers['content-type']
   // content-type is declared `string | undefined` on IncomingHttpHeaders —
@@ -171,7 +186,7 @@ async function proxyRequest(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    sendJson(res, 502, { error: `web-console 不可达(${options.webConsoleBaseUrl}): ${message}` })
+    sendJson(res, 502, { error: `web-console 不可达(${webConsoleBaseUrl}): ${message}` })
     return
   }
   const responseContentType = upstream.headers.get('content-type') ?? 'application/json; charset=utf-8'
@@ -193,14 +208,19 @@ async function requestJson<T>(options: KnowledgeOptions, path: string): Promise<
   if (token === undefined) {
     throw new Error('未登录,无法访问企业知识库')
   }
+  // volatile 配置:每次调用读取当前值,设置面板修改后无需重载即生效
+  const webConsoleBaseUrl = options.webConsoleBaseUrl().replace(/\/+$/, '')
+  if (validateBaseUrl(webConsoleBaseUrl) !== undefined) {
+    throw new Error(`knowledge: webConsoleBaseUrl 配置无效: ${webConsoleBaseUrl}`)
+  }
   let resp: Response
   try {
-    resp = await fetch(new URL(path, options.webConsoleBaseUrl), {
+    resp = await fetch(new URL(path, webConsoleBaseUrl), {
       headers: { authorization: `Bearer ${token}` },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`web-console 不可达(${options.webConsoleBaseUrl}): ${message}`)
+    throw new Error(`web-console 不可达(${webConsoleBaseUrl}): ${message}`)
   }
   let body: ApiEnvelope<T>
   try {
@@ -257,21 +277,20 @@ function folderPathById(folders: readonly KbFolderDto[]): Map<string, string> {
 /**
  * 注册代理路由与 kb_search / kb_read / kb_list 工具。
  *
- * <p>webConsoleBaseUrl 在注册前解析一次,格式非法立即失败(misconfiguration
- * fails loud);readMaxChars 必须为正有限数。工具经 {@code ctx.tools.register}
- * 注册,随调用方 fiber 生命周期自动反注册。
+ * <p>webConsoleBaseUrl 为 volatile 配置:每次请求读取当前值,设置面板修改后
+ * 无需重载即生效(值无效时该次请求报错,不阻断后续);readMaxChars 必须为
+ * 正有限数。工具经 {@code ctx.tools.register} 注册,随调用方 fiber 生命周期
+ * 自动反注册。
  *
  * @param ctx - 携带 `webServer` / `currentUser` / `tools` 的 Cordis 上下文。
  * @param config - 插件配置。
  */
 export function apply(ctx: Context, config: Config): void {
-  const webConsoleBaseUrl = config.webConsoleBaseUrl.replace(/\/+$/, '')
-  new URL(webConsoleBaseUrl)
   if (!Number.isFinite(config.readMaxChars) || config.readMaxChars <= 0) {
     throw new Error(`knowledge: readMaxChars 必须为正有限数(当前 ${config.readMaxChars})`)
   }
   const options: KnowledgeOptions = {
-    webConsoleBaseUrl,
+    webConsoleBaseUrl: () => config.webConsoleBaseUrl.get(),
     readMaxChars: config.readMaxChars,
     token: () => ctx.currentUser.getToken(),
   }

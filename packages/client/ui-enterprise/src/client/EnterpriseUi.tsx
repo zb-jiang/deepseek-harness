@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type R
 import clsx from 'clsx'
 import { BrandWordmark } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { EnterpriseServicesSection, type EnterpriseServicesInjected } from './EnterpriseServicesSection.tsx'
 import css from './EnterpriseUi.module.css'
 
 type PlatformUserStatus = 'pending_approval' | 'active' | 'disabled' | 'locked'
@@ -383,10 +384,80 @@ function AuthPanel({
   )
 }
 
+// ── Service config sheet (登录页常驻逃生门) ──
+
+/** 齿轮图标(服务配置入口)。 */
+const GearIcon = () => (
+  <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+    <circle cx="10" cy="10" r="2.6" />
+    <path d="M10 2.8v2.1M10 15.1v2.1M17.2 10h-2.1M4.9 10H2.8M15.2 4.8l-1.5 1.5M6.3 13.7l-1.5 1.5M15.2 15.2l-1.5-1.5M6.3 6.3 4.8 4.8" strokeLinecap="round" />
+  </svg>
+)
+
+/** 关闭图标。 */
+const CloseIcon = () => (
+  <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+    <path d="m5 5 10 10M15 5 5 15" strokeLinecap="round" />
+  </svg>
+)
+
+/**
+ * 登录页「服务配置」弹层:认证/引擎/console/SkillHub 配错的软件内逃生门。
+ * 与设置面板共用同一套 EnterpriseServicesSection(连通性测试 + 软阻止 +
+ * 镜像写入),读写走注入的企业服务配置读写面,不依赖登录态。
+ */
+function ServiceConfigSheet({
+  services,
+  onClose,
+}: {
+  services: EnterpriseServicesInjected
+  onClose: () => void
+}) {
+  // 挂载动画:首次渲染后置 mounted 触发淡入上浮
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => { setMounted(true) })
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className={clsx(css.configSheetRoot, mounted && css.configSheetRootMounted)}
+      onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+      role="presentation"
+    >
+      <div className={css.configSheet} role="dialog" aria-modal="true" aria-label="企业服务配置">
+        <div className={css.configSheetHeader}>
+          <div>
+            <div className={css.configSheetTitle}>服务配置</div>
+            <div className={css.configSheetSubtitle}>
+              连不上服务器时在这里修正地址;保存即生效,无需重启。
+            </div>
+          </div>
+          <button type="button" className={css.configSheetClose} onClick={onClose} aria-label="关闭">
+            <CloseIcon />
+          </button>
+        </div>
+        <div className={css.configSheetBody}>
+          <EnterpriseServicesSection load={services.load} save={services.save} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Overlay (right panel) ──
 
-export function EnterpriseOverlay() {
+export function EnterpriseOverlay({ services }: { services?: EnterpriseServicesInjected }) {
   const { currentUser, loading, login, register, switchAccount } = useAuth()
+  const [configOpen, setConfigOpen] = useState(false)
 
   const authState = useMemo<'loading' | 'anonymous' | 'pending' | 'blocked' | 'active'>(() => {
     if (loading) return 'loading'
@@ -400,6 +471,18 @@ export function EnterpriseOverlay() {
 
   return (
     <div className={css.authPageRoot}>
+      {services !== undefined && (
+        <button
+          type="button"
+          className={css.configGear}
+          onClick={() => { setConfigOpen(true) }}
+          aria-label="服务配置"
+          title="服务配置"
+        >
+          <GearIcon />
+          <span>服务配置</span>
+        </button>
+      )}
       <div className={css.authPageShell}>
         <div className={css.authHero}>
           <div className={css.authBadge}>Enterprise Profile</div>
@@ -448,6 +531,9 @@ export function EnterpriseOverlay() {
           )}
         </div>
       </div>
+      {configOpen && services !== undefined && (
+        <ServiceConfigSheet services={services} onClose={() => { setConfigOpen(false) }} />
+      )}
     </div>
   )
 }

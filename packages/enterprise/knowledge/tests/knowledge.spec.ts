@@ -110,9 +110,11 @@ function stubResponse() {
   return res
 }
 
+const volatileOf = <T>(value: T): { get: () => T } => ({ get: () => value })
+
 const CONFIG = {
-  // 尾斜杠覆盖 apply 的去尾逻辑;断言里的上游地址是无尾斜杠形态。
-  webConsoleBaseUrl: 'http://console:8080/',
+  // 尾斜杠由插件在请求期去尾;断言里的上游地址是无尾斜杠形态。
+  webConsoleBaseUrl: volatileOf('http://console:8080/'),
   readMaxChars: 100,
 }
 
@@ -202,15 +204,33 @@ describe('knowledge', () => {
     expect(tools.registered.map(tool => tool.name).sort()).toEqual(['kb_list', 'kb_read', 'kb_search'])
   })
 
-  it('apply 校验配置:非法 baseUrl 与 readMaxChars 立即抛错(misconfiguration fails loud)', () => {
+  it('apply 校验配置:readMaxChars 立即抛错(misconfiguration fails loud)', () => {
     vi.stubGlobal('fetch', stubFetch([]))
     ctx.provide('tools', stubTools() as never)
     ctx.provide('currentUser', stubCurrentUser('jwt') as never)
     ctx.provide('webServer', stubWebServer() as never)
-    expect(() => apply(ctx, { ...CONFIG, webConsoleBaseUrl: 'not-a-url' })).toThrow()
     expect(() => apply(ctx, { ...CONFIG, readMaxChars: 0 })).toThrow('readMaxChars')
     expect(() => apply(ctx, { ...CONFIG, readMaxChars: Number.NaN })).toThrow('readMaxChars')
     expect(() => apply(ctx, { ...CONFIG, readMaxChars: Number.POSITIVE_INFINITY })).toThrow('readMaxChars')
+  })
+
+  it('webConsoleBaseUrl 非法:apply 照常注册,代理 502、工具报错(volatile 请求期校验)', async () => {
+    const tools = stubTools()
+    const webServer = stubWebServer()
+    ctx.provide('tools', tools as never)
+    ctx.provide('currentUser', stubCurrentUser('jwt') as never)
+    ctx.provide('webServer', webServer as never)
+    apply(ctx, { ...CONFIG, webConsoleBaseUrl: volatileOf('not-a-url') })
+    expect(webServer.routes).toHaveLength(2)
+    expect(tools.registered).toHaveLength(3)
+
+    const res = stubResponse()
+    await webServer.routes[0]!.handler(stubRequest('GET', '/api/enterprise/kb/kb1/folders') as never, res as never)
+    expect(res.status).toBe(502)
+    expect(JSON.parse(res.body).error).toContain('webConsoleBaseUrl 配置无效')
+
+    const search = tools.registered.find(tool => tool.name === 'kb_search')!
+    await expect(execute(search, { kbId: 'kb1', query: 'x' })).rejects.toThrow('webConsoleBaseUrl 配置无效')
   })
 
   it('代理:未登录返回 401', async () => {

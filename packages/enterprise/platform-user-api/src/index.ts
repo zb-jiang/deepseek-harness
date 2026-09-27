@@ -18,7 +18,7 @@
  * @module @deepseek-ai/dsh-platform-user-api
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-platform-user'
@@ -35,19 +35,64 @@ export const inject = ['webServer', 'platformUsers'] as const
 
 /** 插件配置：Supabase 连接信息，用于 /auth/config 端点向前端暴露。 */
 export interface Config {
-  /** Supabase 项目 URL。 */
-  supabaseUrl?: string
-  /** Supabase anon key，前端直连 Supabase Auth 使用。 */
-  supabaseAnonKey?: string
+  /** Supabase 项目 URL;volatile:设置面板可改,即时生效。 */
+  supabaseUrl: Volatile<string>
+  /** Supabase anon key，前端直连 Supabase Auth 使用;volatile:设置面板可改,即时生效。 */
+  supabaseAnonKey: Volatile<string>
 }
 
-export const Config: z<Config> = z.object({
-  supabaseUrl: z.string(),
-  supabaseAnonKey: z.string().role('secret'),
+export const Config = z.object({
+  supabaseUrl: z.string().required().volatile(),
+  // 不标 role('secret'):secret 字段经 wire 读取会被永久打码,设置面板的小眼睛
+  // 无法回显明文;掩码由面板 UI 层负责(本地 webserver 仅本机可达)。
+  supabaseAnonKey: z.string().required().volatile(),
 })
 
 /** 认证路由前缀。 */
 const AUTH_ROUTE_PREFIX = '/api/enterprise/auth'
+
+/** 连通性探测超时(毫秒):企业内网服务应秒级可达,5s 足够宽容。 */
+const PROBE_TIMEOUT_MS = 5000
+
+/** 读取请求体的 JSON(空体/非法 JSON 返回 undefined)。 */
+async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    chunks.push(chunk as Buffer)
+    if (chunks.reduce((sum, c) => sum + c.length, 0) > 64 * 1024) {
+      return undefined
+    }
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null')
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Node 侧连通性探测:对目标 URL 发一次 GET,连通(任意 HTTP 状态码)即算可达。
+ *
+ * <p>必须由 Node 发起而不能在浏览器直接 fetch:引擎/console/SkillHub 的端点
+ * 不开 CORS,浏览器探测会把"配置正确"误报为"不可达"。仅接受 http/https。
+ */
+async function probeConnectivity(rawUrl: string): Promise<{ ok: boolean; status: number; latencyMs: number; error?: string }> {
+  const started = Date.now()
+  try {
+    const response = await fetch(rawUrl, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      redirect: 'follow',
+    })
+    // 读一小段让连接完成(响应体可能很大,丢弃)
+    await response.arrayBuffer()
+    return { ok: true, status: response.status, latencyMs: Date.now() - started }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, status: 0, latencyMs: Date.now() - started, error: message }
+  }
+}
 
 /** JSON 响应辅助函数。 */
 function sendJson(res: import('node:http').ServerResponse, status: number, body: unknown): void {
@@ -153,10 +198,32 @@ async function dispatchAuth(
 
   // GET /api/enterprise/auth/config - 向前端暴露 Supabase 连接信息
   if (method === 'GET' && segments.length === 1 && segments[0] === 'config') {
+    // volatile 配置:每次请求读当前值,设置面板修改后无需重载即生效
     sendJson(res, 200, {
-      url: config.supabaseUrl ?? '',
-      anonKey: config.supabaseAnonKey ?? '',
+      url: config.supabaseUrl.get(),
+      anonKey: config.supabaseAnonKey.get(),
     })
+    return
+  }
+
+  // POST /api/enterprise/auth/connectivity-check - Node 侧连通性探测(登录页/设置面板共用)
+  if (method === 'POST' && segments.length === 1 && segments[0] === 'connectivity-check') {
+    const body = await readJsonBody(req)
+    const rawUrl = typeof body === 'object' && body !== null && 'url' in body
+      ? String((body as { url: unknown }).url).trim()
+      : ''
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      sendJson(res, 400, { error: 'url 缺失或格式无效' })
+      return
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      sendJson(res, 400, { error: '仅支持 http/https 地址' })
+      return
+    }
+    sendJson(res, 200, await probeConnectivity(rawUrl))
     return
   }
 

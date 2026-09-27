@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
 import type { PlatformRole, PlatformUserId } from '@deepseek-ai/dsh-platform-user'
+import { PlatformUserError } from '@deepseek-ai/dsh-platform-user'
 import {
+  apply,
   mapPlatformUser,
   readMeResponse,
   readMeUser,
@@ -47,6 +50,25 @@ describe('dsh-platform-user-console', () => {
       supabaseUrl: 'https://example.supabase.co',
       webConsoleBaseUrl: ' ',
     })).toThrow('webConsoleBaseUrl must be a non-empty string')
+  })
+
+  it('apply 未配置合法化:SUPABASE_URL 为空时以未配置模式挂载,登录得到明确错误', async () => {
+    const registered: { getUserByToken: (token: string) => Promise<unknown> }[] = []
+    const ctx = {
+      platformUsers: { registerProvider: (provider: { getUserByToken: (token: string) => Promise<unknown> }) => {
+        registered.push(provider)
+        return () => {}
+      } },
+      on: () => {},
+      logger: { warn: () => {}, info: () => {} },
+    } as unknown as Context
+    expect(() => apply(ctx, {
+      supabaseUrl: { get: () => '' },
+      webConsoleBaseUrl: { get: () => 'http://127.0.0.1:8080' },
+    })).not.toThrow()
+    expect(registered).toHaveLength(1)
+    await expect(registered[0]!.getUserByToken('jwt')).rejects.toThrow('认证服务未配置')
+    await expect(registered[0]!.getUserByToken('jwt')).rejects.toBeInstanceOf(PlatformUserError)
   })
 
   it('unwraps the ApiResponse envelope and rejects failures', () => {
