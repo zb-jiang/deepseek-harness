@@ -2,3 +2,4 @@
 .env
 logs/*
 !logs/.gitkeep
+new-api-v1.0.0-rc.40.exe
