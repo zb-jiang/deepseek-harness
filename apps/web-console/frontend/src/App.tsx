@@ -11,6 +11,9 @@ import AuditPage from './pages/Audit'
 import Home from './pages/Home'
 import InstanceDetailPage from './pages/InstanceDetail'
 import InstancesPage from './pages/Instances'
+import LlmModelsPage from './pages/LlmModels'
+import LlmQuotasPage from './pages/LlmQuotas'
+import LlmUsagePage from './pages/LlmUsage'
 import LoginPage from './pages/Login'
 import NotFound from './pages/NotFound'
 import OrgUnitsPage from './pages/OrgUnits'
@@ -67,6 +70,9 @@ export default function App() {
                 <Route path="workflows/:workflowId" element={<WorkflowDetailPage />} />
                 <Route path="instances" element={<InstancesPage />} />
                 <Route path="instances/:instanceId" element={<InstanceDetailPage />} />
+                <Route path="llm/models" element={<LlmModelsPage />} />
+                <Route path="llm/quotas" element={<LlmQuotasPage />} />
+                <Route path="llm/usage" element={<LlmUsagePage />} />
                 <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="audit" element={<AuditPage />} />
                 <Route path="*" element={<NotFound />} />

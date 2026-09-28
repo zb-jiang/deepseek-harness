@@ -1,0 +1,4 @@
+# Keep runtime secrets and logs local to each deployment machine.
+.env
+logs/*
+!logs/.gitkeep

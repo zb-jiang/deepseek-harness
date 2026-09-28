@@ -7,6 +7,7 @@ import {
   HomeOutlined,
   LogoutOutlined,
   PartitionOutlined,
+  RobotOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -43,6 +44,19 @@ function buildMenu(roles: string[]): MenuItem[] {
     items.push({ key: '/workflows', icon: <PartitionOutlined />, label: '流程定义' })
   }
   items.push({ key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' })
+  // LLM 管理:全部接口 @PreAuthorize SYSTEM_ADMIN,仅系统管理员可见
+  if (isSys) {
+    items.push({
+      key: 'llm',
+      icon: <RobotOutlined />,
+      label: 'LLM 管理',
+      children: [
+        { key: '/llm/models', label: '模型接入' },
+        { key: '/llm/quotas', label: '额度配置' },
+        { key: '/llm/usage', label: '用量分析' },
+      ],
+    })
+  }
   // 分析看板:app_admin 只见业务分析 tab,运维健康 tab 后端 @PreAuthorize 双保险
   if (isSys || isAppAdmin) {
     items.push({ key: '/analytics', icon: <BarChartOutlined />, label: '分析看板' })
@@ -62,8 +76,9 @@ export default function ConsoleLayout() {
   const items = useMemo(() => buildMenu(roles), [roles])
 
   const selectedKey = useMemo(() => {
-    // 顶级路径前缀匹配(/apps/xxx → /apps)
+    // 顶级路径前缀匹配(/apps/xxx → /apps);LLM 管理为二级菜单,匹配到子项(/llm/models)
     const parts = location.pathname.split('/')
+    if (parts[1] === 'llm' && parts[2]) return `/llm/${parts[2]}`
     return '/' + (parts[1] ?? '')
   }, [location.pathname])
 
@@ -91,6 +106,7 @@ export default function ConsoleLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
+          defaultOpenKeys={location.pathname.startsWith('/llm') ? ['llm'] : []}
           items={items}
           onClick={({ key }) => navigate(key)}
           style={{ borderRight: 0 }}

@@ -15,7 +15,8 @@ AGENTS.md
   - flowable-engine（`apps/flowable-engine`，Spring Boot 3 + Flowable 7，:8090）：流程引擎。ACT_* 表建在 Supabase PG 的 `flowable` schema（引擎自动建表）。自定义端点 `/dsh/tasks/*`（待办）、`/dsh/history/*`（历史）；认领/完成/部署/启实例用 Flowable 官方 REST `/process-api/*`。
   - web-console（`apps/web-console`，Spring Boot :8080 + React 前端打成一个 jar）：管理面。治理元数据在 public schema（platform_users / applications / app_roles / app_memberships / workflow_definitions / audit_events，JDBC 直连，不碰 ACT_*）；流程设计（bpmn-js + dsh 属性面板）/校验/发布；实例启动/终止。调 flowable 走 REST + JWT 透传。
   - DSH backend profile（`packages/bundle/enterprise-backend`，`dsh --profile enterprise-backend`）：服务器常驻 AI 自动节点服务，处理 DSH backend task 提交的任务并生成 JSON 输出。工作空间 + LLM 配置独立，可多实例并存（各自不同 URL）；启动即向 web-console 注册（heartbeat 维持存活），周期同步名下 backend task 引用的 skill。
-- Supabase：认证中心（JWT 签发）+ 统一存储。建表 SQL 手工执行，见 `docs/plans/2026-08-19-supabase-setup-guide.md`（无 migration 文件）。
+- Supabase：认证中心（JWT 签发）。
+- 本地PG数据库：建表 SQL 手工执行，见 `docs/plans/2026-08-19-supabase-setup-guide.md`（无 migration 文件）。
 
 ## 认证模型
 

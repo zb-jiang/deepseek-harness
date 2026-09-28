@@ -92,6 +92,13 @@ dsh:
     alerts:
       "[dsh.flowable.jobs.deadletter]": 0
 
+# New API 网关连接配置(企业统一 LLM 接入,设计 2026-09-27)
+# base-url 指向 New API 服务;service-token 为推理转发用的内部服务令牌
+# (New API 中额度不限、永不过期)。渠道在 New API 控制台手工创建维护,不经本服务。
+newapi:
+  base-url: ${NEWAPI_BASE_URL:http://localhost:3000}
+  service-token: ${NEWAPI_SERVICE_TOKEN:}
+
 logging:
   level:
     com.dsh.console: INFO

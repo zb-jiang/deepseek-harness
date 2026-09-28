@@ -14,6 +14,8 @@ psql -U postgres -c "SELECT version();"
 
 ## 2. 建库与用户
 
+### 2.1 通用数据库与用户
+
 - 使用安装时自带的 `postgres` 数据库,无需新建数据库(服务端 Spring 配置连接 `jdbc:postgresql://<host>:5432/postgres`)。
 - 用户默认用超级用户 `postgres`(与 `SUPABASE_DB_USER=postgres` 对齐),权限满足建表与 Flowable 自动建表。
 - 如需专用用户,用 psql 连接本地实例执行:
@@ -37,9 +39,46 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO dsh_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO dsh_app;
 ```
 
+### 2.2 New API 专用数据库与用户
+
+New API(企业统一 LLM 网关)和 `web-console`、`flowable-engine` 可以共用同一个 PostgreSQL 实例,但建议使用**独立数据库 + 独立账号**。
+业务含义很简单:
+
+- `postgres` 库继续承载 `web-console` 和 `flowable-engine` 的业务表。
+- New API 自己的用户、渠道、令牌、调用日志等内部表单独放到 `newapi` 库。
+- 这样既复用一套 PostgreSQL 实例,又能把 New API 内部表和业务表隔离开,后续排障、迁移、备份都更清晰。
+
+用 `postgres` 超级用户连接实例后执行:
+
+```sql
+-- New API 专用登录用户
+CREATE ROLE newapi_user LOGIN PASSWORD '<New API 数据库密码>';
+
+-- New API 专用数据库;owner 直接设为 newapi_user,后续 New API 自动建表不需要额外授权
+CREATE DATABASE newapi OWNER newapi_user;
+```
+
+创建完成后,建议再验证一下连接:
+
+```powershell
+psql -h localhost -U newapi_user -d newapi -c "SELECT current_database(), current_user;"
+```
+
+如果返回 `newapi` 和 `newapi_user`,说明 New API 的数据库与账号已经准备好。
+
+New API 运行时使用的连接串通过环境变量 `SQL_DSN` 提供,格式如下:
+
+```env
+SQL_DSN=postgresql://newapi_user:<New API 数据库密码>@<host>:5432/newapi
+```
+
+注意:
+- 第 3 节的建表 SQL 全部执行在 `postgres` 业务库中,不要切到 `newapi` 库执行。
+- `newapi` 库不需要手工执行本手册里的业务 DDL;New API 首次启动后会通过 GORM auto-migrate 在自己的数据库里自动创建所需表结构。
+
 ## 3. 执行全量建表 SQL
 
-用 psql(或 pgAdmin)连接本地实例,对 `postgres` 库按 3.0 → 3.5 顺序执行以下 SQL。
+用 psql(或 pgAdmin)连接本地实例,对 `postgres` 库按 3.0 → 3.7 顺序执行以下 SQL。
 
 ### 3.0 建 flowable schema
 
@@ -359,7 +398,211 @@ CREATE TABLE IF NOT EXISTS public.org_unit_members (
 CREATE INDEX IF NOT EXISTS idx_org_unit_members_user ON public.org_unit_members (user_id);
 ```
 
-## 分析看板指标表
+### 3.6 企业统一 LLM 接入与额度治理表
+
+下面的 SQL 直接在当前业务库执行，统一落在 `public` schema。
+
+```sql
+-- ============================================================
+-- 企业统一 LLM 接入与额度治理表。
+-- 业务归属:全部属于 web-console 后台数据库,不是 New API 自己的表。
+-- 设计目标:
+-- 1) 保存对外暴露的逻辑模型目录
+-- 2) 按部门/个人配置“按模型、按月”的 token 额度
+-- 3) 为“用户 + 模型”定义有顺序的额度池路由链,支持顺位回退
+-- 4) 把每次调用真实入账到 append-only 主账本,供审计与热力图统计
+-- ============================================================
+
+-- 企业逻辑模型目录表。
+-- 业务含义:这里定义的是“员工端能看到的企业模型”,不是上游厂商原始模型名。
+-- New API 渠道在 New API 控制台手工创建维护(设计 2026-09-27 §8.6),本表不含渠道同步字段;
+-- 上游凭据只存在于 New API 渠道中,本库不存储。
+-- 算法含义:reservation_tokens 是流式请求的预留量,硬拦截先按这个值做额度预检,
+-- 等 New API 返回最终 usage 后再按真实 token 结算。
+CREATE TABLE IF NOT EXISTS public.llm_enterprise_models (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    display_name TEXT NOT NULL,
+    gateway_model_name TEXT NOT NULL,
+    model_params_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    reservation_tokens INTEGER NOT NULL CHECK (reservation_tokens > 0),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.llm_enterprise_models
+    ADD CONSTRAINT uq_llm_enterprise_models_gateway_name
+    UNIQUE (gateway_model_name);
+
+-- 月度额度授权表。
+-- 业务含义:一条记录代表“某个个人或某个部门,在某个模型上,某个生效区间内”的月额度。
+-- subject_type + subject_id 做多态归属:
+-- - user     -> platform_users.id
+-- - org_unit -> org_units.id
+-- 这里不做数据库级外键,因为同一列要同时指向两张表,由应用层按 subject_type 校验目标存在。
+CREATE TABLE IF NOT EXISTS public.llm_quota_grants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'org_unit')),
+    subject_id UUID NOT NULL,
+    model_id UUID NOT NULL REFERENCES public.llm_enterprise_models(id),
+    monthly_limit_tokens BIGINT NOT NULL CHECK (monthly_limit_tokens >= 0),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (effective_to IS NULL OR effective_to >= effective_from)
+);
+
+-- 用户模型路由头表。
+-- 一条记录对应“一个用户对一个模型”的总路由规则。
+-- exhaust_action 是所有池子都不够后的最终处理:
+-- - block         : 直接拦截
+-- - allow_overage : 允许继续,超额记到兜底来源
+CREATE TABLE IF NOT EXISTS public.llm_user_model_routes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.platform_users(id),
+    model_id UUID NOT NULL REFERENCES public.llm_enterprise_models(id),
+    exhaust_action TEXT NOT NULL
+        CHECK (exhaust_action IN ('block', 'allow_overage')),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.llm_user_model_routes
+    ADD CONSTRAINT uq_llm_user_model_routes_user_model
+    UNIQUE (user_id, model_id);
+
+-- 用户模型路由顺位项。
+-- 业务含义:为一个“用户 + 模型”定义顺序额度池,例如:
+--   1) 用户个人额度
+--   2) A 部门额度
+--   3) B 部门额度
+-- 算法含义:请求进入时按 priority 升序依次检查可用池,第一个能覆盖预留量的池即命中。
+-- 若所有池都不足,再执行 llm_user_model_routes.exhaust_action。
+CREATE TABLE IF NOT EXISTS public.llm_user_model_route_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    route_id UUID NOT NULL REFERENCES public.llm_user_model_routes(id) ON DELETE CASCADE,
+    priority INTEGER NOT NULL CHECK (priority > 0),
+    source_type TEXT NOT NULL CHECK (source_type IN ('user', 'org_unit')),
+    source_id UUID NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.llm_user_model_route_items
+    ADD CONSTRAINT uq_llm_user_model_route_items_route_priority
+    UNIQUE (route_id, priority);
+
+ALTER TABLE public.llm_user_model_route_items
+    ADD CONSTRAINT uq_llm_user_model_route_items_route_source
+    UNIQUE (route_id, source_type, source_id);
+
+-- append-only 用量主账本。
+-- 业务含义:每次请求最终都在这里留痕,它是企业审计、统计和热力图的真相源。
+-- 算法含义:
+-- - status=reserved  表示已占用预留量,等待最终 usage
+-- - status=completed 表示已拿到最终 usage 并完成实扣
+-- - status=blocked   表示所有池都不足且策略为硬拦截
+-- - status=failed/cancelled 表示调用失败或中断,需要释放预留
+CREATE TABLE IF NOT EXISTS public.llm_usage_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    request_id TEXT NOT NULL,
+    usage_month CHAR(7) NOT NULL,
+    user_id UUID NOT NULL REFERENCES public.platform_users(id),
+    route_id UUID REFERENCES public.llm_user_model_routes(id),
+    route_item_id UUID REFERENCES public.llm_user_model_route_items(id),
+    selected_priority INTEGER,
+    org_unit_id UUID REFERENCES public.org_units(id),
+    source_type TEXT NOT NULL CHECK (source_type IN ('user', 'org_unit')),
+    source_id UUID NOT NULL,
+    model_id UUID NOT NULL REFERENCES public.llm_enterprise_models(id),
+    session_id TEXT,
+    gateway_request_id TEXT,
+    status TEXT NOT NULL
+        CHECK (status IN ('reserved', 'completed', 'blocked', 'failed', 'cancelled')),
+    reserved_tokens BIGINT NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+    prompt_tokens BIGINT NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
+    completion_tokens BIGINT NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
+    total_tokens BIGINT NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+    overage_tokens BIGINT NOT NULL DEFAULT 0 CHECK (overage_tokens >= 0),
+    estimated_cost NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    CHECK (usage_month ~ '^\d{4}-\d{2}$')
+);
+
+ALTER TABLE public.llm_usage_ledger
+    ADD CONSTRAINT uq_llm_usage_ledger_request_id
+    UNIQUE (request_id);
+
+-- 月度余额快照表。
+-- 业务含义:避免每次都从主账本全量求和,把“某来源在某月某模型上的当前余额状态”缓存下来。
+-- 算法含义:
+-- - reserved_tokens = 已预留、尚未结算的量
+-- - consumed_tokens = 已完成实扣的量
+-- - overage_tokens  = 超出月额度上限的量
+-- 运行时做额度判断时,必须在事务里锁这一行(SELECT ... FOR UPDATE)。
+CREATE TABLE IF NOT EXISTS public.llm_monthly_balances (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usage_month CHAR(7) NOT NULL,
+    source_type TEXT NOT NULL CHECK (source_type IN ('user', 'org_unit')),
+    source_id UUID NOT NULL,
+    model_id UUID NOT NULL REFERENCES public.llm_enterprise_models(id),
+    limit_tokens BIGINT NOT NULL CHECK (limit_tokens >= 0),
+    reserved_tokens BIGINT NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+    consumed_tokens BIGINT NOT NULL DEFAULT 0 CHECK (consumed_tokens >= 0),
+    overage_tokens BIGINT NOT NULL DEFAULT 0 CHECK (overage_tokens >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (usage_month ~ '^\d{4}-\d{2}$')
+);
+
+ALTER TABLE public.llm_monthly_balances
+    ADD CONSTRAINT uq_llm_monthly_balances_key
+    UNIQUE (usage_month, source_type, source_id, model_id);
+
+-- 索引:额度授权查询。
+-- 业务解释:管理员保存后,运行时需要按“来源 + 模型 + 生效区间”快速找 grant。
+CREATE INDEX IF NOT EXISTS idx_llm_quota_grants_subject_model_effective
+  ON public.llm_quota_grants (subject_type, subject_id, model_id, effective_from, effective_to, enabled);
+
+-- 索引:路由头查询。
+-- 业务解释:员工发起调用时,先按“用户 + 模型”找到这一条总路由。
+CREATE INDEX IF NOT EXISTS idx_llm_user_model_routes_user_model_enabled
+  ON public.llm_user_model_routes (user_id, model_id, enabled);
+
+-- 索引:顺位项查询。
+-- 业务解释:路由解析需要按 priority 升序读取顺位池。
+CREATE INDEX IF NOT EXISTS idx_llm_user_model_route_items_route_priority_enabled
+  ON public.llm_user_model_route_items (route_id, priority, enabled);
+
+-- 索引:反查某个来源被哪些路由项引用。
+-- 业务解释:管理员调整部门/用户额度时,可快速判断影响范围。
+CREATE INDEX IF NOT EXISTS idx_llm_user_model_route_items_source_enabled
+  ON public.llm_user_model_route_items (source_type, source_id, enabled);
+
+-- 索引:按月份查某个用户的调用明细。
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ledger_usage_month_user
+  ON public.llm_usage_ledger (usage_month, user_id);
+
+-- 索引:按月份查某个来源的总消耗。
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ledger_usage_month_source
+  ON public.llm_usage_ledger (usage_month, source_type, source_id);
+
+-- 索引:按月份查某个模型的消耗。
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ledger_usage_month_model
+  ON public.llm_usage_ledger (usage_month, model_id);
+
+-- 索引:按时间倒序拉最近请求,方便审计列表和排障。
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ledger_created_at
+  ON public.llm_usage_ledger (created_at DESC);
+```
+
+### 3.7 分析看板指标表
 
 web-console 定时轮询 flowable-engine `/actuator/metrics` 落库的运维指标采样表:
 
