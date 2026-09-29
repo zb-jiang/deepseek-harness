@@ -96,25 +96,27 @@ function stubSkills() {
   return {
     providers,
     registerProvider: (create: (control: unknown) => unknown) => {
-      providers.push(create({ invalidate: () => {} }))
+      providers.push(create({ invalidate: () => {}, signal: new AbortController().signal }))
       return () => {}
     },
   }
 }
 
-/** 端点请求桩:Emitter 形状 + 异步迭代器(readJsonBody 整体缓冲请求体)。 */
+/** 端点请求桩:Emitter 形状,注册监听后的下一个宏任务推送 body 与 end(readJsonBody 事件模式)。 */
 function stubRequest(method: string, url: string, body?: Buffer) {
-  const req = new EventEmitter() as EventEmitter & {
-    method: string
-    url: string
-    [Symbol.asyncIterator]: () => AsyncGenerator<Buffer>
-  }
+  const req = new EventEmitter() as EventEmitter & { method: string; url: string }
   req.method = method
   req.url = url
-  req[Symbol.asyncIterator] = async function* () {
-    if (body !== undefined) yield body
-  }
+  setImmediate(() => {
+    if (body !== undefined) req.emit('data', body)
+    req.emit('end')
+  })
   return req
+}
+
+/** 等一个宏任务周期:handler 是 fire-and-forget,让 readJsonBody→校验→sendJson 的链路完成。 */
+function flushTasks(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
 }
 
 /** 端点响应桩:记录状态码、响应头与响应体。 */
@@ -202,6 +204,7 @@ describe('backend-task', () => {
       stubRequest('POST', '/api/backend/tasks', Buffer.from(JSON.stringify({ prompt, skillRefs }))),
       res as never as ServerResponse,
     )
+    await flushTasks()
     return { res, taskId: (JSON.parse(res.body) as { taskId: string }).taskId }
   }
 
@@ -292,12 +295,14 @@ describe('backend-task', () => {
       stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "  "}')) as never,
       bad as never as ServerResponse,
     )
+    await flushTasks()
     expect(bad.status).toBe(400)
     const badRefs = stubResponse()
     await route.handler(
       stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "skillRefs": [1]}')) as never,
       badRefs as never as ServerResponse,
     )
+    await flushTasks()
     expect(badRefs.status).toBe(400)
   })
 
