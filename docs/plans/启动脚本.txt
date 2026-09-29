@@ -77,7 +77,7 @@ pnpm run dev:desktop
     model: deepseek-flash
 
 cd D:\works\test
-$env:BACKEND_LLM_API_KEY="sk-fba34fb01924414c80f1c63218351f35"
+$env:BACKEND_LLM_API_KEY="sk-XXX"
 $env:WEB_CONSOLE_URL="http://127.0.0.1:8080"
 $env:DSH_BACKEND_URL="http://127.0.0.1:3190"   # backend profile对完宣告在什么URL监听
 $env:DSH_BACKEND_NAME="backend-1"
