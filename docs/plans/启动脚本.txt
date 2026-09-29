@@ -126,12 +126,12 @@ cd d:\works\deepseek-harness\apps\new-api
 
 # 0. 先看本地feat/enterprise-platform分支是否包含最新tag的内容? 如果是"未包含"才往下进行
 git fetch upstream --tags
-git merge-base --is-ancestor dsh-v0.1.7-rc.2 feat/enterprise-platform; if ($?) { "已包含" } else { "未包含" }
+git merge-base --is-ancestor dsh-v0.2.0-rc.1 feat/enterprise-platform; if ($?) { "已包含" } else { "未包含" }
 
 # 1. 切到 master，同步官方最新
 git checkout master
 git fetch upstream --tags
-git reset --hard dsh-v0.16  # 推进到最新稳定 tag（替换成实际 tag 名）
+git reset --hard dsh-v0.2.0-rc.1  # 推进到最新稳定 tag（替换成实际 tag 名）
 
 # 2. 切到开发分支，合并 master
 git checkout feat/enterprise-platform
