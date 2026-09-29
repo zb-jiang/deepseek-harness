@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Spin,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -88,6 +89,9 @@ export default function LlmModelsPage() {
       displayName: '',
       gatewayModelName: '',
       reservationTokens: 0,
+      contextWindow: undefined,
+      maxTokens: undefined,
+      reasoning: false,
     })
     void loadNewapiModels()
   }
@@ -95,21 +99,31 @@ export default function LlmModelsPage() {
   const openModelEdit = (model: EnterpriseModelDto) => {
     setModelTarget(model)
     setModelModalOpen(true)
+    const params = model.modelParams ?? {}
     modelForm.setFieldsValue({
       displayName: model.displayName,
       gatewayModelName: model.gatewayModelName,
       reservationTokens: model.reservationTokens,
+      contextWindow: typeof params.contextWindow === 'number' ? params.contextWindow : undefined,
+      maxTokens: typeof params.maxTokens === 'number' ? params.maxTokens : undefined,
+      reasoning: params.reasoning === true,
     })
   }
 
   const submitModel = async () => {
     const values = await modelForm.validateFields()
+    // model_params_json 约定键:只写有值的键,员工端 DSH 读取后决定选择器能力展示
+    const modelParams: Record<string, unknown> = {}
+    if (typeof values.contextWindow === 'number') modelParams.contextWindow = values.contextWindow
+    if (typeof values.maxTokens === 'number') modelParams.maxTokens = values.maxTokens
+    if (values.reasoning === true) modelParams.reasoning = true
     setSubmitting(true)
     try {
       if (modelTarget) {
         const body: UpdateModelRequest = {
           displayName: values.displayName,
           gatewayModelName: values.gatewayModelName,
+          modelParams,
           reservationTokens: values.reservationTokens ?? 0,
         }
         await llmApi.updateModel(modelTarget.id, body)
@@ -118,6 +132,7 @@ export default function LlmModelsPage() {
         const body: CreateModelRequest = {
           displayName: values.displayName,
           gatewayModelName: values.gatewayModelName,
+          modelParams,
           reservationTokens: values.reservationTokens ?? 0,
         }
         await llmApi.createModel(body)
@@ -217,6 +232,31 @@ export default function LlmModelsPage() {
   const modelColumns: ColumnsType<EnterpriseModelDto> = [
     { title: '显示名', dataIndex: 'displayName', key: 'displayName' },
     { title: '网关模型名', dataIndex: 'gatewayModelName', key: 'gatewayModelName' },
+    {
+      title: '上下文窗口',
+      key: 'contextWindow',
+      align: 'right',
+      render: (_, record) => {
+        const v = record.modelParams?.contextWindow
+        return typeof v === 'number' && v > 0 ? v.toLocaleString() : '-'
+      },
+    },
+    {
+      title: '最大输出',
+      key: 'maxTokens',
+      align: 'right',
+      render: (_, record) => {
+        const v = record.modelParams?.maxTokens
+        return typeof v === 'number' && v > 0 ? v.toLocaleString() : '-'
+      },
+    },
+    {
+      title: '推理',
+      key: 'reasoning',
+      width: 80,
+      align: 'center',
+      render: (_, record) => (record.modelParams?.reasoning === true ? <Tag color="purple">支持</Tag> : '-'),
+    },
     {
       title: '额度预留',
       dataIndex: 'reservationTokens',
@@ -324,6 +364,28 @@ export default function LlmModelsPage() {
             tooltip="流式请求的额度预留量"
           >
             <InputNumber style={{ width: '100%' }} min={0} precision={0} />
+          </Form.Item>
+          <Form.Item
+            name="contextWindow"
+            label="上下文窗口(token)"
+            tooltip="模型上下文容量;留空由员工端按默认值(262144)处理"
+          >
+            <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="如 131072" />
+          </Form.Item>
+          <Form.Item
+            name="maxTokens"
+            label="最大输出(token)"
+            tooltip="单次回复输出上限;留空由员工端按默认值(32768)处理"
+          >
+            <InputNumber style={{ width: '100%' }} min={1} precision={0} placeholder="如 8192" />
+          </Form.Item>
+          <Form.Item
+            name="reasoning"
+            label="支持推理"
+            valuePropName="checked"
+            tooltip="开启后员工端模型选择器显示推理等级选项(low/medium/high)"
+          >
+            <Switch />
           </Form.Item>
         </Form>
       </Modal>

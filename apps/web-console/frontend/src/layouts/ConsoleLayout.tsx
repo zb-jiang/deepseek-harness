@@ -25,9 +25,9 @@ type MenuItem = Required<MenuProps>['items'][number]
 
 /**
  * 菜单项定义。
- * - system_admin: 首页、部门管理、用户管理、应用管理、流程定义、流程实例、分析看板、审计
+ * - system_admin: 首页、部门管理、用户管理、应用管理、流程定义、流程实例、LLM 管理(全部)、分析看板、审计
  * - app_admin: 首页、部门管理、应用管理、流程定义、流程实例、分析看板
- * - normal_user: 首页、部门管理(只读)、流程实例(仅自己发起的)
+ * - normal_user: 首页、部门管理(只读)、流程实例(仅自己发起的)、LLM 用量分析(仅本人)
  */
 function buildMenu(roles: string[]): MenuItem[] {
   const isSys = roles.includes(PLATFORM_ROLE.SYSTEM_ADMIN)
@@ -44,19 +44,22 @@ function buildMenu(roles: string[]): MenuItem[] {
     items.push({ key: '/workflows', icon: <PartitionOutlined />, label: '流程定义' })
   }
   items.push({ key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' })
-  // LLM 管理:全部接口 @PreAuthorize SYSTEM_ADMIN,仅系统管理员可见
-  if (isSys) {
-    items.push({
-      key: 'llm',
-      icon: <RobotOutlined />,
-      label: 'LLM 管理',
-      children: [
-        { key: '/llm/models', label: '模型接入' },
-        { key: '/llm/quotas', label: '额度配置' },
-        { key: '/llm/usage', label: '用量分析' },
-      ],
-    })
-  }
+  // LLM 管理:模型接入/额度配置仅系统管理员(后端 @PreAuthorize 双保险);
+  // 用量分析全员可见,非管理员由后端强制收敛到本人数据
+  items.push({
+    key: 'llm',
+    icon: <RobotOutlined />,
+    label: 'LLM 管理',
+    children: [
+      ...(isSys
+        ? [
+          { key: '/llm/models', label: '模型接入' },
+          { key: '/llm/quotas', label: '额度配置' },
+        ]
+        : []),
+      { key: '/llm/usage', label: '用量分析' },
+    ],
+  })
   // 分析看板:app_admin 只见业务分析 tab,运维健康 tab 后端 @PreAuthorize 双保险
   if (isSys || isAppAdmin) {
     items.push({ key: '/analytics', icon: <BarChartOutlined />, label: '分析看板' })

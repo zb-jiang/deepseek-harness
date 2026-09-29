@@ -120,12 +120,16 @@ export interface UsageLedgerPage {
 export interface CreateModelRequest {
   displayName: string
   gatewayModelName: string
+  /** 约定键:contextWindow/maxTokens(正整数)、reasoning(布尔);员工端 DSH 读取 */
+  modelParams?: Record<string, unknown>
   reservationTokens?: number
 }
 
 export interface UpdateModelRequest {
   displayName: string
   gatewayModelName: string
+  /** 约定键:contextWindow/maxTokens(正整数)、reasoning(布尔);员工端 DSH 读取 */
+  modelParams?: Record<string, unknown>
   reservationTokens?: number
 }
 

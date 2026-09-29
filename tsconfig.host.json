@@ -319,6 +319,7 @@
     { "path": "./packages/enterprise/flowable-task-proxy" },
     { "path": "./packages/enterprise/skill-sync" },
     { "path": "./packages/enterprise/knowledge" },
+    { "path": "./packages/enterprise/llm-access" },
     { "path": "./packages/enterprise/process-start" },
     { "path": "./packages/enterprise/backend-task" },
     { "path": "./packages/session/session-telemetry-otel" },

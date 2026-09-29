@@ -35,9 +35,12 @@ public class LlmAnalyticsService {
         return ledgerRepository.summary(dimension, usageMonth);
     }
 
-    /** 近一年消耗热力图:全对象按天聚合,前端渲染 GitHub 风格年度格子。 */
-    public List<LlmLedgerJdbcRepository.DailyTotal> heatmapYear() {
+    /**
+     * 近一年消耗热力图:按天聚合,前端渲染 GitHub 风格年度格子。
+     * userScope 非空时仅统计该用户(普通用户收敛),为空时全对象合计(系统管理员)。
+     */
+    public List<LlmLedgerJdbcRepository.DailyTotal> heatmapYear(UUID userScope) {
         LocalDate today = LocalDate.now();
-        return ledgerRepository.heatmapYear(today.minusYears(1), today);
+        return ledgerRepository.heatmapYear(today.minusYears(1), today, userScope);
     }
 }

@@ -75,5 +75,14 @@
       config:
         webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
 
+    # 企业模型接入：注册 llm-enterprise provider 路由（pi-ai OpenAI 兼容协议
+    # → web-console /api/llm/v1 配额代理），模型目录拉自 /api/llm/models，
+    # 随登录事件与定时器刷新；调用凭据为当前登录员工的 Supabase JWT。
+    - id: llm-access
+      name: '@deepseek-ai/dsh-llm-access'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
+        catalogRefreshMs: !!js Number(process.env.LLM_CATALOG_REFRESH_MS ?? 600000)
+
     - id: ui-enterprise
       name: '@deepseek-ai/dsh-client-ui-enterprise'

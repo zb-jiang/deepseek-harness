@@ -1,8 +1,11 @@
-import { App, Card, DatePicker, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
+import { App, Button, Card, DatePicker, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../auth/AuthContext'
+import { PLATFORM_ROLE } from '../api/types'
 import {
   llmApi,
   type UsageDailyTotal,
@@ -18,10 +21,14 @@ const DIMENSION_OPTIONS = [
 
 const LEDGER_STATUS: Record<string, { text: string; color: string }> = {
   completed: { text: '已完成', color: 'green' },
+  reserved: { text: '预留中', color: 'blue' },
   blocked: { text: '已拦截', color: 'red' },
   failed: { text: '失败', color: 'volcano' },
   cancelled: { text: '已取消', color: 'default' },
 }
+
+/** 状态筛选的「全部」哨兵值:请求后端时归一为 undefined(不过滤) */
+const STATUS_ALL = 'ALL'
 
 /** GitHub 贡献图色阶(无消耗 → 最深) */
 const HEAT_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
@@ -188,6 +195,9 @@ function YearHeatmap({ daily }: { daily: UsageDailyTotal[] }) {
 
 export default function LlmUsagePage() {
   const { message } = App.useApp()
+  const { me } = useAuth()
+  // 维度汇总是全貌数据,仅系统管理员可见/可查;热力图与明细后端按角色自动收敛
+  const isSys = me?.roles?.includes(PLATFORM_ROLE.SYSTEM_ADMIN) ?? false
   const [month, setMonth] = useState<Dayjs>(dayjs())
   const [dimension, setDimension] = useState<string>('user')
   const [summary, setSummary] = useState<UsageSummaryRow[]>([])
@@ -218,8 +228,9 @@ export default function LlmUsagePage() {
   }, [dimension, monthStr, message])
 
   useEffect(() => {
+    if (!isSys) return
     void loadSummary()
-  }, [loadSummary])
+  }, [loadSummary, isSys])
 
   // ---------- 热力图(近一年,与维度/月份筛选无关) ----------
 
@@ -245,7 +256,7 @@ export default function LlmUsagePage() {
     try {
       const page = await llmApi.usageLedger({
         month: monthStr,
-        status: ledgerStatus,
+        status: ledgerStatus === STATUS_ALL ? undefined : ledgerStatus,
         page: ledgerPage,
         pageSize: ledgerPageSize,
       })
@@ -356,8 +367,15 @@ export default function LlmUsagePage() {
       title: '错误信息',
       dataIndex: 'errorMessage',
       key: 'errorMessage',
-      ellipsis: true,
-      render: (v: string | null) => v || '-',
+      render: (v: string | null) => {
+        if (!v) return '-'
+        return (
+          <Space size={4}>
+            <Typography.Text ellipsis={{ tooltip: v }} style={{ maxWidth: 280 }}>{v}</Typography.Text>
+            <Typography.Text copyable={{ text: v, tooltips: ['复制', '已复制'] }} />
+          </Space>
+        )
+      },
     },
   ]
 
@@ -375,37 +393,49 @@ export default function LlmUsagePage() {
           onChange={v => setMonth(v ?? dayjs())}
           allowClear={false}
         />
-        <Segmented options={DIMENSION_OPTIONS} value={dimension} onChange={v => setDimension(v as string)} />
+        {isSys && (
+          <Segmented options={DIMENSION_OPTIONS} value={dimension} onChange={v => setDimension(v as string)} />
+        )}
       </Space>
-      <Card title="维度汇总" style={{ marginBottom: 16 }}>
-        <Table<UsageSummaryRow>
-          rowKey={r => `${r.subjectId}`}
-          columns={summaryColumns}
-          dataSource={summary}
-          loading={summaryLoading}
-          pagination={false}
-        />
-      </Card>
+      {isSys && (
+        <Card title="维度汇总" style={{ marginBottom: 16 }}>
+          <Table<UsageSummaryRow>
+            rowKey={r => `${r.subjectId}`}
+            columns={summaryColumns}
+            dataSource={summary}
+            loading={summaryLoading}
+            pagination={false}
+          />
+        </Card>
+      )}
       <Card title="近一年消耗热力图" style={{ marginBottom: 16 }} loading={yearHeatLoading}>
         <YearHeatmap daily={yearHeat} />
         <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
-          颜色深浅对应当日全对象 token 消耗合计占近一年峰值的比例;悬浮查看当天消耗与请求数。
+          {isSys
+            ? '颜色深浅对应当日全对象 token 消耗合计占近一年峰值的比例;悬浮查看当天消耗与请求数。'
+            : '颜色深浅对应当日你本人的 token 消耗占近一年峰值的比例;悬浮查看当天消耗与请求数。'}
         </Typography.Paragraph>
       </Card>
       <Card
         title="调用明细"
         extra={
-          <Select
-            allowClear
-            placeholder="按状态筛选"
-            style={{ width: 140 }}
-            value={ledgerStatus}
-            onChange={(v) => {
-              setLedgerStatus(v)
-              setLedgerPage(1)
-            }}
-            options={Object.entries(LEDGER_STATUS).map(([k, v]) => ({ label: v.text, value: k }))}
-          />
+          <Space size={8}>
+            <Select
+              allowClear
+              placeholder="按状态筛选"
+              style={{ width: 140 }}
+              value={ledgerStatus}
+              onChange={(v) => {
+                setLedgerStatus(v)
+                setLedgerPage(1)
+              }}
+              options={[
+                { label: '全部', value: STATUS_ALL },
+                ...Object.entries(LEDGER_STATUS).map(([k, v]) => ({ label: v.text, value: k })),
+              ]}
+            />
+            <Button icon={<ReloadOutlined />} loading={ledgerLoading} onClick={() => void loadLedger()} />
+          </Space>
         }
       >
         <Table<UsageLedgerEntry>

@@ -1,6 +1,6 @@
 import {
   ApartmentOutlined, AuditOutlined, BarChartOutlined, ClockCircleOutlined, ClusterOutlined,
-  PartitionOutlined, TeamOutlined,
+  PartitionOutlined, RobotOutlined, TeamOutlined,
 } from '@ant-design/icons'
 import { Card, Col, Row, Statistic, Typography } from 'antd'
 import type { ReactNode } from 'react'
@@ -40,6 +40,24 @@ const MENU_GUIDES: readonly { icon: ReactNode; label: string; desc: string; role
     icon: <ClockCircleOutlined />,
     label: '流程实例',
     desc: '跟踪每笔流程的进度:发起新流程、处理待办、查看进展到哪个环节,必要时终止流程。',
+    role: 'all',
+  },
+  {
+    icon: <RobotOutlined />,
+    label: '模型接入',
+    desc: '登记企业逻辑模型并映射到 New API 网关模型名,设置预留 token 与启用状态。',
+    role: 'sys',
+  },
+  {
+    icon: <RobotOutlined />,
+    label: '额度配置',
+    desc: '为用户或部门授予模型月度额度,配置额度用尽后的处理方式。',
+    role: 'sys',
+  },
+  {
+    icon: <RobotOutlined />,
+    label: 'LLM 用量分析',
+    desc: '查看近一年的模型调用消耗热力图与调用明细;普通用户仅见本人数据,维度汇总全貌仅系统管理员可见。',
     role: 'all',
   },
   {

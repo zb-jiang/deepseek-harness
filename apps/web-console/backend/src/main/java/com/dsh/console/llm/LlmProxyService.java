@@ -208,7 +208,7 @@ public class LlmProxyService {
                 release(reservation.requestId(), "failed", "LLM_GATEWAY_CALL_FAILED",
                     "New API HTTP " + response.statusCode() + ": " + abbreviate(errorBody));
                 throw new LlmException("LLM_GATEWAY_CALL_FAILED",
-                    "New API 调用失败(HTTP " + response.statusCode() + ")", 502);
+                    "New API 调用失败(HTTP " + response.statusCode() + "): " + abbreviate(errorBody), 502);
             }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {

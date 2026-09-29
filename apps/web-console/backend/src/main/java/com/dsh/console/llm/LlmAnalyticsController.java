@@ -2,7 +2,9 @@ package com.dsh.console.llm;
 
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.llm.dto.UsageLedgerEntry;
+import com.dsh.console.security.AuthContext;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,10 +17,11 @@ import java.util.UUID;
 /**
  * 用量分析 API。
  * 业务含义:web-console 后台"用量分析"页签;提供维度汇总、每日热力图与账本明细三类查询。
+ * 角色模型:维度汇总仅系统管理员(全貌);热力图与明细全员可用,但非系统管理员被服务端
+ * 强制收敛到本人数据——前端传入的 userId 过滤参数对非管理员一律忽略,不泄露他人记录。
  */
 @RestController
 @RequestMapping("/api/admin/llm/usage")
-@PreAuthorize("hasRole('SYSTEM_ADMIN')")
 public class LlmAnalyticsController {
 
     private final LlmAnalyticsService analyticsService;
@@ -28,34 +31,39 @@ public class LlmAnalyticsController {
     }
 
     /**
-     * 维度汇总。
+     * 维度汇总(仅系统管理员)。
      * dimension: user(按发起人) / org_unit(按实际扣费部门池) / model(按模型);month 格式 YYYY-MM。
      */
     @GetMapping("/summary")
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public ApiResponse<List<LlmLedgerJdbcRepository.SummaryRow>> summary(@RequestParam String dimension,
                                                                          @RequestParam String month) {
         return ApiResponse.ok(analyticsService.summary(dimension, month));
     }
 
-    /** 近一年每日消耗热力图,全对象按天聚合(与维度筛选无关)。 */
+    /** 近一年每日消耗热力图,系统管理员看全对象合计,其余用户仅本人(与维度筛选无关)。 */
     @GetMapping("/heatmap/year")
-    public ApiResponse<List<LlmLedgerJdbcRepository.DailyTotal>> heatmapYear() {
-        return ApiResponse.ok(analyticsService.heatmapYear());
+    public ApiResponse<List<LlmLedgerJdbcRepository.DailyTotal>> heatmapYear(
+        @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(analyticsService.heatmapYear(
+            auth.isSystemAdmin() ? null : auth.platformUserId()));
     }
 
-    /** 账本明细分页。 */
+    /** 账本明细分页;非系统管理员强制按本人过滤,userId 参数忽略。 */
     @GetMapping("/ledger")
-    public ApiResponse<Map<String, Object>> ledger(@RequestParam(required = false) String month,
+    public ApiResponse<Map<String, Object>> ledger(@AuthenticationPrincipal AuthContext auth,
+                                                   @RequestParam(required = false) String month,
                                                    @RequestParam(required = false) UUID userId,
                                                    @RequestParam(required = false) UUID modelId,
                                                    @RequestParam(required = false) String status,
                                                    @RequestParam(defaultValue = "1") int page,
                                                    @RequestParam(defaultValue = "20") int pageSize) {
+        UUID userScope = auth.isSystemAdmin() ? userId : auth.platformUserId();
         int safePage = Math.max(1, page);
         int safeSize = Math.min(100, Math.max(1, pageSize));
-        List<UsageLedgerEntry> items = analyticsService.listLedger(month, userId, modelId, status,
+        List<UsageLedgerEntry> items = analyticsService.listLedger(month, userScope, modelId, status,
             safeSize, (safePage - 1) * safeSize);
-        long total = analyticsService.countLedger(month, userId, modelId, status);
+        long total = analyticsService.countLedger(month, userScope, modelId, status);
         return ApiResponse.ok(Map.of("items", items, "total", total,
             "page", safePage, "pageSize", safeSize));
     }

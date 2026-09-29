@@ -11,6 +11,7 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -55,10 +56,38 @@ public class LlmEmployeeService {
                         buildPool(item, model, grant, month)));
                 }
                 result.add(new EmployeeModelDto(model.id(),
-                    model.gatewayModelName(), model.displayName(), route.exhaustAction(), pools));
+                    model.gatewayModelName(), model.displayName(),
+                    positiveIntParam(model.modelParams(), "contextWindow"),
+                    positiveIntParam(model.modelParams(), "maxTokens"),
+                    reasoningParam(model.modelParams()),
+                    route.exhaustAction(), pools));
             });
         }
         return result;
+    }
+
+    /**
+     * 读 model_params_json 约定键的正整数参数。
+     * 业务含义:contextWindow/maxTokens 供员工端 DSH(llm-access 插件)注册 LLM 路由;
+     * 缺省或非正数返回 null,由员工端按其配置兜底。
+     */
+    private static Integer positiveIntParam(Map<String, Object> modelParams, String key) {
+        Object value = modelParams == null ? null : modelParams.get(key);
+        if (value instanceof Number number) {
+            int i = number.intValue();
+            return i > 0 ? i : null;
+        }
+        return null;
+    }
+
+    /**
+     * 读 model_params_json 约定键 reasoning(布尔)。
+     * 业务含义:声明模型支持推理档位,员工端 DSH 据此在选择器中显示"推理等级"选项;
+     * 缺省视为不支持(null 与 false 同效,员工端仅对 true 声明档位)。
+     */
+    private static Boolean reasoningParam(Map<String, Object> modelParams) {
+        Object value = modelParams == null ? null : modelParams.get("reasoning");
+        return Boolean.TRUE.equals(value) ? Boolean.TRUE : null;
     }
 
     private EmployeeModelDto.PoolSummary buildPool(UserModelRouteDto.RouteItemDto item,

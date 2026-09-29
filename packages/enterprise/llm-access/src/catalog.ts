@@ -1,0 +1,172 @@
+/**
+ * Employee-side enterprise model catalog: fetches web-console
+ * `GET /api/llm/models`, normalizes the wire DTO, and builds the single
+ * hand-declared pi-ai provider profile (`llm-enterprise` → web-console
+ * `/api/llm/v1` OpenAI-compatible proxy).
+ *
+ * @module @deepseek-ai/dsh-llm-access/catalog
+ */
+
+import { resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
+import type {
+  PiAiModelProfile,
+  ResolvedPiAiProviderProfile,
+} from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
+
+/** The single provider route this package registers. */
+export const ENTERPRISE_PROVIDER = 'llm-enterprise'
+
+/** Display name of the provider group shown in employee-side model selectors. */
+export const ENTERPRISE_PROVIDER_DISPLAY_NAME = '企业模型'
+
+/** web-console {@code ApiResponse} envelope (data present on success). */
+interface ApiEnvelope<T> {
+  success?: boolean
+  data?: T
+  error?: { message?: string }
+}
+
+/**
+ * web-console {@code EmployeeModelDto}. Only the fields the employee-side
+ * route consumes are declared; quota pools and exhaust action stay on the
+ * web-console UI.
+ */
+export interface EmployeeModelDto {
+  id: string
+  gatewayModelName: string
+  displayName: string
+  contextWindow?: number | null
+  maxTokens?: number | null
+  reasoning?: boolean | null
+}
+
+/** Normalized catalog entry for one enterprise model. */
+export interface EnterpriseModel {
+  /** Model id sent to the web-console proxy (`model` request field). */
+  readonly gatewayModelName: string
+  /** Display name for the employee-side selector. */
+  readonly displayName: string
+  /** Context capacity in tokens; undefined falls back to config default. */
+  readonly contextWindow: number | undefined
+  /** Output capability in tokens; undefined falls back to config default. */
+  readonly maxTokens: number | undefined
+  /** Whether the model offers reasoning effort levels in the selector. */
+  readonly reasoning: boolean
+}
+
+/** Resolved fetch inputs for one catalog pull. */
+export interface CatalogRequest {
+  /** web-console base URL (protocol + host + port, no trailing slash). */
+  readonly webConsoleBaseUrl: string
+  /** The signed-in employee's Supabase JWT. */
+  readonly token: string
+}
+
+/** Fallbacks for models whose catalog entry sizes neither capacity. */
+export interface CatalogDefaults {
+  readonly contextWindow: number
+  readonly maxTokens: number
+}
+
+/**
+ * Standard reasoning effort levels offered when a catalog entry declares
+ * reasoning support: OpenAI-completions `reasoning_effort` spellings, relayed
+ * by web-console's proxy and the New API gateway unchanged.
+ */
+const REASONING_EFFORTS = { low: 'low', medium: 'medium', high: 'high' } as const
+
+/**
+ * Accept a positive integer capacity from the wire DTO.
+ * @param value - raw field from the DTO (JSON numbers or absent).
+ * @returns the validated integer, or undefined when absent/invalid.
+ */
+function capacityOf(value: number | null | undefined): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+
+/**
+ * Fetch and normalize the signed-in employee's enterprise model catalog.
+ *
+ * @param request - resolved base URL and token for this pull.
+ * @returns normalized models in server order, deduplicated by gateway model name.
+ * @throws Error when web-console is unreachable, answers non-JSON, or the
+ *   envelope reports failure (messages face the log, not the model).
+ */
+export async function fetchEnterpriseModels(request: CatalogRequest): Promise<readonly EnterpriseModel[]> {
+  let resp: Response
+  try {
+    resp = await fetch(new URL('/api/llm/models', request.webConsoleBaseUrl), {
+      headers: { authorization: `Bearer ${request.token}` },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`web-console 不可达(${request.webConsoleBaseUrl}): ${message}`)
+  }
+  let body: ApiEnvelope<EmployeeModelDto[]>
+  try {
+    body = await resp.json() as ApiEnvelope<EmployeeModelDto[]>
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`web-console 模型目录响应不是 JSON(HTTP ${resp.status}): ${message}`)
+  }
+  if (!resp.ok || body.success !== true || body.data === undefined) {
+    throw new Error(`web-console 模型目录请求失败(HTTP ${resp.status}): ${body.error?.message ?? '未知错误'}`)
+  }
+  // 线边界:逐条校验并归一化;无效条目跳过而非整体失败(单条脏数据不应清空整个选择器)
+  const models: EnterpriseModel[] = []
+  const seen = new Set<string>()
+  for (const entry of body.data) {
+    if (typeof entry?.gatewayModelName !== 'string' || entry.gatewayModelName.length === 0) continue
+    if (seen.has(entry.gatewayModelName)) continue
+    seen.add(entry.gatewayModelName)
+    models.push({
+      gatewayModelName: entry.gatewayModelName,
+      displayName: typeof entry.displayName === 'string' && entry.displayName.length > 0
+        ? entry.displayName
+        : entry.gatewayModelName,
+      contextWindow: capacityOf(entry.contextWindow),
+      maxTokens: capacityOf(entry.maxTokens),
+      reasoning: entry.reasoning === true,
+    })
+  }
+  return models
+}
+
+/**
+ * Build the pi-ai provider profiles for the current catalog snapshot.
+ *
+ * <p>One hand-declared route keyed {@link ENTERPRISE_PROVIDER}: the
+ * OpenAI-completions protocol against web-console's `/api/llm/v1` base, one
+ * profile model per catalog entry. An empty catalog resolves to the empty
+ * (dormant) profile set.
+ *
+ * @param models - the current normalized catalog snapshot.
+ * @param webConsoleBaseUrl - web-console base URL without trailing slash.
+ * @param defaults - fallback capacities for unsized models.
+ * @returns resolved profiles keyed by route.
+ * @throws Error when the constructed profile cannot be served (invalid base
+ *   URL shape or model entries).
+ */
+export function buildEnterpriseProfiles(
+  models: readonly EnterpriseModel[],
+  webConsoleBaseUrl: string,
+  defaults: CatalogDefaults,
+): ReadonlyMap<string, ResolvedPiAiProviderProfile> {
+  if (models.length === 0) return new Map()
+  const piModels: PiAiModelProfile[] = models.map(model => ({
+    id: model.gatewayModelName,
+    name: model.displayName,
+    contextWindow: model.contextWindow ?? defaults.contextWindow,
+    maxTokens: model.maxTokens ?? defaults.maxTokens,
+    // 声明推理档位后选择器才显示推理等级菜单(缺省=无推理,菜单隐藏)
+    ...model.reasoning ? { reasoningEfforts: REASONING_EFFORTS } : {},
+  }))
+  return resolveProfiles({
+    [ENTERPRISE_PROVIDER]: {
+      displayName: ENTERPRISE_PROVIDER_DISPLAY_NAME,
+      api: 'openai-completions',
+      baseURL: `${webConsoleBaseUrl}/api/llm/v1`,
+      models: piModels,
+    },
+  })
+}

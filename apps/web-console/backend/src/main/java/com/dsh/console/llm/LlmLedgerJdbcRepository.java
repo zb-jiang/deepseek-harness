@@ -192,6 +192,23 @@ public class LlmLedgerJdbcRepository {
     // ---------- 查询 ----------
 
     /**
+     * 查询超过 staleBefore 仍停留在 reserved 的请求 id(孤儿预留)。
+     * 业务含义:供定时清扫释放;按 created_at 升序限量返回,余量留给下一轮。
+     */
+    public List<String> findStaleReservedRequestIds(OffsetDateTime staleBefore, int limit) {
+        return jdbcClient.sql("""
+                SELECT request_id FROM public.llm_usage_ledger
+                WHERE status = 'reserved' AND created_at < :staleBefore
+                ORDER BY created_at
+                LIMIT :limit
+                """)
+            .param("staleBefore", staleBefore)
+            .param("limit", limit)
+            .query(String.class)
+            .list();
+    }
+
+    /**
      * 判断某模型是否已有任何账本记录(含 blocked 终态)。
      * 业务含义:账本 append-only 且统计查询内 JOIN 模型表,存在记录即不可物理删除模型。
      */
@@ -325,21 +342,29 @@ public class LlmLedgerJdbcRepository {
     }
 
     /**
-     * 近一年每日消耗热力图:闭区间日期内按天聚合,全对象合计,仅统计 completed。
+     * 近一年每日消耗热力图:闭区间日期内按天聚合,仅统计 completed。
+     * userId 非空时仅统计该用户(普通用户收敛),为空时全对象合计(系统管理员)。
      * 算法:格子渲染与取色由前端完成,后端只回有消耗的日期。
      */
-    public List<DailyTotal> heatmapYear(LocalDate start, LocalDate end) {
-        return jdbcClient.sql("""
+    public List<DailyTotal> heatmapYear(LocalDate start, LocalDate end, UUID userId) {
+        StringBuilder sql = new StringBuilder("""
                 SELECT l.created_at::date AS day,
                        coalesce(sum(l.total_tokens), 0) AS total_tokens,
                        count(*) AS request_count
                 FROM public.llm_usage_ledger l
                 WHERE l.status = 'completed' AND l.created_at::date BETWEEN :start AND :end
-                GROUP BY l.created_at::date
-                ORDER BY day ASC
-                """)
+                """);
+        if (userId != null) {
+            sql.append(" AND l.user_id = :userId");
+        }
+        sql.append(" GROUP BY l.created_at::date ORDER BY day ASC");
+        var spec = jdbcClient.sql(sql.toString())
             .param("start", start)
-            .param("end", end)
+            .param("end", end);
+        if (userId != null) {
+            spec = spec.param("userId", userId);
+        }
+        return spec
             .query((rs, rowNum) -> new DailyTotal(
                 rs.getObject("day", LocalDate.class),
                 rs.getLong("total_tokens"),

@@ -34,9 +34,12 @@ public class LlmProxyController {
     /**
      * OpenAI 兼容对话端点。
      * 算法:请求体 model 字段填企业逻辑模型名(gateway_model_name);stream=true 时走 SSE 透传。
+     * 返回类型必须是精确的 ResponseEntity&lt;StreamingResponseBody&gt;:通配符泛型会让
+     * StreamingResponseBodyReturnValueHandler 拒收,落到 MessageConverter 路径报
+     * "No converter ... with preset Content-Type 'text/event-stream'"。
      */
     @PostMapping("/chat/completions")
-    public ResponseEntity<?> chatCompletions(@RequestBody Map<String, Object> body,
+    public ResponseEntity<StreamingResponseBody> chatCompletions(@RequestBody Map<String, Object> body,
                                              @RequestHeader(value = "X-DSH-Session-Id", required = false)
                                              String sessionId,
                                              @AuthenticationPrincipal AuthContext auth) {
@@ -59,8 +62,9 @@ public class LlmProxyController {
         int[] statusOut = {200};
         Map<String, String> headersOut = new HashMap<>();
         byte[] responseBody = proxyService.callAndSettle(reservation, body, statusOut, headersOut);
+        StreamingResponseBody byteBody = out -> out.write(responseBody);
         return ResponseEntity.status(statusOut[0])
             .contentType(MediaType.APPLICATION_JSON)
-            .body(responseBody);
+            .body(byteBody);
     }
 }

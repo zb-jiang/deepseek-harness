@@ -11,6 +11,9 @@ public record EmployeeModelDto(
     UUID id,
     String gatewayModelName,
     String displayName,
+    Integer contextWindow,
+    Integer maxTokens,
+    Boolean reasoning,
     String exhaustAction,
     List<PoolSummary> pools
 ) {
