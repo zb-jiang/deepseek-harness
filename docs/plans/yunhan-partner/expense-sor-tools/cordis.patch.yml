@@ -1,0 +1,11 @@
+# @acme-si/expense-sor-tools 自带补丁层：随包分发，官方插件安装
+# （添加插件对话框 / dsh plugin add）时装入，卸载时随包摘除。
+# 注意：bundle 自身补丁的行同样走 - insert: 包裹（插入装载树）。
+# sorBaseUrl 在此显式声明（volatile：运行时读取，改动后热重载即生效）；
+# Config schema 里的默认值仅作兜底（删掉此 config 段时生效）。
+# 个别机器地址不同：用 profile 用户补丁层定点覆盖，不要改本文件（升级会被冲掉）。
+- insert:
+    - id: expense-sor-tools
+      name: "@acme-si/expense-sor-tools"
+      config:
+        sorBaseUrl: http://127.0.0.1:8091

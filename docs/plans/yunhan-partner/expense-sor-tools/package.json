@@ -1,0 +1,29 @@
+{
+  "name": "@acme-si/expense-sor-tools",
+  "description": "Acme SI 实施交付：费控 SOR（expense-sor）员工端 AI 工具包。把 SOR 的员工侧 API 收敛为受治理的命名工具（dsh_expense_*），供待办/对话 AI 调用；审批/打款/状态迁移/流程回写端点不暴露（保留给流程引擎 delegate 服务通道）。",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "comments": {
+    "dependencies": "运行时零依赖：@deepseek-ai/dsh-tools 与 @deepseek-ai/schemastery 在构建期内联进 lib/index.js；@deepseek-ai/cordis 仅类型导入，运行时消失。",
+    "engines": "声明兼容的 DSH 版本（SemVer 范围）；官方插件安装的兼容性门禁据此拦截不匹配版本，而不是装进去运行时才炸。",
+    "dsh.bundle": "bundle 化声明：patch 指向包内自带补丁文件，官方安装流水线（pnpm add -> 兼容门禁 -> bundles 清单 -> 热重载）据此装载，热安装/热卸载即官方现成能力。",
+    "devDependencies": "开发期通过 build.mjs 的 alias 指向汉云 workspace 检出（或私有 registry 安装后自然解析），故此处不声明。"
+  }
+}
