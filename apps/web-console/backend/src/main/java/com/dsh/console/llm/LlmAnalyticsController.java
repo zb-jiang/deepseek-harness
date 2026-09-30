@@ -3,13 +3,16 @@ package com.dsh.console.llm;
 import com.dsh.console.common.ApiResponse;
 import com.dsh.console.llm.dto.UsageLedgerEntry;
 import com.dsh.console.security.AuthContext;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -49,22 +52,47 @@ public class LlmAnalyticsController {
             auth.isSystemAdmin() ? null : auth.platformUserId()));
     }
 
-    /** 账本明细分页;非系统管理员强制按本人过滤,userId 参数忽略。 */
+    /**
+     * 账本明细分页;非系统管理员强制按本人过滤,userId 参数忽略。
+     * from/to 作用于 created_at,ISO-8601 含时区,to 为排他上界;sourceType/sourceId 必须成对传。
+     */
     @GetMapping("/ledger")
     public ApiResponse<Map<String, Object>> ledger(@AuthenticationPrincipal AuthContext auth,
-                                                   @RequestParam(required = false) String month,
+                                                   @RequestParam(required = false) OffsetDateTime from,
+                                                   @RequestParam(required = false) OffsetDateTime to,
                                                    @RequestParam(required = false) UUID userId,
                                                    @RequestParam(required = false) UUID modelId,
+                                                   @RequestParam(required = false) String sourceType,
+                                                   @RequestParam(required = false) UUID sourceId,
                                                    @RequestParam(required = false) String status,
                                                    @RequestParam(defaultValue = "1") int page,
                                                    @RequestParam(defaultValue = "20") int pageSize) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "时间区间起点晚于终点");
+        }
+        if (sourceType != null && sourceId == null || sourceType == null && sourceId != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sourceType 与 sourceId 必须成对传入");
+        }
         UUID userScope = auth.isSystemAdmin() ? userId : auth.platformUserId();
         int safePage = Math.max(1, page);
         int safeSize = Math.min(100, Math.max(1, pageSize));
-        List<UsageLedgerEntry> items = analyticsService.listLedger(month, userScope, modelId, status,
-            safeSize, (safePage - 1) * safeSize);
-        long total = analyticsService.countLedger(month, userScope, modelId, status);
+        List<UsageLedgerEntry> items = analyticsService.listLedger(from, to, userScope, modelId,
+            sourceType, sourceId, status, safeSize, (safePage - 1) * safeSize);
+        long total = analyticsService.countLedger(from, to, userScope, modelId, sourceType,
+            sourceId, status);
         return ApiResponse.ok(Map.of("items", items, "total", total,
             "page", safePage, "pageSize", safeSize));
+    }
+
+    /**
+     * 账本筛选下拉选项(用户/模型/扣费来源)。
+     * 业务含义:选项从账本 DISTINCT 而非配置表,已删除实体仍可按历史名筛选;
+     * 非系统管理员只看到自己账本中出现过的基础数据。
+     */
+    @GetMapping("/ledger/filters")
+    public ApiResponse<LlmLedgerJdbcRepository.LedgerFilterOptions> ledgerFilters(
+        @AuthenticationPrincipal AuthContext auth) {
+        return ApiResponse.ok(analyticsService.ledgerFilterOptions(
+            auth.isSystemAdmin() ? null : auth.platformUserId()));
     }
 }

@@ -20,6 +20,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -72,7 +73,10 @@ public class LlmProxyService {
         this.newApiProperties = newApiProperties;
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
-        this.httpClient = HttpClient.newHttpClient();
+        // connectTimeout:上游不可达时快速失败,不让调用线程挂在 TCP 握手上
+        this.httpClient = HttpClient.newBuilder()
+            .connectTimeout(newApiProperties.connectTimeout())
+            .build();
     }
 
     // ---------- 预留 ----------
@@ -171,6 +175,12 @@ public class LlmProxyService {
                     "New API HTTP " + response.statusCode());
             }
             return response.body();
+        } catch (HttpTimeoutException e) {
+            long seconds = newApiProperties.responseTimeout().toSeconds();
+            release(reservation.requestId(), "failed", "LLM_UPSTREAM_TIMEOUT",
+                "New API 在 " + seconds + "s 内未返回响应头");
+            throw new LlmException("LLM_UPSTREAM_TIMEOUT",
+                "上游服务在 " + seconds + "s 内未响应,请稍后重试", 504);
         } catch (IOException e) {
             release(reservation.requestId(), "failed", "LLM_GATEWAY_CALL_FAILED", e.getMessage());
             throw new LlmException("LLM_GATEWAY_CALL_FAILED", "New API 调用失败: " + e.getMessage(), 502);
@@ -232,6 +242,12 @@ public class LlmProxyService {
             }
             clientOut.flush();
             settleFromUsage(reservation, usage, gatewayRequestId);
+        } catch (HttpTimeoutException e) {
+            long seconds = newApiProperties.responseTimeout().toSeconds();
+            release(reservation.requestId(), "failed", "LLM_UPSTREAM_TIMEOUT",
+                "New API 在 " + seconds + "s 内未返回响应头");
+            throw new LlmException("LLM_UPSTREAM_TIMEOUT",
+                "上游服务在 " + seconds + "s 内未响应,请稍后重试", 504);
         } catch (IOException e) {
             release(reservation.requestId(), "cancelled", "LLM_STREAM_INTERRUPTED", e.getMessage());
             throw new LlmException("LLM_GATEWAY_CALL_FAILED", "流式传输中断: " + e.getMessage(), 502);
@@ -303,10 +319,13 @@ public class LlmProxyService {
 
     private HttpRequest buildRequest(Map<String, Object> outgoing) {
         try {
+            // timeout:等待响应头的上限(TTFB);上游挂起不吐头时抛 HttpTimeoutException 快速失败,
+            // 而不是挂到 spring.mvc.async.request-timeout 才被异步超时掐断
             return HttpRequest.newBuilder()
                 .uri(URI.create(newApiProperties.baseUrl() + "/v1/chat/completions"))
                 .header("Authorization", "Bearer " + newApiProperties.serviceToken())
                 .header("Content-Type", "application/json")
+                .timeout(newApiProperties.responseTimeout())
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(outgoing)))
                 .build();
         } catch (Exception e) {

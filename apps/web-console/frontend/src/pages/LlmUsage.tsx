@@ -10,6 +10,7 @@ import {
   llmApi,
   type UsageDailyTotal,
   type UsageLedgerEntry,
+  type UsageLedgerFilterOptions,
   type UsageSummaryRow,
 } from '../api/llm'
 
@@ -29,6 +30,26 @@ const LEDGER_STATUS: Record<string, { text: string; color: string }> = {
 
 /** 状态筛选的「全部」哨兵值:请求后端时归一为 undefined(不过滤) */
 const STATUS_ALL = 'ALL'
+
+/** 时间段快捷项:RangePicker presets;清空区间 = 全部时间 */
+const RANGE_PRESETS = [
+  { label: '今天', value: () => [dayjs().startOf('day'), dayjs()] },
+  { label: '本周', value: () => [dayjs().startOf('week'), dayjs()] },
+  { label: '本月', value: () => [dayjs().startOf('month'), dayjs()] },
+  { label: '近 7 天', value: () => [dayjs().subtract(6, 'day').startOf('day'), dayjs()] },
+  { label: '近 30 天', value: () => [dayjs().subtract(29, 'day').startOf('day'), dayjs()] },
+]
+
+/** 扣费来源下拉的分组文案(sourceType → 组名) */
+const SOURCE_GROUP: Record<string, string> = {
+  org_unit: '部门额度池',
+  user: '个人额度池',
+}
+
+/** 下拉选项展示名:账本快照/实时名都缺失(写入前已删除)时退化为短 id */
+function labelOf(id: string, name: string | null): string {
+  return name ?? id.slice(0, 8)
+}
 
 /** GitHub 贡献图色阶(无消耗 → 最深) */
 const HEAT_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
@@ -210,6 +231,15 @@ export default function LlmUsagePage() {
   const [ledgerPageSize, setLedgerPageSize] = useState(20)
   const [ledgerStatus, setLedgerStatus] = useState<string | undefined>()
   const [ledgerLoading, setLedgerLoading] = useState(false)
+  // 账本筛选:时间区间(默认本月)、模型、扣费来源(type:id 组合键)、用户(仅系统管理员)
+  const [ledgerRange, setLedgerRange] = useState<[Dayjs, Dayjs] | null>([
+    dayjs().startOf('month'),
+    dayjs(),
+  ])
+  const [ledgerModelId, setLedgerModelId] = useState<string | undefined>()
+  const [ledgerSource, setLedgerSource] = useState<string | undefined>()
+  const [ledgerUserId, setLedgerUserId] = useState<string | undefined>()
+  const [filterOptions, setFilterOptions] = useState<UsageLedgerFilterOptions | undefined>()
 
   const monthStr = month.format('YYYY-MM')
 
@@ -251,11 +281,33 @@ export default function LlmUsagePage() {
 
   // ---------- 账本明细 ----------
 
+  const loadFilters = useCallback(async () => {
+    try {
+      setFilterOptions(await llmApi.usageLedgerFilters())
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载筛选选项失败')
+    }
+  }, [message])
+
+  useEffect(() => {
+    void loadFilters()
+  }, [loadFilters])
+
   const loadLedger = useCallback(async () => {
     setLedgerLoading(true)
     try {
+      // 区间按整天换算:from=起始日 00:00,to=结束日次日 00:00(排他上界),清空=全部时间
+      const from = ledgerRange?.[0].startOf('day').toISOString()
+      const to = ledgerRange?.[1].add(1, 'day').startOf('day').toISOString()
+      // 扣费来源组合键 "sourceType:sourceId";UUID 不含冒号,按首个冒号拆分安全
+      const sep = ledgerSource?.indexOf(':') ?? -1
       const page = await llmApi.usageLedger({
-        month: monthStr,
+        from,
+        to,
+        modelId: ledgerModelId,
+        sourceType: sep >= 0 ? ledgerSource!.slice(0, sep) : undefined,
+        sourceId: sep >= 0 ? ledgerSource!.slice(sep + 1) : undefined,
+        userId: isSys ? ledgerUserId : undefined,
         status: ledgerStatus === STATUS_ALL ? undefined : ledgerStatus,
         page: ledgerPage,
         pageSize: ledgerPageSize,
@@ -267,7 +319,8 @@ export default function LlmUsagePage() {
     } finally {
       setLedgerLoading(false)
     }
-  }, [monthStr, ledgerStatus, ledgerPage, ledgerPageSize, message])
+  }, [ledgerRange, ledgerModelId, ledgerSource, ledgerUserId, ledgerStatus, ledgerPage,
+    ledgerPageSize, isSys, message])
 
   useEffect(() => {
     void loadLedger()
@@ -379,6 +432,29 @@ export default function LlmUsagePage() {
     },
   ]
 
+  // 下拉选项:名称取账本快照优先(实时名兜底),已删除实体仍按历史名出现
+  const userOptions = useMemo(
+    () => (filterOptions?.users ?? []).map(o => ({ value: o.id, label: labelOf(o.id, o.name) })),
+    [filterOptions],
+  )
+  const modelOptions = useMemo(
+    () => (filterOptions?.models ?? []).map(o => ({ value: o.id, label: labelOf(o.id, o.name) })),
+    [filterOptions],
+  )
+  const sourceOptions = useMemo(() => {
+    const groups = new Map<string, { value: string; label: string }[]>()
+    for (const o of filterOptions?.sources ?? []) {
+      const type = o.type ?? 'user'
+      const list = groups.get(type) ?? []
+      list.push({ value: `${type}:${o.id}`, label: labelOf(o.id, o.name) })
+      groups.set(type, list)
+    }
+    return [...groups.entries()].map(([type, options]) => ({
+      label: SOURCE_GROUP[type] ?? type,
+      options,
+    }))
+  }, [filterOptions])
+
   const handleLedgerTableChange = (pagination: TablePaginationConfig) => {
     setLedgerPage(pagination.current ?? 1)
     setLedgerPageSize(pagination.pageSize ?? 20)
@@ -388,11 +464,13 @@ export default function LlmUsagePage() {
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>用量分析</Typography.Title>
-        <DatePicker.MonthPicker
-          value={month}
-          onChange={v => setMonth(v ?? dayjs())}
-          allowClear={false}
-        />
+        {isSys && (
+          <DatePicker.MonthPicker
+            value={month}
+            onChange={v => setMonth(v ?? dayjs())}
+            allowClear={false}
+          />
+        )}
         {isSys && (
           <Segmented options={DIMENSION_OPTIONS} value={dimension} onChange={v => setDimension(v as string)} />
         )}
@@ -416,28 +494,82 @@ export default function LlmUsagePage() {
             : '颜色深浅对应当日你本人的 token 消耗占近一年峰值的比例;悬浮查看当天消耗与请求数。'}
         </Typography.Paragraph>
       </Card>
-      <Card
-        title="调用明细"
-        extra={
-          <Space size={8}>
+      <Card title="调用明细">
+        <Space size={8} wrap style={{ marginBottom: 16 }}>
+          <DatePicker.RangePicker
+            value={ledgerRange}
+            presets={RANGE_PRESETS}
+            allowClear
+            placeholder={['开始日期', '结束日期']}
+            onChange={(v) => {
+              setLedgerRange(v && v[0] && v[1] ? [v[0], v[1]] : null)
+              setLedgerPage(1)
+            }}
+          />
+          {isSys && (
             <Select
               allowClear
-              placeholder="按状态筛选"
+              showSearch
+              optionFilterProp="label"
+              placeholder="按用户筛选"
               style={{ width: 140 }}
-              value={ledgerStatus}
+              value={ledgerUserId}
               onChange={(v) => {
-                setLedgerStatus(v)
+                setLedgerUserId(v)
                 setLedgerPage(1)
               }}
-              options={[
-                { label: '全部', value: STATUS_ALL },
-                ...Object.entries(LEDGER_STATUS).map(([k, v]) => ({ label: v.text, value: k })),
-              ]}
+              options={userOptions}
             />
-            <Button icon={<ReloadOutlined />} loading={ledgerLoading} onClick={() => void loadLedger()} />
-          </Space>
-        }
-      >
+          )}
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="按模型筛选"
+            style={{ width: 160 }}
+            value={ledgerModelId}
+            onChange={(v) => {
+              setLedgerModelId(v)
+              setLedgerPage(1)
+            }}
+            options={modelOptions}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="按扣费来源筛选"
+            style={{ width: 180 }}
+            value={ledgerSource}
+            onChange={(v) => {
+              setLedgerSource(v)
+              setLedgerPage(1)
+            }}
+            options={sourceOptions}
+          />
+          <Select
+            allowClear
+            placeholder="按状态筛选"
+            style={{ width: 120 }}
+            value={ledgerStatus}
+            onChange={(v) => {
+              setLedgerStatus(v)
+              setLedgerPage(1)
+            }}
+            options={[
+              { label: '全部', value: STATUS_ALL },
+              ...Object.entries(LEDGER_STATUS).map(([k, v]) => ({ label: v.text, value: k })),
+            ]}
+          />
+          <Button
+            icon={<ReloadOutlined />}
+            loading={ledgerLoading}
+            onClick={() => {
+              void loadLedger()
+              void loadFilters()
+            }}
+          />
+        </Space>
         <Table<UsageLedgerEntry>
           rowKey="id"
           columns={ledgerColumns}

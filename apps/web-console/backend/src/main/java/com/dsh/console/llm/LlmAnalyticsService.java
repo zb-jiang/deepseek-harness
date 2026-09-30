@@ -4,6 +4,7 @@ import com.dsh.console.llm.dto.UsageLedgerEntry;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,14 +21,22 @@ public class LlmAnalyticsService {
         this.ledgerRepository = ledgerRepository;
     }
 
-    /** 账本明细分页。 */
-    public List<UsageLedgerEntry> listLedger(String usageMonth, UUID userId, UUID modelId,
+    /** 账本明细分页;from/to 为 created_at 时间区间,to 为排他上界,均可空。 */
+    public List<UsageLedgerEntry> listLedger(OffsetDateTime from, OffsetDateTime to, UUID userId,
+                                             UUID modelId, String sourceType, UUID sourceId,
                                              String status, int limit, int offset) {
-        return ledgerRepository.listLedger(usageMonth, userId, modelId, status, limit, offset);
+        return ledgerRepository.listLedger(from, to, userId, modelId, sourceType, sourceId,
+            status, limit, offset);
     }
 
-    public long countLedger(String usageMonth, UUID userId, UUID modelId, String status) {
-        return ledgerRepository.countLedger(usageMonth, userId, modelId, status);
+    public long countLedger(OffsetDateTime from, OffsetDateTime to, UUID userId, UUID modelId,
+                            String sourceType, UUID sourceId, String status) {
+        return ledgerRepository.countLedger(from, to, userId, modelId, sourceType, sourceId, status);
+    }
+
+    /** 账本筛选下拉选项;userScope 非空时仅含该用户账本中出现过的基础数据(普通用户收敛)。 */
+    public LlmLedgerJdbcRepository.LedgerFilterOptions ledgerFilterOptions(UUID userScope) {
+        return ledgerRepository.filterOptions(userScope);
     }
 
     /** 按维度汇总某月消耗。dimension 取 user/org_unit/model。 */

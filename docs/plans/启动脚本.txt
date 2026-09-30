@@ -18,7 +18,7 @@ $env:SKILLHUB_API_TOKEN="sk_It1SA2xPE_J8vRl_boCDEsRpjcD3rX6tq6tkaPkn7kA"
 $env:SKILLHUB_BASE_URL="http://127.0.0.1:8095"
 $env:TESSDATA_PATH="D:\works\deepseek-harness\apps\web-console\tessdata"
 $env:SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtb21tYWFldXFuaGFuYnRxbXRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDYxMTgsImV4cCI6MjEwMjcyMjExOH0.TRUg-O36QkIH9QbJYi9FPL6j1PucKnrulecamWRSnkI"
-$env:NEWAPI_BASE_URL="http://localhost:3000"
+$env:NEWAPI_BASE_URL="http://127.0.0.1:3000"
 $env:NEWAPI_SERVICE_TOKEN = "sk-m5f2Nu9vlSQfIgc5YBaQ06V8YPcDzmDks1jYbExj58Bh3RB0"
 cd d:\works\deepseek-harness\apps\web-console\backend
 mvn clean package -DskipTests
@@ -40,7 +40,7 @@ java -jar skillhub-app\target\skillhub-app-0.1.0.jar --spring.profiles.active=lo
 
 启动skillhub前端
 cd D:\works\enterprise-skillhub\web
-pnpm exec vite --host 127.0.0.1 --port 3000
+pnpm exec vite --host 127.0.0.1 --port 5174
 
 ---------------------------------------------------------------------------------------------------------------------
 

@@ -117,6 +117,21 @@ export interface UsageLedgerPage {
   pageSize: number
 }
 
+/** 账本筛选下拉的一个可选项(对齐 LlmLedgerJdbcRepository.FilterOption) */
+export interface UsageLedgerFilterOption {
+  id: string
+  name: string | null
+  /** 仅 source 选项有值:user/org_unit */
+  type: string | null
+}
+
+/** 账本筛选下拉全部选项(对齐 LlmLedgerJdbcRepository.LedgerFilterOptions);含已删除实体 */
+export interface UsageLedgerFilterOptions {
+  users: UsageLedgerFilterOption[]
+  models: UsageLedgerFilterOption[]
+  sources: UsageLedgerFilterOption[]
+}
+
 export interface CreateModelRequest {
   displayName: string
   gatewayModelName: string
@@ -201,11 +216,17 @@ export const llmApi = {
     get<UsageSummaryRow[]>('/api/admin/llm/usage/summary', { dimension, month }),
   usageHeatmapYear: () => get<UsageDailyTotal[]>('/api/admin/llm/usage/heatmap/year'),
   usageLedger: (params: {
-    month?: string
+    /** ISO-8601 含时区;to 为排他上界 */
+    from?: string
+    to?: string
     userId?: string
     modelId?: string
+    sourceType?: string
+    sourceId?: string
     status?: string
     page?: number
     pageSize?: number
   }) => get<UsageLedgerPage>('/api/admin/llm/usage/ledger', params as Record<string, unknown>),
+  usageLedgerFilters: () =>
+    get<UsageLedgerFilterOptions>('/api/admin/llm/usage/ledger/filters'),
 }

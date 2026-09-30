@@ -21,6 +21,12 @@ spring:
       max-file-size: ${KB_MAX_UPLOAD_MB:50}MB
       max-request-size: ${KB_MAX_UPLOAD_MB:50}MB
 
+  # 异步请求(SSE 流式转发)总时长上限:Tomcat 默认 30s 会掐断正常的 LLM 长生成
+  # (症状=AsyncRequestTimeoutException 被兜底成 500 INTERNAL_ERROR);10 分钟覆盖最慢的推理场景
+  mvc:
+    async:
+      request-timeout: 600000
+
   # 本地 PostgreSQL 直连;与 Flowable 引擎共享同一 PG 实例的不同 schema
   # Flowable 引擎启动自动建 ACT_* 表(flowable schema),Web Console CRUD 治理元数据表(public schema)
   datasource:
@@ -98,6 +104,10 @@ dsh:
 newapi:
   base-url: ${NEWAPI_BASE_URL:http://localhost:3000}
   service-token: ${NEWAPI_SERVICE_TOKEN:}
+  # TCP 连接建立上限;超时=对端不可达,快速失败
+  connect-timeout: 10s
+  # 等待上游响应头的上限(TTFB);流式正文的读取时长不受此限,由 spring.mvc.async.request-timeout 兜底
+  response-timeout: 120s
 
 logging:
   level:

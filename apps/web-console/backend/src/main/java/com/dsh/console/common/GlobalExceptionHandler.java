@@ -1,6 +1,7 @@
 package com.dsh.console.common;
 
 import com.dsh.console.knowledge.KbStorageException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
@@ -108,6 +110,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleClientDisconnected(AsyncRequestNotUsableException e) {
         log.debug("Client disconnected before response completed: {}", e.getMessage());
+    }
+
+    /**
+     * 异步请求超时(如 LLM 流式转发超过 spring.mvc.async.request-timeout):返回 504。
+     * 不落兜底 500:超时≠内部错误,504 引导调用方重试而非报障。
+     */
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAsyncTimeout(AsyncRequestTimeoutException e,
+                                                                HttpServletRequest request) {
+        log.warn("Async request timeout: {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+            .body(ApiResponse.fail(ApiError.of("ASYNC_REQUEST_TIMEOUT",
+                "请求处理超过时限,请稍后重试;若反复出现请联系管理员")));
     }
 
     /** 兜底:返回 500。 */

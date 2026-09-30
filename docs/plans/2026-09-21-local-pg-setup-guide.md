@@ -533,6 +533,10 @@ CREATE TABLE IF NOT EXISTS public.llm_usage_ledger (
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
+    -- 名称快照:写入时定格,用户/模型/扣费来源之后被改名或删除,历史账本的展示与筛选不受影响
+    user_name_snapshot TEXT,
+    model_name_snapshot TEXT,
+    source_name_snapshot TEXT,
     CHECK (usage_month ~ '^\d{4}-\d{2}$')
 );
 

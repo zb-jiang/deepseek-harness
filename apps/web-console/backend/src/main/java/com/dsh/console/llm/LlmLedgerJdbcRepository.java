@@ -8,7 +8,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,6 +44,20 @@ public class LlmLedgerJdbcRepository {
         long requestCount
     ) {}
 
+    /**
+     * 账本筛选下拉的一个可选项(id + 展示名)。
+     * 业务含义:name 取账本名称快照优先、实时名兜底——被删除的实体仍可按历史名筛选。
+     * type 仅 source 选项有意义(user/org_unit),其余为 null。
+     */
+    public record FilterOption(UUID id, String name, String type) {}
+
+    /** 账本筛选下拉的全部选项;从账本 DISTINCT 而非配置表,天然覆盖已删除的用户/模型/来源。 */
+    public record LedgerFilterOptions(
+        List<FilterOption> users,
+        List<FilterOption> models,
+        List<FilterOption> sources
+    ) {}
+
     private final JdbcClient jdbcClient;
 
     public LlmLedgerJdbcRepository(JdbcClient jdbcClient) {
@@ -56,6 +69,8 @@ public class LlmLedgerJdbcRepository {
     /**
      * 写入预留账本。
      * 业务含义:额度路由命中后立即落一条 reserved 记录,requestId 贯穿后续结算与失败释放。
+     * 三个 *_name_snapshot 在写入时就地子查询快照:用户/模型/扣费来源之后被改名或删除,
+     * 历史账本的展示与筛选不受影响(billing 记录不可变语义);实体在写入前已被删则快照为 NULL。
      */
     public void insertReserved(String requestId, String usageMonth, UUID userId,
                                UUID routeId, UUID routeItemId, Integer selectedPriority,
@@ -65,10 +80,17 @@ public class LlmLedgerJdbcRepository {
                 INSERT INTO public.llm_usage_ledger
                     (request_id, usage_month, user_id, route_id, route_item_id, selected_priority,
                      org_unit_id, source_type, source_id, model_id, session_id,
-                     status, reserved_tokens)
+                     status, reserved_tokens,
+                     user_name_snapshot, model_name_snapshot, source_name_snapshot)
                 VALUES (:requestId, :month, :userId, :routeId, :routeItemId, :priority,
                         :orgUnitId, :sourceType, :sourceId, :modelId, :sessionId,
-                        'reserved', :reservedTokens)
+                        'reserved', :reservedTokens,
+                        (SELECT display_name FROM public.platform_users WHERE id = :userId),
+                        (SELECT display_name FROM public.llm_enterprise_models WHERE id = :modelId),
+                        CASE :sourceType
+                            WHEN 'user' THEN (SELECT display_name FROM public.platform_users WHERE id = :sourceId)
+                            ELSE (SELECT name FROM public.org_units WHERE id = :sourceId)
+                        END)
                 """)
             .param("requestId", requestId)
             .param("month", usageMonth)
@@ -85,16 +107,20 @@ public class LlmLedgerJdbcRepository {
             .update();
     }
 
-    /** 写入硬拦截账本(终态),不计任何 token。 */
+    /** 写入硬拦截账本(终态),不计任何 token;快照语义同 insertReserved。 */
     public void insertBlocked(String requestId, String usageMonth, UUID userId, UUID routeId,
                               UUID modelId, String sessionId) {
         jdbcClient.sql("""
                 INSERT INTO public.llm_usage_ledger
                     (request_id, usage_month, user_id, route_id, source_type, source_id,
-                     model_id, session_id, status, error_code, error_message, completed_at)
+                     model_id, session_id, status, error_code, error_message, completed_at,
+                     user_name_snapshot, model_name_snapshot, source_name_snapshot)
                 VALUES (:requestId, :month, :userId, :routeId, 'user', :userId,
                         :modelId, :sessionId, 'blocked', 'LLM_QUOTA_EXHAUSTED',
-                        '所有额度池本月额度均不足', now())
+                        '所有额度池本月额度均不足', now(),
+                        (SELECT display_name FROM public.platform_users WHERE id = :userId),
+                        (SELECT display_name FROM public.llm_enterprise_models WHERE id = :modelId),
+                        (SELECT display_name FROM public.platform_users WHERE id = :userId))
                 """)
             .param("requestId", requestId)
             .param("month", usageMonth)
@@ -223,14 +249,17 @@ public class LlmLedgerJdbcRepository {
 
     /**
      * 账本明细分页查询。
-     * 过滤条件全部可空;按 created_at 倒序。
+     * 过滤条件全部可空;时间区间作用于 created_at,to 为排他上界;按 created_at 倒序。
      */
-    public List<UsageLedgerEntry> listLedger(String usageMonth, UUID userId, UUID modelId,
+    public List<UsageLedgerEntry> listLedger(OffsetDateTime from, OffsetDateTime to, UUID userId,
+                                             UUID modelId, String sourceType, UUID sourceId,
                                              String status, int limit, int offset) {
         StringBuilder sql = new StringBuilder(LEDGER_SELECT + " WHERE 1=1");
-        List<Object[]> conditions = new ArrayList<>();
-        if (usageMonth != null) {
-            sql.append(" AND l.usage_month = :month");
+        if (from != null) {
+            sql.append(" AND l.created_at >= :from");
+        }
+        if (to != null) {
+            sql.append(" AND l.created_at < :to");
         }
         if (userId != null) {
             sql.append(" AND l.user_id = :userId");
@@ -238,19 +267,34 @@ public class LlmLedgerJdbcRepository {
         if (modelId != null) {
             sql.append(" AND l.model_id = :modelId");
         }
+        if (sourceType != null) {
+            sql.append(" AND l.source_type = :sourceType");
+        }
+        if (sourceId != null) {
+            sql.append(" AND l.source_id = :sourceId");
+        }
         if (status != null) {
             sql.append(" AND l.status = :status");
         }
         sql.append(" ORDER BY l.created_at DESC LIMIT :limit OFFSET :offset");
         var spec = jdbcClient.sql(sql.toString());
-        if (usageMonth != null) {
-            spec = spec.param("month", usageMonth);
+        if (from != null) {
+            spec = spec.param("from", from);
+        }
+        if (to != null) {
+            spec = spec.param("to", to);
         }
         if (userId != null) {
             spec = spec.param("userId", userId);
         }
         if (modelId != null) {
             spec = spec.param("modelId", modelId);
+        }
+        if (sourceType != null) {
+            spec = spec.param("sourceType", sourceType);
+        }
+        if (sourceId != null) {
+            spec = spec.param("sourceId", sourceId);
         }
         if (status != null) {
             spec = spec.param("status", status);
@@ -260,11 +304,15 @@ public class LlmLedgerJdbcRepository {
             .list();
     }
 
-    public long countLedger(String usageMonth, UUID userId, UUID modelId, String status) {
+    public long countLedger(OffsetDateTime from, OffsetDateTime to, UUID userId, UUID modelId,
+                            String sourceType, UUID sourceId, String status) {
         StringBuilder sql = new StringBuilder(
             "SELECT count(*) FROM public.llm_usage_ledger l WHERE 1=1");
-        if (usageMonth != null) {
-            sql.append(" AND l.usage_month = :month");
+        if (from != null) {
+            sql.append(" AND l.created_at >= :from");
+        }
+        if (to != null) {
+            sql.append(" AND l.created_at < :to");
         }
         if (userId != null) {
             sql.append(" AND l.user_id = :userId");
@@ -272,12 +320,21 @@ public class LlmLedgerJdbcRepository {
         if (modelId != null) {
             sql.append(" AND l.model_id = :modelId");
         }
+        if (sourceType != null) {
+            sql.append(" AND l.source_type = :sourceType");
+        }
+        if (sourceId != null) {
+            sql.append(" AND l.source_id = :sourceId");
+        }
         if (status != null) {
             sql.append(" AND l.status = :status");
         }
         var spec = jdbcClient.sql(sql.toString());
-        if (usageMonth != null) {
-            spec = spec.param("month", usageMonth);
+        if (from != null) {
+            spec = spec.param("from", from);
+        }
+        if (to != null) {
+            spec = spec.param("to", to);
         }
         if (userId != null) {
             spec = spec.param("userId", userId);
@@ -285,10 +342,71 @@ public class LlmLedgerJdbcRepository {
         if (modelId != null) {
             spec = spec.param("modelId", modelId);
         }
+        if (sourceType != null) {
+            spec = spec.param("sourceType", sourceType);
+        }
+        if (sourceId != null) {
+            spec = spec.param("sourceId", sourceId);
+        }
         if (status != null) {
             spec = spec.param("status", status);
         }
         return spec.query(Long.class).single();
+    }
+
+    /**
+     * 账本筛选下拉选项:用户/模型/扣费来源各自 DISTINCT。
+     * 业务含义:选项源是账本而非配置表,已删除实体的历史记录仍可筛选;
+     * 名称展示优先快照、实时名兜底。userScope 非空时仅统计该用户的账本(普通用户收敛,不泄露他人)。
+     */
+    public LedgerFilterOptions filterOptions(UUID userScope) {
+        String scopeSql = userScope != null ? " WHERE l.user_id = :userId" : "";
+        var userSpec = jdbcClient.sql("""
+                SELECT DISTINCT l.user_id AS id,
+                       coalesce(l.user_name_snapshot, u.display_name) AS name
+                FROM public.llm_usage_ledger l
+                LEFT JOIN public.platform_users u ON u.id = l.user_id%s
+                ORDER BY name
+                """.formatted(scopeSql));
+        if (userScope != null) {
+            userSpec = userSpec.param("userId", userScope);
+        }
+        List<FilterOption> users = userSpec
+            .query((rs, rowNum) -> new FilterOption(
+                rs.getObject("id", UUID.class), rs.getString("name"), null))
+            .list();
+        var modelSpec = jdbcClient.sql("""
+                SELECT DISTINCT l.model_id AS id,
+                       coalesce(l.model_name_snapshot, m.display_name) AS name
+                FROM public.llm_usage_ledger l
+                LEFT JOIN public.llm_enterprise_models m ON m.id = l.model_id%s
+                ORDER BY name
+                """.formatted(scopeSql));
+        if (userScope != null) {
+            modelSpec = modelSpec.param("userId", userScope);
+        }
+        List<FilterOption> models = modelSpec
+            .query((rs, rowNum) -> new FilterOption(
+                rs.getObject("id", UUID.class), rs.getString("name"), null))
+            .list();
+        var sourceSpec = jdbcClient.sql("""
+                SELECT DISTINCT l.source_id AS id, l.source_type AS type,
+                       coalesce(l.source_name_snapshot,
+                           CASE l.source_type
+                               WHEN 'user' THEN (SELECT display_name FROM public.platform_users su WHERE su.id = l.source_id)
+                               ELSE (SELECT name FROM public.org_units so WHERE so.id = l.source_id)
+                           END) AS name
+                FROM public.llm_usage_ledger l%s
+                ORDER BY name
+                """.formatted(scopeSql));
+        if (userScope != null) {
+            sourceSpec = sourceSpec.param("userId", userScope);
+        }
+        List<FilterOption> sources = sourceSpec
+            .query((rs, rowNum) -> new FilterOption(
+                rs.getObject("id", UUID.class), rs.getString("name"), rs.getString("type")))
+            .list();
+        return new LedgerFilterOptions(users, models, sources);
     }
 
     /**
@@ -375,15 +493,22 @@ public class LlmLedgerJdbcRepository {
 
     // ---------- 内部 ----------
 
+    /**
+     * 明细行选择列:名称一律 coalesce(写入时快照, 实时名)——实体被删除后历史账本仍以快照名展示;
+     * 模型必须 LEFT JOIN,内连接会让被删模型的账本行整体消失。
+     */
     private static final String LEDGER_SELECT = """
-        SELECT l.id, l.request_id, l.usage_month, l.user_id, u.display_name AS user_display_name,
+        SELECT l.id, l.request_id, l.usage_month, l.user_id,
+               coalesce(l.user_name_snapshot, u.display_name) AS user_display_name,
                l.org_unit_id, o.name AS org_unit_name,
                l.source_type, l.source_id,
-               CASE l.source_type
-                   WHEN 'user' THEN (SELECT display_name FROM public.platform_users su WHERE su.id = l.source_id)
-                   ELSE (SELECT name FROM public.org_units so WHERE so.id = l.source_id)
-               END AS source_name,
-               l.model_id, m.display_name AS model_display_name,
+               coalesce(l.source_name_snapshot,
+                   CASE l.source_type
+                       WHEN 'user' THEN (SELECT display_name FROM public.platform_users su WHERE su.id = l.source_id)
+                       ELSE (SELECT name FROM public.org_units so WHERE so.id = l.source_id)
+                   END) AS source_name,
+               l.model_id,
+               coalesce(l.model_name_snapshot, m.display_name) AS model_display_name,
                l.session_id, l.gateway_request_id, l.status,
                l.reserved_tokens, l.prompt_tokens, l.completion_tokens, l.total_tokens,
                l.overage_tokens, l.estimated_cost, l.error_code, l.error_message,
@@ -391,7 +516,7 @@ public class LlmLedgerJdbcRepository {
         FROM public.llm_usage_ledger l
         LEFT JOIN public.platform_users u ON u.id = l.user_id
         LEFT JOIN public.org_units o ON o.id = l.org_unit_id
-        JOIN public.llm_enterprise_models m ON m.id = l.model_id
+        LEFT JOIN public.llm_enterprise_models m ON m.id = l.model_id
         """;
 
     private UsageLedgerEntry mapLedgerEntry(ResultSet rs, int rowNum) throws SQLException {

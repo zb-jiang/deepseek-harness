@@ -1193,7 +1193,7 @@ public class ArchiveDelegate implements JavaDelegate {
 
 ## 6. SKILL.md（4 个）
 
-四个 skill 的分工：`expense-submit` 供员工发起报销（建单 + 启动流程，P1 唯一入口）；`expense-lookup` 供各审批节点读单核对（P1 四个审批节点都挂它）；`universal-approver` 供审批节点输出结论 JSON；`document-submit` 供员工发起发文审批（P2 唯一入口）。SOR 地址 demo 固定 `http://localhost:8091/api`。
+四个 skill 的分工：`expense-submit` 供员工发起报销（建单 + 启动流程，P1 唯一入口）；`expense-lookup` 供各审批节点读单核对（P1 四个审批节点都挂它）；`universal-approver` 供审批节点输出结论 JSON；`document-submit` 供员工发起发文审批（P2 唯一入口）。
 
 ### 6.1 报销单提报助手（P1 发起入口）
 
@@ -1216,33 +1216,23 @@ triggers:
 1. **收集信息**：请员工提供报销事由、发票文件（pdf/png/jpeg，每张 ≤10MB）与每张发票的明细
    （费用类别：交通/住宿/餐饮/办公/其他；金额；发生日期 yyyy-MM-dd；说明）。
    缺哪项追问哪项，收集齐再继续。
-2. **逐个上传附件**：对每个发票文件调用
-   `POST http://localhost:8091/api/expenses/attachments`（multipart/form-data，字段 file，Authorization: Bearer 身份块认证令牌），
-   记录响应 `data.id`（attachmentId）。
-3. **创建报销单**：调用 `POST http://localhost:8091/api/expenses`（Authorization: Bearer 身份块认证令牌），请求体：
-
-   ```json
-   {
-     "title": "<简短标题>",
-     "reason": "<报销事由>",
-     "submitterName": "<当前用户姓名,从身份块取>",
-     "items": [
-       { "category": "交通", "amount": "830.00", "occurredDate": "2026-09-10", "description": "高铁往返" }
-     ],
-     "attachmentIds": ["<第 2 步的 id 列表>"]
-   }
-   ```
-
-   金额一律字符串十进制。响应 `data.id` 即报销单号，`data.totalAmount` 是 SOR 计算的合计——向员工复述确认。
-4. **启动流程**：调用 `dsh_process_start`，发起前必须先 dsh_process_list获得流程 id ，输入变量只传
+2. **逐个上传附件**：对每个发票文件调用工具 `dsh_expense_upload_attachment`
+   （filePath 传员工附件的本地路径），记录返回的 attachmentId。
+3. **创建报销单**：调用工具 `dsh_expense_create`，参数：
+   title（简短标题）、reason（报销事由）、submitterName（当前用户姓名，从身份块取）、
+   items（明细数组，amount 必须是正数字符串最多两位小数如 "830.00"，occurredDate 为 yyyy-MM-dd）、
+   attachmentIds（第 2 步的 id 列表）。
+   返回的 expenseId 即报销单号，totalAmount 是 SOR 计算的合计——向员工复述确认。
+4. **启动流程**：调用 `dsh_process_start`，发起前必须先 dsh_process_list 获得流程 id，输入变量只传
    `{ "expenseId": "<报销单号>" }`。
 5. **回复员工**：报销单号、合计金额、流程已启动；后续审批待办会出现在各办理人的 DSH 待办列表。
 
 ## 注意
 
-- 费控系统未启动时把接口错误如实告诉员工（"费控系统不可用，请稍后再试"），不要编造单号，也不要启动流程
+- 工具返回错误时把 error 信息如实转述给员工（如"费控系统不可达"→"费控系统未启动，请稍后再试"），
+  不要编造单号，也不要启动流程
 - 建单成功但流程启动失败：单号已保留（费控系统中状态为 opened），请员工稍后重试启动，**不要重复建单**
-- 单据状态流转：opened（已提交）→ ongoing（任一人审批过）→ approved（最后审批节点通过，正式批准）→ paid（已打款）；被拒 rejected；ongoing/approved 阶段可撤回 cancelled
+- 单据状态流转：opened（已提交）→ ongoing（审批中）→ approved（已批准待打款）→ paid（已打款）；被拒 rejected；ongoing/approved 阶段可撤回（撤回用 `dsh_expense_cancel`）
 ````
 
 ### 6.2 报销单查询助手（审批节点读单）
@@ -1264,11 +1254,11 @@ triggers:
 ## 你要做的事
 
 1. 从任务指令里拿报销单号（expenseId）；指令没带就向用户询问。
-2. 调用 `GET http://localhost:8091/api/expenses/{单号}`（Authorization: Bearer 身份块认证令牌）读取单据。
+2. 调用工具 `dsh_expense_get`（expenseId 传单号）读取单据详情。
 3. 向用户汇报：标题、事由、合计金额、当前状态、明细清单（每行：类别/金额/日期/说明）、
-   已关联附件（下载链接形如 `GET http://localhost:8091/api/expenses/{单号}/attachments/{attachmentId}`）、
-   已有审批记录（如有）（每行：审批人/审批/状态/时间）、
-   打款记录（如有）（每行：打款人/打款/状态/时间）。
+   已关联附件（每行：文件名/类型/大小）、
+   已有审批记录（如有）（每行：审批人/审批/意见/时间）、
+   打款记录（如有）（每行：打款人/金额/渠道/时间）。
 4. 用户要求核对时，逐张列出明细与附件的对应关系（金额勾稽：单张之和 = 合计）。
 
 ## 注意
