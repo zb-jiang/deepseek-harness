@@ -75,6 +75,9 @@ export interface CatalogDefaults {
  */
 const REASONING_EFFORTS = { low: 'low', medium: 'medium', high: 'high' } as const
 
+/** 当前登录员工的 JWT 失效(401);等客户端续期/重新登录后自动恢复,非故障。 */
+export class SessionExpiredError extends Error {}
+
 /**
  * Accept a positive integer capacity from the wire DTO.
  * @param value - raw field from the DTO (JSON numbers or absent).
@@ -101,6 +104,11 @@ export async function fetchEnterpriseModels(request: CatalogRequest): Promise<re
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`web-console 不可达(${request.webConsoleBaseUrl}): ${message}`)
+  }
+  if (resp.status === 401) {
+    // 先于 JSON 解析判定:web-console 的 401 响应体不是本信封的 JSON,
+    // 归为会话失效供调用方降级,而非「响应不是 JSON」的故障告警
+    throw new SessionExpiredError('登录 token 已过期或无效')
   }
   let body: ApiEnvelope<EmployeeModelDto[]>
   try {

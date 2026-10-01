@@ -67,6 +67,13 @@
         webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
         readMaxChars: !!js Number(process.env.KB_READ_MAX_CHARS ?? 40000)
 
+    # 会话知识库归属：员工端上报 任务会话→应用 绑定，每回合 step 1 向模型
+    # 注入应用知识库 kbId 块（无需先经 '@' 插入文档即可 kb_search/kb_list）。
+    - id: kb-context
+      name: '@deepseek-ai/dsh-kb-context'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
+
     # 员工端 AI 对话发起流程：注册 dsh_process_list / dsh_process_start_form /
     # dsh_process_start 工具，服务端直连 web-console（发起身份 orgUnitId 由
     # 上下文身份块的多位置确认交互产生）。

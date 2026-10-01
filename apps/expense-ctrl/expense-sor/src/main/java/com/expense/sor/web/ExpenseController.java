@@ -98,13 +98,12 @@ public class ExpenseController {
         return service.cancel(Validators.requireUuid(id, "id"), requireUserId());
     }
 
-    /** 7.8 列表查询(按 created_at 倒序分页) */
+    /** 7.8 列表查询(仅本人提交的单据,按 created_at 倒序分页;submitterId 服务端强制为 JWT sub,不接受调用方传值) */
     @GetMapping
     public List<ExpenseSummaryDto> list(@RequestParam(required = false) String status,
-            @RequestParam(required = false) String submitterId,
             @RequestParam(required = false) Integer offset,
             @RequestParam(required = false) Integer limit) {
-        return service.list(status, submitterId, offset, limit);
+        return service.list(status, requireUserId(), offset, limit);
     }
 
     /** 7.9 回写流程实例 id(幂等;不同 id 409) */

@@ -83,7 +83,7 @@ JWT 为 Supabase Auth 签发的 ES256 token，服务端从 JWKS 地址拉公钥�
 | 3 | GET | `/api/me` | JWT | 当前登录用户信息 |
 | 4 | POST | `/api/expenses` | JWT | 创建报销单 |
 | 5 | POST | `/api/expenses/attachments` | JWT | 上传附件（multipart） |
-| 6 | GET | `/api/expenses` | JWT | 报销单列表（分页） |
+| 6 | GET | `/api/expenses` | JWT | 报销单列表（分页，仅本人提交） |
 | 7 | GET | `/api/expenses/{id}` | JWT / Key | 查询报销单完整信息 |
 | 8 | GET | `/api/expenses/{id}/attachments/{attachmentId}` | JWT | 下载附件（二进制，裸响应） |
 | 9 | PUT | `/api/expenses/{id}/status` | JWT / Key | 显式状态迁移（管理备用） |
@@ -151,12 +151,11 @@ JWT 为 Supabase Auth 签发的 ES256 token，服务端从 JWKS 地址拉公钥�
 
 ### 6. GET /api/expenses（报销单列表）
 
-仅 JWT。按 `createdAt` 倒序分页。
+仅 JWT。**仅返回当前 JWT 用户本人提交的报销单**（`submitterId` 由服务端强制为 JWT `sub`，不接受调用方传值）；按 `createdAt` 倒序分页。审批人待办单据请走流程引擎待办，不在本列表范围。
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | status | 否 | 按状态过滤（opened/ongoing/approved/rejected/paid/cancelled） |
-| submitterId | 否 | 按提交人 UUID 过滤 |
 | offset | 否 | 偏移量，默认 0 |
 | limit | 否 | 条数，默认 50，上限 200 |
 

@@ -211,7 +211,7 @@ export function apply(ctx: Context, config: Config): void {
   // ── 2. 报销单列表（GET /api/expenses）──────────────────────────────────
   ctx.tools.register(defineTool({
     name: 'dsh_expense_list',
-    description: '按状态过滤查询报销单列表（分页，按创建时间倒序）。用于"我的报销单""最近提交的单子"类问题。',
+    description: '查询当前登录员工自己提交的报销单列表（仅本人创建的单据，服务端按登录身份过滤；分页，按创建时间倒序）。用于"我的报销单""最近提交的单子"类问题。待本人审批的单据走流程待办，不在本列表范围。',
     parameters: {
       status: { type: 'string', description: '按状态过滤：opened/ongoing/approved/rejected/paid/cancelled' },
       offset: { type: 'number', description: '偏移量，默认 0' },

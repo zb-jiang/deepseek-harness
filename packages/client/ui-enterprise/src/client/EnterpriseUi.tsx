@@ -29,11 +29,48 @@ function getSupabaseClient(): Promise<SupabaseClient> {
     const res = await fetch('/api/enterprise/auth/config')
     const config = await res.json() as { url: string; anonKey: string }
     supabaseClient = createClient(config.url, config.anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
+      // 会话化:session 持久化在 localStorage,access token 到期前由 supabase-js
+      // 自动用 refresh token 换新,长驻页面与后台服务不再因 1 小时过期而 401
+      auth: { persistSession: true, autoRefreshToken: true },
+    })
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED' && session?.access_token !== undefined) {
+        if (session.access_token !== readToken()) {
+          writeToken(session.access_token)
+          // 重拉 /me:既刷新本地用户快照,也让 webserver 的身份快照换到新 token,
+          // skill-sync/llm-access 等后台轮询随 platform-user/verified 拿到新 token
+          void refreshAuthUser()
+        }
+      } else if (event === 'SIGNED_OUT') {
+        // 本页登出(switchAccount 已清理过,幂等)或其他标签页登出经 storage 同步过来
+        clearToken()
+        setAuthSnapshot({ currentUser: null, loading: false })
+      }
     })
     return supabaseClient
   })()
   return supabaseInitPromise
+}
+
+/**
+ * 用当前 token 重拉 /me 刷新用户快照(TOKEN_REFRESHED 后由监听器调用)。
+ * 刚续期的新 token 仍被拒(401)说明会话已失效(账号被禁用/吊销),回登录页;
+ * 网络类瞬时失败保留当前快照,等下一次续期再同步。
+ */
+async function refreshAuthUser(): Promise<void> {
+  const token = readToken()
+  if (token === null) return
+  try {
+    const res = await fetch('/api/enterprise/auth/me', { headers: { authorization: `Bearer ${token}` } })
+    if (res.status === 401) {
+      clearToken()
+      setAuthSnapshot({ currentUser: null, loading: false })
+      return
+    }
+    if (!res.ok) return
+    const user = await res.json() as PlatformUserRow
+    setAuthSnapshot({ currentUser: user, loading: false })
+  } catch { /* 网络失败:保留当前状态,下一次 TOKEN_REFRESHED 再同步 */ }
 }
 
 // ── Auth store (module-level, shared across Nav + Overlay) ──
@@ -95,6 +132,10 @@ async function initAuth(): Promise<void> {
     return
   }
   try {
+    // 先等 supabase 恢复本地会话(getSession 内部等待初始化,access token 已过期
+    // 时自动用 refresh token 续期并经 TOKEN_REFRESHED 写回 TOKEN_KEY),再调 /me
+    const client = await getSupabaseClient()
+    await client.auth.getSession()
     const user = await fetchJson<PlatformUserRow>('/api/enterprise/auth/me')
     setAuthSnapshot({ currentUser: user, loading: false })
   } catch {
@@ -139,19 +180,20 @@ export function useAuth() {
   }, [])
 
   const switchAccount = useCallback(async () => {
+    // 先带旧 token 通知本地 webserver 失效身份缓存(此时尚未清 TOKEN_KEY),
+    // 再清本地与 supabase 会话;SIGNED_OUT 监听里的清理是幂等的
+    const token = readToken()
     try {
-      const client = await getSupabaseClient()
-      await client.auth.signOut()
-    } catch { /* ignore signout errors */ }
-    // 通知本地 webserver 使身份缓存失效（须在 clearToken 之前，携带旧 token）。
-    try {
-      const token = readToken()
       await fetch('/api/enterprise/auth/signout', {
         method: 'POST',
         headers: token === null ? {} : { authorization: `Bearer ${token}` },
       })
     } catch { /* 缓存自愈：下一次 /me 会重建身份 */ }
     clearToken()
+    try {
+      const client = await getSupabaseClient()
+      await client.auth.signOut()
+    } catch { /* ignore signout errors */ }
     setAuthSnapshot({ currentUser: null, loading: false })
   }, [])
 

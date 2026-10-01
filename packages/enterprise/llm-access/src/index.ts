@@ -35,7 +35,7 @@ import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-user-identity-context'
 import type {} from '@deepseek-ai/dsh-platform-user'
 import { EnterpriseLlmAdapter } from './adapter.ts'
-import { buildEnterpriseProfiles, ENTERPRISE_PROVIDER, fetchEnterpriseModels } from './catalog.ts'
+import { buildEnterpriseProfiles, ENTERPRISE_PROVIDER, fetchEnterpriseModels, SessionExpiredError } from './catalog.ts'
 import type { EnterpriseModel } from './catalog.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -177,7 +177,13 @@ export function apply(ctx: Context, config: Config): void {
     lastPullAt = Date.now()
     pullInFlight = true
     void refreshCatalog(token)
-      .catch(error => ctx.logger.warn('llm-access: 模型目录刷新失败', error))
+      .catch((error: unknown) => {
+        if (error instanceof SessionExpiredError) {
+          ctx.logger.info('llm-access: 登录 token 已过期或无效,等待下一次身份验证后自动恢复')
+          return
+        }
+        ctx.logger.warn('llm-access: 模型目录刷新失败', error)
+      })
       .finally(() => {
         pullInFlight = false
         scheduleNext()

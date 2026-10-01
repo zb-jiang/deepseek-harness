@@ -37,6 +37,7 @@ import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { completeTask, ensureSkills, getCompletedTasks, getMyTasks } from './task-api.ts'
 import type { CompletedTask, Task } from './task-api.ts'
+import { reportSessionKb, type SessionKbEntry } from './kb-session-report.ts'
 
 /**
  * 跨域会话端口的最小创建面:运行时的 SessionRuntime 同时满足 ISessions
@@ -251,6 +252,8 @@ export class EnterpriseWorkbench {
         draft.loading = false
         draft.error = null
       })
+      // 任务列表就绪后重放持久绑定的会话归属:覆盖初始化与 webserver 重启自愈。
+      this.replaySessionKbReports()
     } catch (e) {
       this.tasks.update((draft) => {
         draft.loading = false
@@ -311,6 +314,7 @@ export class EnterpriseWorkbench {
     const sessionId = await this.createTaskSession(workspaceId)
     if (sessionId === undefined) return
     this.bind(task.id, sessionId)
+    this.reportSessionApp(sessionId, task.applicationId)
     const prefillNotice = this.prefillPrompt(task, sessionId)
     this.tasks.update((draft) => {
       // 只清自己置入的弹窗任务:等待建会话期间用户可能又点击了其它未绑定
@@ -772,6 +776,32 @@ export class EnterpriseWorkbench {
     saveTaskSessions(this.bindings.getSnapshot().taskToSession)
   }
 
+  /** 已上报的服务端会话→应用归属(去重;值不变不重发)。 */
+  private readonly reportedSessionApps = new Map<string, string | null>()
+
+  /** 上报单条会话归属到本地 kb-context 插件(值不变时跳过;失败静默自愈)。 */
+  private reportSessionApp(sessionId: SessionId, applicationId: string | null): void {
+    if (this.reportedSessionApps.get(sessionId) === applicationId) return
+    this.reportedSessionApps.set(sessionId, applicationId)
+    reportSessionKb([{ sessionId, applicationId }])
+  }
+
+  /** 重放全部持久绑定的会话归属(初始化与每次刷新后;webserver 重启自愈)。 */
+  private replaySessionKbReports(): void {
+    const { taskToSession } = this.bindings.getSnapshot()
+    const entries: SessionKbEntry[] = []
+    for (const [taskId, sessionId] of Object.entries(taskToSession)) {
+      // 列表暂缺的任务(瞬时抖动)跳过不报,避免把已知归属误清成 null。
+      const task = this.tasks.getSnapshot().items.find(item => item.id === taskId)
+      if (task === undefined) continue
+      const applicationId = task.applicationId
+      if (this.reportedSessionApps.get(sessionId) === applicationId) continue
+      this.reportedSessionApps.set(sessionId, applicationId)
+      entries.push({ sessionId, applicationId })
+    }
+    if (entries.length > 0) reportSessionKb(entries)
+  }
+
   /** 解除绑定;'completed' 时在会话上留完成回执并把映射持久化。 */
   private unbind(task: Task, reason: 'completed'): void {
     let persisted: SessionId | undefined
@@ -798,6 +828,8 @@ export class EnterpriseWorkbench {
     if (persisted !== undefined) {
       this.completedSessions[task.id] = persisted
       saveCompletedSessions(this.completedSessions)
+      // 服务端解除该会话的知识库归属,下一轮起不再注入 kb 块。
+      this.reportSessionApp(persisted, null)
     }
     // 提交完成后任务不再"进行中":从持久化绑定中移除,避免刷新后残留。
     saveTaskSessions(this.bindings.getSnapshot().taskToSession)

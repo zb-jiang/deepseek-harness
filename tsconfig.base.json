@@ -405,6 +405,8 @@
       "@deepseek-ai/dsh-jobs": ["./packages/jobs/jobs/src"],
       "@deepseek-ai/dsh-jobs/invariant": ["./packages/jobs/jobs/src/invariant.ts"],
       "@deepseek-ai/dsh-jobs-local": ["./packages/jobs/jobs-local/src"],
+      "@deepseek-ai/dsh-kb-context": ["./packages/enterprise/kb-context/src"],
+      "@deepseek-ai/dsh-kb-context/invariant": ["./packages/enterprise/kb-context/src/invariant.ts"],
       "@deepseek-ai/dsh-knowledge": ["./packages/enterprise/knowledge/src"],
       "@deepseek-ai/dsh-knowledge/invariant": ["./packages/enterprise/knowledge/src/invariant.ts"],
       "@deepseek-ai/dsh-launch-environment": ["./packages/util/launch-environment/src"],

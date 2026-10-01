@@ -36,6 +36,9 @@ import type {} from '@deepseek-ai/dsh-user-identity-context'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'skill-sync'
 
+/** 当前登录员工的 JWT 失效(401);等客户端续期/重新登录后自动恢复,非故障。 */
+class SessionExpiredError extends Error {}
+
 /** 等待 skill 注册表、登录身份存储与本地 webserver 就绪后才挂载。 */
 export const inject = ['skills', 'currentUser', 'webServer'] as const
 
@@ -248,6 +251,10 @@ export class SkillSyncService extends Service {
     try {
       required = await this.fetchRequired(token)
     } catch (error) {
+      if (error instanceof SessionExpiredError) {
+        this.ctx.logger.info('skill-sync: 登录 token 已过期或无效,本轮跳过,待下一次身份验证后自动恢复')
+        return
+      }
       this.ctx.logger.warn('skill-sync: 拉取所需 skill 清单失败', error)
       return
     }
@@ -334,7 +341,7 @@ export class SkillSyncService extends Service {
       headers: { authorization: `Bearer ${token}` },
     })
     if (response.status === 401) {
-      throw new Error('登录 token 已过期或无效')
+      throw new SessionExpiredError('登录 token 已过期或无效')
     }
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500)
