@@ -34,6 +34,8 @@ import org.w3c.dom.NodeList;
  * <p>对应 spec §12.10 应用隔离不变量 + §5.7 节点定义约束 + §13.4 应用隔离设计:
  * <ul>
  *   <li>BPMN 是合法 XML 且根元素是 definitions。</li>
+ *   <li>节点标识完整性:所有流程节点(事件/任务/网关/子流程/调用活动)的 id 与
+ *       name 必填(引擎日志与待办列表按其展示,缺失时运行期为 "[null(...)]")。</li>
  *   <li>每个 human 节点的 {@code flowable:candidateGroups} 或 {@code dsh:assignmentRule.candidateRoleId}
  *       引用的 role_id 必属于该 BPMN 所属应用。</li>
  *   <li>userTask 多实例 wiring(DSH 派发只认集合形式):配了
@@ -152,6 +154,12 @@ public class BpmnValidationService {
 
         List<String> errors = new ArrayList<>();
 
+        // 1.5) 节点标识完整性:所有流程节点的 id、name 必填
+        validateNodeIdentifiers(doc, errors);
+
+        // 1.6) process 可执行性:isExecutable 必须显式为 true
+        validateProcessExecutable(doc, errors);
+
         // 2) 取本应用所有 role_id 集合,校验归属
         List<AppRoleDto> appRoles = roleRepository.listByApp(appId);
         Set<String> validRoleIds = appRoles.stream()
@@ -202,6 +210,58 @@ public class BpmnValidationService {
     }
 
     // ===== 应用隔离与节点定义(原有) =====
+
+    /**
+     * 流程节点元素清单({@link #validateNodeIdentifiers}):事件/任务/网关/子流程/
+     * 调用活动;连线(sequenceFlow)是图的边不是节点,不在标识检查范围。
+     */
+    private static final List<String> FLOW_NODE_TAGS = List.of(
+        "startEvent", "endEvent", "intermediateCatchEvent", "intermediateThrowEvent", "boundaryEvent",
+        "userTask", "serviceTask", "scriptTask", "manualTask", "receiveTask", "sendTask",
+        "businessRuleTask", "callActivity", "subProcess",
+        "exclusiveGateway", "parallelGateway", "inclusiveGateway", "eventGateway", "complexGateway");
+
+    /**
+     * 节点标识完整性:所有流程节点(事件/任务/网关/子流程/调用活动)的 id 与 name
+     * 必填。引擎侧流程日志、待办列表、实例详情任务表按 name 展示、按 activityId
+     * 定位,name 缺失时运行期表现为 "[null(...)]" 不可读;id 是 BPMN 强制属性,
+     * 手改 XML 仍可能清空,一并拦下。getElementsByTagNameNS 递归覆盖子流程内节点。
+     */
+    private void validateNodeIdentifiers(Document doc, List<String> errors) {
+        for (String tag : FLOW_NODE_TAGS) {
+            NodeList nodes = doc.getElementsByTagNameNS(BPMN_NS, tag);
+            for (int i = 0; i < nodes.getLength(); i++) {
+                Element node = (Element) nodes.item(i);
+                String id = node.getAttribute("id");
+                String name = node.getAttribute("name");
+                if (id.isBlank()) {
+                    errors.add(String.format("%s[name=%s] 缺少 id(节点 ID 必填)", tag, name));
+                }
+                if (name.isBlank()) {
+                    errors.add(String.format(
+                        "%s[id=%s] 缺少 name(节点名称必填,流程日志与待办列表按其展示)", tag, id));
+                }
+            }
+        }
+    }
+
+    /**
+     * process 可执行性:{@code isExecutable} 必须显式为 true——false 的流程是纯
+     * 建模文档,部署后引擎不生成可运行定义,发起实例报「流程不存在」。bpmn-js
+     * 新建画布默认勾选,手改 XML 或误操作取消时在此拦下。
+     */
+    private void validateProcessExecutable(Document doc, List<String> errors) {
+        NodeList processes = doc.getElementsByTagNameNS(BPMN_NS, "process");
+        for (int i = 0; i < processes.getLength(); i++) {
+            Element process = (Element) processes.item(i);
+            String id = process.getAttribute("id");
+            if (!"true".equals(process.getAttribute("isExecutable"))) {
+                errors.add(String.format(
+                    "process[id=%s] 的 isExecutable 必须为 true(false 的流程部署后无法发起实例)",
+                    id));
+            }
+        }
+    }
 
     private void validateRoleReferences(Element root, Set<String> validRoleIds,
                                         Set<String> activeRoleIds, List<String> errors) {

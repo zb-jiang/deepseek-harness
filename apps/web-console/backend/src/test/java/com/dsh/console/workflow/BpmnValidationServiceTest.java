@@ -54,6 +54,65 @@ class BpmnValidationServiceTest {
             profileRepository, orgUnitRepository);
     }
 
+    /** 最小可执行流程骨架:节点标识用例按需替换 start/task/end 的 id/name。 */
+    private String nodeIdentifierBpmn(String taskElement) {
+        return """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                         xmlns:dsh="http://dsh.ai/bpmn"
+                         targetNamespace="http://dsh.test">
+              <process id="validation_test_process" isExecutable="true">
+                <startEvent id="start" name="开始"/>
+                <sequenceFlow id="flow1" sourceRef="start" targetRef="task"/>
+            %s
+                <sequenceFlow id="flow2" sourceRef="task" targetRef="end"/>
+                <endEvent id="end" name="结束"/>
+              </process>
+            </definitions>
+            """.formatted(taskElement);
+    }
+
+    @Test
+    void nodeWithoutNameIsRejected() {
+        BpmnValidationResult result = service.validate(nodeIdentifierBpmn(
+            "<userTask id=\"task\"/>"), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e ->
+            e.contains("userTask[id=task] 缺少 name"));
+    }
+
+    @Test
+    void nodeWithoutIdIsRejected() {
+        BpmnValidationResult result = service.validate(nodeIdentifierBpmn(
+            "<userTask name=\"任务\"/>"), UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e ->
+            e.contains("userTask[name=任务] 缺少 id"));
+    }
+
+    @Test
+    void nodesWithIdAndNamePassIdentifierCheck() {
+        BpmnValidationResult result = service.validate(nodeIdentifierBpmn(
+            "<userTask id=\"task\" name=\"任务\"/>"), UUID.randomUUID());
+        assertThat(result.errors()).noneMatch(e -> e.contains("缺少 id") || e.contains("缺少 name"));
+    }
+
+    @Test
+    void nonExecutableProcessIsRejected() {
+        BpmnValidationResult result = service.validate(
+            nodeIdentifierBpmn("<userTask id=\"task\" name=\"任务\"/>")
+                .replace("isExecutable=\"true\"", "isExecutable=\"false\""),
+            UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("isExecutable 必须为 true"));
+    }
+
+    @Test
+    void processMissingExecutableAttributeIsRejected() {
+        BpmnValidationResult result = service.validate(
+            nodeIdentifierBpmn("<userTask id=\"task\" name=\"任务\"/>")
+                .replace(" isExecutable=\"true\"", ""),
+            UUID.randomUUID());
+        assertThat(result.errors()).anyMatch(e -> e.contains("isExecutable 必须为 true"));
+    }
+
     @Test
     void standardInitiatorDeclarationPassesWithPromptAndConditionReferences() {
         BpmnValidationResult result = service.validate(bpmn("""
@@ -279,7 +338,7 @@ class BpmnValidationServiceTest {
                          xmlns:dsh="http://dsh.ai/bpmn"
                          targetNamespace="http://dsh.test">
               <process id="org_validation_test" isExecutable="true">
-                <startEvent id="start"/>
+                <startEvent id="start" name="开始"/>
                 <userTask id="task" name="任务"/>
                 <sequenceFlow id="flow2" sourceRef="task" targetRef="decide">
                   <conditionExpression>${dsh_applicant_org_unit_id != null}</conditionExpression>
@@ -463,12 +522,12 @@ class BpmnValidationServiceTest {
                          targetNamespace="http://dsh.test">
               <process id="validation_test_process" isExecutable="true">
             %s
-                <startEvent id="start"/>
+                <startEvent id="start" name="开始"/>
                 <userTask id="task" name="任务">
             %s
                 </userTask>
                 <sequenceFlow id="flow2" sourceRef="task" targetRef="end"/>
-                <endEvent id="end"/>
+                <endEvent id="end" name="结束"/>
               </process>
             </definitions>""".formatted(processBlock, userTaskInner);
     }
@@ -562,7 +621,7 @@ class BpmnValidationServiceTest {
                          xmlns:dsh="http://dsh.ai/bpmn"
                          targetNamespace="http://dsh.test">
               <process id="validation_test_process" isExecutable="true">
-                <startEvent id="start"/>
+                <startEvent id="start" name="开始"/>
                 <userTask id="task" name="任务"/>
                 <sequenceFlow id="flow2" sourceRef="task" targetRef="decide">
                   <conditionExpression>${dsh_passCount_task &gt;= 3}</conditionExpression>
@@ -1018,14 +1077,14 @@ class BpmnValidationServiceTest {
                          targetNamespace="http://dsh.test">
               <process id="service_validation_test" isExecutable="true">
             %s
-                <startEvent id="start"/>
+                <startEvent id="start" name="开始"/>
                 <sequenceFlow id="flow1" sourceRef="start" targetRef="task"/>
                 <serviceTask id="task" name="任务"
                              flowable:delegateExpression="%s"%s>
             %s
                 </serviceTask>
                 <sequenceFlow id="flow2" sourceRef="task" targetRef="end"/>
-                <endEvent id="end"/>
+                <endEvent id="end" name="结束"/>
               </process>
             </definitions>""".formatted(contextBlock, delegateExpression, asyncAttr, taskInner);
     }
@@ -1054,7 +1113,7 @@ class BpmnValidationServiceTest {
                          xmlns:dsh="http://dsh.ai/bpmn"
                          targetNamespace="http://dsh.test">
               <process id="backend_validation_test" isExecutable="true">
-                <startEvent id="start"/>
+                <startEvent id="start" name="开始"/>
             %s
                 <serviceTask id="task" name="后端任务"
                              flowable:delegateExpression="%s"%s>
@@ -1064,7 +1123,7 @@ class BpmnValidationServiceTest {
                 </serviceTask>
                 <sequenceFlow id="flow1" sourceRef="start" targetRef="task"/>
                 <sequenceFlow id="flow2" sourceRef="task" targetRef="end"/>
-                <endEvent id="end"/>
+                <endEvent id="end" name="结束"/>
               </process>
             </definitions>""".formatted(contextBlock, delegateExpression, asyncAttr,
             serviceTaskExtensions);
@@ -1100,13 +1159,13 @@ class BpmnValidationServiceTest {
                          targetNamespace="http://dsh.test">
               <process id="validation_test_process" isExecutable="true">
             %s
-                <startEvent id="start"/>
+                <startEvent id="start" name="开始"/>
             %s
                 <userTask id="task" name="任务">
             %s
                 </userTask>
                 <sequenceFlow id="flow2" sourceRef="task" targetRef="end"/>
-                <endEvent id="end"/>
+                <endEvent id="end" name="结束"/>
               </process>
             </definitions>""".formatted(contextBlock, flow1, taskBlock);
     }
