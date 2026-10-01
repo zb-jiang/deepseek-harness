@@ -116,6 +116,7 @@ const CONFIG = {
   // 尾斜杠由插件在请求期去尾;断言里的上游地址是无尾斜杠形态。
   webConsoleBaseUrl: volatileOf('http://console:8080/'),
   readMaxChars: 100,
+  serviceKey: '',
 }
 
 const FOLDERS = [
@@ -160,14 +161,18 @@ interface ListResult {
 describe('knowledge', () => {
   let ctx: Context
 
-  const mount = (token: string | undefined, fetchMock: ReturnType<typeof stubFetch> = stubFetch([])) => {
+  const mount = (
+    token: string | undefined,
+    fetchMock: ReturnType<typeof stubFetch> = stubFetch([]),
+    serviceKey = '',
+  ) => {
     vi.stubGlobal('fetch', fetchMock)
     const tools = stubTools()
     const webServer = stubWebServer()
     ctx.provide('tools', tools as never)
     ctx.provide('currentUser', stubCurrentUser(token) as never)
     ctx.provide('webServer', webServer as never)
-    apply(ctx, { ...CONFIG })
+    apply(ctx, { ...CONFIG, serviceKey })
     return { tools, webServer }
   }
 
@@ -475,6 +480,48 @@ describe('knowledge', () => {
   it('kb_read:未登录时抛错', async () => {
     const { tools } = mount(undefined)
     await expect(execute(toolOf(tools, 'kb_read'), { docId: 'doc1' })).rejects.toThrow('未登录')
+  })
+
+  it('服务密钥回退:无 currentUser 服务时 kb_read 走 /api/backend/kb 白名单端点并带 x-service-key 头', async () => {
+    const fetchMock = stubFetch([{
+      match: url => url === 'http://console:8080/api/backend/kb/documents/doc1/text',
+      response: () => jsonResponse(200, {
+        success: true,
+        data: { id: 'doc1', kbId: 'kb1', name: '报销规范', textContent: '服务身份全文', parseStatus: 'ready' },
+      }),
+    }])
+    vi.stubGlobal('fetch', fetchMock)
+    const tools = stubTools()
+    ctx.provide('tools', tools as never)
+    ctx.provide('webServer', stubWebServer() as never)
+    // 不提供 currentUser:模拟 backend profile(无登录身份插件)
+    apply(ctx, { ...CONFIG, serviceKey: 'sk-1' })
+    const result = await execute(toolOf(tools, 'kb_read'), { docId: 'doc1' }) as { text: string }
+    expect(result.text).toBe('服务身份全文')
+    const [input, init] = fetchMock.mock.calls[0]!
+    expect(String(input)).toBe('http://console:8080/api/backend/kb/documents/doc1/text')
+    expect(init?.headers).toEqual({ 'x-service-key': 'sk-1' })
+  })
+
+  it('登录态优先于服务密钥:两者都在时走 /api/kb + Bearer(员工端成员校验)', async () => {
+    const fetchMock = stubFetch([{
+      match: url => url === 'http://console:8080/api/kb/documents/doc1/text',
+      response: () => jsonResponse(200, {
+        success: true,
+        data: { id: 'doc1', kbId: 'kb1', name: '报销规范', textContent: '员工全文', parseStatus: 'ready' },
+      }),
+    }])
+    const { tools } = mount('jwt', fetchMock, 'sk-1')
+    await execute(toolOf(tools, 'kb_read'), { docId: 'doc1' })
+    const [input, init] = fetchMock.mock.calls[0]!
+    expect(String(input)).toBe('http://console:8080/api/kb/documents/doc1/text')
+    expect(init?.headers).toEqual({ authorization: 'Bearer jwt' })
+  })
+
+  it('未登录且无服务密钥时工具报错(两处认证皆空 fail loud)', async () => {
+    const { tools } = mount(undefined)
+    await expect(execute(toolOf(tools, 'kb_read'), { docId: 'doc1' }))
+      .rejects.toThrow('未登录且未配置服务密钥')
   })
 
   it('kb_read:上游不可达时抛 502 消息', async () => {

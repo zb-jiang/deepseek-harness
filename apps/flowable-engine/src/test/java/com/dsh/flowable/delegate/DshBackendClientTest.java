@@ -94,7 +94,7 @@ class DshBackendClientTest {
     void submitsThenPollsUntilReadyAndReturnsResult() {
         runningRounds = 1;
         Map<String, Object> result = client(1, 10).execute(
-            baseUrl, "生成摘要", List.of("skill-a"), "act-1");
+            baseUrl, "生成摘要", List.of("skill-a"), "act-1", null);
         assertThat(result).containsEntry("status", "ok");
         assertThat(pollCount.get()).isEqualTo(2);
     }
@@ -103,7 +103,7 @@ class DshBackendClientTest {
     void failedTaskThrowsWithBackendErrorText() {
         failedError = "模型输出中不含合法 JSON 对象";
         assertThatThrownBy(() -> client(1, 10).execute(
-            baseUrl, "任意", List.of(), "act-2"))
+            baseUrl, "任意", List.of(), "act-2", null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("模型输出中不含合法 JSON 对象");
     }
@@ -113,7 +113,7 @@ class DshBackendClientTest {
         // 一直 running,callTimeout 2 秒(pollInterval 1 秒 → 两次轮询后超时)
         runningRounds = Integer.MAX_VALUE;
         assertThatThrownBy(() -> client(1, 2).execute(
-            baseUrl, "任意", List.of(), "act-3"))
+            baseUrl, "任意", List.of(), "act-3", null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("轮询超时");
     }
@@ -124,7 +124,7 @@ class DshBackendClientTest {
         // 按首末花括号容错提取
         readyResult = "前缀说明 {\"x\": 1, \"y\": [2, 3]} 后缀说明";
         Map<String, Object> result = client(1, 10).execute(
-            baseUrl, "任意", List.of(), "act-4");
+            baseUrl, "任意", List.of(), "act-4", null);
         assertThat(result).containsEntry("x", 1);
     }
 
@@ -132,7 +132,7 @@ class DshBackendClientTest {
     void nonObjectResultRejected() {
         readyResult = 42;
         assertThatThrownBy(() -> client(1, 10).execute(
-            baseUrl, "任意", List.of(), "act-5"))
+            baseUrl, "任意", List.of(), "act-5", null))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("不是 JSON 对象");
     }
@@ -142,7 +142,7 @@ class DshBackendClientTest {
         // 未监听端口:提交立即抛 IllegalStateException
         String deadUrl = "http://127.0.0.1:1";
         assertThatThrownBy(() -> client(1, 2).execute(
-            deadUrl, "任意", List.of(), "act-6"))
+            deadUrl, "任意", List.of(), "act-6", null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("提交失败");
     }
@@ -153,10 +153,30 @@ class DshBackendClientTest {
         // 中文与 skill 清单经 JSON UTF-8 提交;乱码(PS5.1 Latin-1 那类)会在
         // stub 的 Jackson 解析层抛错,submit 失败
         Map<String, Object> result = client(1, 10).execute(
-            baseUrl, "生成「中文」摘要", List.of("skill-a", "skill-b"), "act-7");
+            baseUrl, "生成「中文」摘要", List.of("skill-a", "skill-b"), "act-7", null);
         assertThat(result).containsEntry("status", "ok");
         assertThat(submittedBody).containsEntry("prompt", "生成「中文」摘要");
         assertThat(submittedBody.get("skillRefs"))
             .isEqualTo(List.of("skill-a", "skill-b"));
+    }
+
+    @Test
+    void kbIsCarriedAsStructuredPayloadFields() {
+        runningRounds = 0;
+        // 知识库走 payload 独立字段(kbId/kbName),不拼进 prompt
+        Map<String, Object> result = client(1, 10).execute(
+            baseUrl, "生成摘要", List.of(), "act-8",
+            new WebConsoleKbClient.KbRef("kb-uuid-1", "差旅工程知识库"));
+        assertThat(result).containsEntry("status", "ok");
+        assertThat(submittedBody).containsEntry("kbId", "kb-uuid-1");
+        assertThat(submittedBody).containsEntry("kbName", "差旅工程知识库");
+    }
+
+    @Test
+    void nullKbOmitsKbPayloadFields() {
+        runningRounds = 0;
+        // 未开通知识库/解析降级时 payload 不带 kb 字段(旧 profile 实例兼容)
+        client(1, 10).execute(baseUrl, "任意", List.of(), "act-9", null);
+        assertThat(submittedBody).doesNotContainKeys("kbId", "kbName");
     }
 }

@@ -14,6 +14,7 @@ import com.dsh.console.security.AuthContext;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -104,6 +105,14 @@ public class KnowledgeService {
     }
 
     /**
+     * 服务身份变体(X-Service-Key):按应用查已开通知识库,不做员工成员校验,
+     * 未开通返回空(调用方 404)。仅限 {@code BackendKbController} 的只读端点。
+     */
+    public Optional<KnowledgeBaseDto> findKbByAppForService(UUID appId) {
+        return repository.findKbByApp(appId);
+    }
+
+    /**
      * 当前用户可见的知识库清单(system_admin 全部;其余为应用管理员 ∪
      * active 成员的应用):员工端工作空间上传「选应用」数据源。
      */
@@ -117,6 +126,16 @@ public class KnowledgeService {
 
     public List<KbFolderDto> listFolders(AuthContext auth, UUID kbId) {
         checkKbAccess(auth, kbId);
+        return repository.listFolders(kbId);
+    }
+
+    /**
+     * 服务身份变体(X-Service-Key):列知识库文件夹树,不做员工成员校验。
+     *
+     * <p>仅限 {@code BackendKbController} 的只读端点(backend profile 无人值守
+     * kb_* 工具);无员工身份可校验,权限由服务密钥白名单收口,不得开放写操作。
+     */
+    public List<KbFolderDto> listFoldersForService(UUID kbId) {
         return repository.listFolders(kbId);
     }
 
@@ -213,6 +232,21 @@ public class KnowledgeService {
     public List<KbDocumentDto> listDocuments(AuthContext auth, UUID kbId, UUID folderId,
                                              boolean recursive, String kw, String parseStatus) {
         checkKbAccess(auth, kbId);
+        return listDocumentsCore(kbId, folderId, recursive, kw, parseStatus);
+    }
+
+    /**
+     * 服务身份变体(X-Service-Key):文档检索,不做员工成员校验,语义同
+     * {@link #listDocuments}。仅限 {@code BackendKbController} 的只读端点。
+     */
+    public List<KbDocumentDto> listDocumentsForService(UUID kbId, UUID folderId,
+                                                       boolean recursive, String kw, String parseStatus) {
+        return listDocumentsCore(kbId, folderId, recursive, kw, parseStatus);
+    }
+
+    /** 列文档共用实现(成员校验之后的路径;folderId → 文件夹行解析在此)。 */
+    private List<KbDocumentDto> listDocumentsCore(UUID kbId, UUID folderId,
+                                                  boolean recursive, String kw, String parseStatus) {
         KbFolderDto folder = folderId == null ? null : requireFolder(kbId, folderId);
         List<KbDocumentRecord> docs = repository.listDocuments(kbId, folder, recursive, kw, parseStatus);
         Map<String, String> uploaderNames = repository.displayNamesByAuthSubjects(
@@ -289,6 +323,18 @@ public class KnowledgeService {
         KnowledgeBaseDto kb = repository.findKb(doc.kbId())
             .orElseThrow(() -> new NotFoundException("知识库不存在: " + doc.kbId()));
         checkAppMemberAccess(auth, kb.applicationId());
+        return new KbDocumentTextDto(
+            doc.id(), doc.kbId(), doc.name(), doc.textContent(), doc.parseStatus());
+    }
+
+    /**
+     * 服务身份变体(X-Service-Key):按 docId 读文档全文,不做员工成员校验,
+     * 形态同 {@link #readDocumentText}(未解析完成返回 pending 状态由调用方呈现)。
+     * 仅限 {@code BackendKbController} 的只读端点。
+     */
+    public KbDocumentTextDto readDocumentTextForService(UUID docId) {
+        KbDocumentRecord doc = repository.findDocumentById(docId)
+            .orElseThrow(() -> new NotFoundException("文档不存在: " + docId));
         return new KbDocumentTextDto(
             doc.id(), doc.kbId(), doc.name(), doc.textContent(), doc.parseStatus());
     }

@@ -1,6 +1,7 @@
 package com.dsh.console.config;
 
 import com.dsh.console.security.JwtAuthConverter;
+import com.dsh.console.security.ServiceKeyAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -12,6 +13,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -39,10 +41,13 @@ public class SecurityConfig {
 
     private final SupabaseJwtProperties properties;
     private final JwtAuthConverter jwtAuthConverter;
+    private final ServiceKeyProperties serviceKeyProperties;
 
-    public SecurityConfig(SupabaseJwtProperties properties, JwtAuthConverter jwtAuthConverter) {
+    public SecurityConfig(SupabaseJwtProperties properties, JwtAuthConverter jwtAuthConverter,
+                          ServiceKeyProperties serviceKeyProperties) {
         this.properties = properties;
         this.jwtAuthConverter = jwtAuthConverter;
+        this.serviceKeyProperties = serviceKeyProperties;
     }
 
     /**
@@ -83,7 +88,12 @@ public class SecurityConfig {
                 .anyRequest().permitAll()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthConverter)));
+                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthConverter)))
+            // X-Service-Key 服务间认证(JWT 之前):命中白名单注入服务身份,
+            // 其余带该头的请求由过滤器直接 401,不再走 JWT 路径。
+            // 就地构造而非 Filter bean:避免 Spring Boot 把它再注册进 servlet 容器链双跑
+            .addFilterBefore(new ServiceKeyAuthFilter(serviceKeyProperties),
+                BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 }

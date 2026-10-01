@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.dsh.flowable.config.DshBackendProperties;
 import com.dsh.flowable.delegate.DshBackendClient;
 import com.dsh.flowable.delegate.DshBackendTaskDelegate;
+import com.dsh.flowable.delegate.WebConsoleKbClient;
 import com.dsh.flowable.listener.DshBpmnExtensionParser;
 import com.dsh.flowable.listener.DshBpmnParseHandler;
 import com.dsh.flowable.listener.DshExtensionPropertiesCache;
@@ -133,12 +134,22 @@ class DshServiceTaskVotingRuleTest {
             new DshBackendProperties(1, 5), new ObjectMapper()) {
             @Override
             public Map<String, Object> execute(String baseUrl, String prompt,
-                                               List<String> skillRefs, String activityId) {
+                                               List<String> skillRefs, String activityId,
+                                               WebConsoleKbClient.KbRef kb) {
                 capturedProfileUrls.add(baseUrl);
                 return Map.of("approved", true);
             }
         };
-        return new DshBackendTaskDelegate(resolver, stubClient, new ObjectMapper(),
+        // 知识库解析桩:恒返回 null(本测试不涉及知识库,行为等同未开通)
+        WebConsoleKbClient stubKbClient = new WebConsoleKbClient(
+            new com.dsh.flowable.config.DshWebConsoleProperties("http://127.0.0.1:8080", "sk"),
+            new ObjectMapper()) {
+            @Override
+            public WebConsoleKbClient.KbRef resolveOrNull(String processDefinitionId, String activityId) {
+                return null;
+            }
+        };
+        return new DshBackendTaskDelegate(resolver, stubClient, stubKbClient, new ObjectMapper(),
             new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 

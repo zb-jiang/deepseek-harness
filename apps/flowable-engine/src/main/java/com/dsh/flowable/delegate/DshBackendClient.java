@@ -4,6 +4,7 @@ import com.dsh.flowable.config.DshBackendProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -55,27 +56,37 @@ public class DshBackendClient {
      * @param prompt    插值后的 userPrompt
      * @param skillRefs 节点引用的 skill 清单
      * @param activityId 节点 id(日志定位)
+     * @param kb        任务知识库(可为 null:应用未开通知识库或解析降级,
+     *                  非 null 时 payload 附带 kbId/kbName 供 backend profile
+     *                  注入 kb 上下文并圈定 kb_* 工具范围)
      * @return ready 任务的 result(JSON 对象反序列化为 Map)
      * @throws IllegalStateException  提交/轮询 HTTP 失败、超时、任务 failed
      * @throws IllegalArgumentException result 不是 JSON 对象
      */
     public Map<String, Object> execute(String baseUrl, String prompt,
-                                        List<String> skillRefs, String activityId) {
-        String taskId = submit(baseUrl, prompt, skillRefs, activityId);
+                                        List<String> skillRefs, String activityId,
+                                        WebConsoleKbClient.KbRef kb) {
+        String taskId = submit(baseUrl, prompt, skillRefs, activityId, kb);
         return pollUntilReady(baseUrl, taskId, activityId);
     }
 
     /** 提交任务:POST /api/backend/tasks → 202 { taskId }。 */
     private String submit(String baseUrl, String prompt,
-                           List<String> skillRefs, String activityId) {
+                           List<String> skillRefs, String activityId,
+                           WebConsoleKbClient.KbRef kb) {
         String url = baseUrl + "/api/backend/tasks";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("prompt", prompt == null ? "" : prompt);
+        payload.put("skillRefs", skillRefs == null ? List.of() : skillRefs);
+        if (kb != null) {
+            payload.put("kbId", kb.kbId());
+            payload.put("kbName", kb.kbName());
+        }
         String body;
         try {
-            body = objectMapper.writeValueAsString(Map.of(
-                "prompt", prompt == null ? "" : prompt,
-                "skillRefs", skillRefs == null ? List.of() : skillRefs));
+            body = objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("backend task 请求体序列化失败(activity " + activityId + ")", e);
         }

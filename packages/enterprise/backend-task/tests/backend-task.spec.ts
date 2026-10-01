@@ -198,10 +198,14 @@ describe('backend-task', () => {
   }
 
   /** 提交一个任务,返回 taskId。 */
-  const submit = async (route: StubRoute, prompt: string, skillRefs?: string[]) => {
+  const submit = async (
+    route: StubRoute,
+    prompt: string,
+    options: { skillRefs?: string[]; kbId?: string; kbName?: string } = {},
+  ) => {
     const res = stubResponse()
     await route.handler(
-      stubRequest('POST', '/api/backend/tasks', Buffer.from(JSON.stringify({ prompt, skillRefs }))),
+      stubRequest('POST', '/api/backend/tasks', Buffer.from(JSON.stringify({ prompt, ...options }))),
       res as never as ServerResponse,
     )
     await flushTasks()
@@ -266,10 +270,68 @@ describe('backend-task', () => {
     ctx.provide('webServer', webServer as never)
     apply(ctx, { ...CONFIG, skillDir })
     const route = webServer.routes.find(candidate => candidate.path === '/api/backend/tasks')!
-    const { taskId } = await submit(route, '做提取', ['invoice-extract', 'ocr'])
+    const { taskId } = await submit(route, '做提取', { skillRefs: ['invoice-extract', 'ocr'] })
     await pollTask(route, taskId)
     expect(agents.created[0]!.promptMessages[0]).toContain('invoice-extract、ocr')
     expect(agents.created[0]!.promptMessages[0]).toContain('做提取')
+  })
+
+  it('kbId/kbName 注入 kb 上下文块进会话首条 user message(不进 skill 前缀)', async () => {
+    const agents = stubAgents('{"a":1}', { kind: 'completed' })
+    vi.stubGlobal('fetch', stubFetch(consoleRoutes()))
+    const webServer = stubWebServer()
+    ctx.provide('agents', agents as never)
+    ctx.provide('sessions', stubSessions() as never)
+    ctx.provide('agentDefaultModel', stubDefaultModel() as never)
+    ctx.provide('skills', stubSkills() as never)
+    ctx.provide('webServer', webServer as never)
+    apply(ctx, { ...CONFIG, skillDir })
+    const route = webServer.routes.find(candidate => candidate.path === '/api/backend/tasks')!
+    const { taskId } = await submit(route, '做提取', { kbId: 'kb-uuid-1', kbName: '差旅知识库' })
+    await pollTask(route, taskId)
+    const prompt = agents.created[0]!.promptMessages[0]!
+    // 与员工端 kb-context 同一渲染格式(renderKbContextText)
+    expect(prompt).toContain('<knowledge_base>')
+    expect(prompt).toContain('kbId: kb-uuid-1')
+    expect(prompt).toContain('名称：差旅知识库')
+    expect(prompt).toContain('做提取')
+  })
+
+  it('提交校验:kbId/kbName 成对携带,缺名回退 kbId,非法形态 → 400', async () => {
+    const agents = stubAgents('{"a":1}', { kind: 'completed' })
+    vi.stubGlobal('fetch', stubFetch(consoleRoutes()))
+    const webServer = stubWebServer()
+    ctx.provide('agents', agents as never)
+    ctx.provide('sessions', stubSessions() as never)
+    ctx.provide('agentDefaultModel', stubDefaultModel() as never)
+    ctx.provide('skills', stubSkills() as never)
+    ctx.provide('webServer', webServer as never)
+    apply(ctx, { ...CONFIG, skillDir })
+    const route = webServer.routes.find(candidate => candidate.path === '/api/backend/tasks')!
+    // 缺 kbName:回退用 kbId,202
+    const noName = stubResponse()
+    await route.handler(
+      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "kbId": "kb-1"}')),
+      noName as never as ServerResponse,
+    )
+    await flushTasks()
+    expect(noName.status).toBe(202)
+    // 非法 kbId → 400
+    const badId = stubResponse()
+    await route.handler(
+      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "kbId": 42}')),
+      badId as never as ServerResponse,
+    )
+    await flushTasks()
+    expect(badId.status).toBe(400)
+    // 孤儿 kbName → 400
+    const orphanName = stubResponse()
+    await route.handler(
+      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "kbName": "x"}')),
+      orphanName as never as ServerResponse,
+    )
+    await flushTasks()
+    expect(orphanName.status).toBe(400)
   })
 
   it('失败路径:turn/end error → failed 携带错误文本', async () => {

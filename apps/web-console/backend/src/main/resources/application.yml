@@ -76,6 +76,11 @@ dsh:
     tessdata-path: ${TESSDATA_PATH:}
     max-upload-size-mb: ${KB_MAX_UPLOAD_MB:50}
 
+  # 服务密钥（X-Service-Key）：flowable-engine / backend profile 等内网机器调
+  # /api/backend/kb/** 只读端点用；空白=机制关闭（所有带此头的请求 401）。
+  # 须与 flowable-engine dsh.web-console.service-key、backend profile DSH_SERVICE_KEY 一致
+  service-key: ${DSH_SERVICE_KEY:demo-webconsole-service-key}
+
   # 分析看板(设计 2026-09-25 §8):轮询引擎 /actuator/metrics 落 dsh_metrics_sample 表。
   # 白名单内指标逐个采集;带 tag 的指标(如 dsh.backend.task{outcome=...})按引擎返回的
   # availableTags 展开逐值采集,落库名形如 "name{tag=value}"。

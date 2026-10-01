@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dsh.flowable.config.DshBackendProperties;
+import com.dsh.flowable.config.DshWebConsoleProperties;
 import com.dsh.flowable.listener.DshBpmnExtensionParser;
 import com.dsh.flowable.listener.DshExtensionPropertiesCache;
 import com.dsh.flowable.listener.DshExtensionResolver;
@@ -55,6 +56,13 @@ class DshBackendTaskDelegateTest {
     /** 桩捕获:透传的 skillRefs。 */
     private final AtomicReference<List<String>> capturedSkillRefs = new AtomicReference<>(List.of());
 
+    /** 桩捕获:随 payload 下发的任务知识库(null = 未开通/降级)。 */
+    private final AtomicReference<WebConsoleKbClient.KbRef> capturedKb =
+        new AtomicReference<>();
+
+    /** 桩返回:知识库解析结果(null = 未开通/降级,知识库用例覆写)。 */
+    private final AtomicReference<WebConsoleKbClient.KbRef> stubKbRef = new AtomicReference<>();
+
     /** 桩返回:backend task 的 result JSON。 */
     private volatile Map<String, Object> stubResult = Map.of();
 
@@ -81,17 +89,27 @@ class DshBackendTaskDelegateTest {
             new DshBackendProperties(1, 5), new ObjectMapper()) {
             @Override
             public Map<String, Object> execute(String baseUrl, String prompt,
-                                                List<String> skillRefs, String activityId) {
+                                                List<String> skillRefs, String activityId,
+                                                WebConsoleKbClient.KbRef kb) {
                 assertThat(baseUrl).isEqualTo("http://127.0.0.1:3190");
                 capturedPrompt.set(prompt);
                 capturedSkillRefs.set(skillRefs);
+                capturedKb.set(kb);
                 return stubResult;
+            }
+        };
+        // 桩:默认未开通知识库(返回 null);知识库用例经 stubKbRef 覆盖
+        WebConsoleKbClient stubKbClient = new WebConsoleKbClient(
+            new DshWebConsoleProperties("http://127.0.0.1:8080", "sk"), new ObjectMapper()) {
+            @Override
+            public WebConsoleKbClient.KbRef resolveOrNull(String processDefinitionId, String activityId) {
+                return stubKbRef.get();
             }
         };
         DshBackendTaskDelegate delegate = new DshBackendTaskDelegate(
             new DshExtensionResolver(lazyRepositoryService,
                 new DshBpmnExtensionParser(), new DshExtensionPropertiesCache()),
-            stubClient, new ObjectMapper(), meterRegistry);
+            stubClient, stubKbClient, new ObjectMapper(), meterRegistry);
 
         StandaloneProcessEngineConfiguration configuration = new StandaloneProcessEngineConfiguration();
         configuration.setJdbcUrl("jdbc:h2:mem:dsh-backend-delegate-test");
@@ -160,6 +178,36 @@ class DshBackendTaskDelegateTest {
         // 运维埋点:成功路径记录 dsh.backend.task{outcome=success} 计时
         assertThat(meterRegistry.get("dsh.backend.task").tag("outcome", "success").timer().count())
             .isEqualTo(1L);
+    }
+
+    @Test
+    void resolvedKbIsPassedThroughToBackendPayloadWithoutTouchingPrompt() {
+        stubResult = Map.of("summary", "摘要文本");
+        stubKbRef.set(new WebConsoleKbClient.KbRef("kb-uuid-1", "差旅工程知识库"));
+        deployAndStart("kb_passthrough", Map.of("inputWord", "工单#42"), """
+            <process id="kb_passthrough" isExecutable="true">
+              <extensionElements>
+                <dsh:contextVariables>
+                  <dsh:contextVariable name="inputWord" type="string"/>
+                </dsh:contextVariables>
+              </extensionElements>
+              <startEvent id="start"/>
+              <sequenceFlow id="f1" sourceRef="start" targetRef="generate"/>
+              <serviceTask id="generate" name="生成" flowable:delegateExpression="${dshBackendTaskDelegate}">
+                <extensionElements>
+                  <dsh:backendTask backendProfileUrl="http://127.0.0.1:3190"/>
+                  <dsh:userPrompt text="基于 {{inputWord}} 生成"/>
+                </extensionElements>
+              </serviceTask>
+              <sequenceFlow id="f2" sourceRef="generate" targetRef="end"/>
+              <endEvent id="end"/>
+            </process>""");
+
+        // kb 走 payload 结构化字段,不拼进 prompt 文本
+        assertThat(capturedPrompt.get()).isEqualTo("基于 工单#42 生成");
+        assertThat(capturedKb.get()).isNotNull();
+        assertThat(capturedKb.get().kbId()).isEqualTo("kb-uuid-1");
+        assertThat(capturedKb.get().kbName()).isEqualTo("差旅工程知识库");
     }
 
     @Test

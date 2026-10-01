@@ -19,6 +19,7 @@
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../skill/skill" },
     { "path": "../../skill/skill-filesystem" },
+    { "path": "../kb-context" },
     { "path": "../skill-sync" },
     { "path": "../../util/brand" },
     { "path": "../../util/home-paths" }

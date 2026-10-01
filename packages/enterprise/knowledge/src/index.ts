@@ -1,5 +1,6 @@
 /**
- * Enterprise knowledge base access on the employee side (design 2026-09-11 §6).
+ * Enterprise knowledge base access on the employee side (design 2026-09-11 §6)
+ * and on the unattended backend profile (2026-10 service-key integration).
  *
  * Two surfaces over the same web-console REST:
  *
@@ -11,7 +12,11 @@
  * 2. Model-facing tools `kb_search` / `kb_read` / `kb_list` registered on
  *    `ctx.tools`, so the todo-session AI can retrieve application knowledge on
  *    demand. Tool calls and results go through the normal registry pipeline,
- *    which logs them as session events (model-visible ⟺ logged).
+ *    which logs them as session events (model-visible ⟺ logged). Auth is
+ *    resolved per call: the employee JWT when a login identity exists
+ *    (enterprise profile), otherwise the configured service key (backend
+ *    profile has no login) with tool paths rewritten to the service-key
+ *    allowlist endpoints `/api/backend/kb/*`.
  *
  * @module @deepseek-ai/dsh-knowledge
  */
@@ -21,13 +26,19 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type {} from '@deepseek-ai/dsh-user-identity-context'
+import type { CurrentUserService } from '@deepseek-ai/dsh-user-identity-context'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'knowledge'
 
-/** 等待本地 webserver、登录身份存储与工具注册表就绪后才挂载。 */
-export const inject = ['webServer', 'currentUser', 'tools'] as const
+/**
+ * 等待本地 webserver 与工具注册表就绪后才挂载。
+ *
+ * <p>不含 `currentUser`:backend profile 无登录身份插件,若列入 inject 该插件
+ * 将永不就绪。登录态改为工具调用时懒读取(见 apply),enterprise profile 下
+ * JWT 优先,backend profile 下回退服务密钥。
+ */
+export const inject = ['webServer', 'tools'] as const
 
 /** kb_read 全文返回上限默认值(字符;超出截断并注明)。 */
 const DEFAULT_READ_MAX_CHARS = 40_000
@@ -35,32 +46,41 @@ const DEFAULT_READ_MAX_CHARS = 40_000
 /** kb_search 默认返回条数。 */
 const DEFAULT_TOP_K = 8
 
-/** 插件配置,全部来自 enterprise profile 的 cordis.yml config 段。 */
+/** 插件配置,全部来自 enterprise/backend profile 的 cordis.yml config 段。 */
 export interface Config {
   /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
   webConsoleBaseUrl: Volatile<string>
   /** kb_read 返回全文的最大字符数,超出截断并在结果中注明。 */
   readMaxChars: number
+  /**
+   * 服务密钥(X-Service-Key):backend profile 无人值守模式的 web-console 认证
+   * 凭证,须与 web-console {@code dsh.service-key} 一致。enterprise profile 有
+   * 登录 JWT,保持空串即可;两处都为空时工具调用报错。
+   */
+  serviceKey: string
 }
 
 export const Config = z.object({
   webConsoleBaseUrl: z.string().required().volatile(),
   readMaxChars: z.number().default(DEFAULT_READ_MAX_CHARS),
+  serviceKey: z.string().default(''),
 })
 
 /**
  * 已解析的运行选项(apply 阶段完成校验与默认值合并)。
  *
- * <p>token 与 web-console 基地址取值函数注入而非内联,便于测试桩替换登录态
- * 与 volatile 基地址(设置面板修改后无需重载即生效)。
+ * <p>token/serviceKey 与 web-console 基地址取值函数注入而非内联,便于测试桩
+ * 替换登录态与 volatile 基地址(设置面板修改后无需重载即生效)。
  */
 export interface KnowledgeOptions {
   /** 当前 web-console 基地址(无尾斜杠;每次调用读取 volatile 最新值)。 */
   readonly webConsoleBaseUrl: () => string
   /** kb_read 全文返回上限(字符)。 */
   readonly readMaxChars: number
-  /** 当前登录员工的 Supabase JWT;未登录为 undefined。 */
+  /** 当前登录员工的 Supabase JWT;未登录(backend profile)为 undefined。 */
   readonly token: () => string | undefined
+  /** 服务密钥;enterprise profile(登录态优先)为空串。 */
+  readonly serviceKey: () => string
 }
 
 /** 代理路由:本地前缀 → web-console 真实前缀(浏览器只经本地 webserver)。 */
@@ -196,18 +216,45 @@ async function proxyRequest(
 }
 
 /**
+ * 解析一次调用的认证方式与工具路径前缀。
+ *
+ * <p>登录 JWT 优先(enterprise profile,路径维持 `/api/kb/*`,web-console 做
+ * 员工成员校验);未登录回退服务密钥(backend profile 无人值守,路径重写为
+ * `/api/backend/kb/*` 白名单端点,服务身份代表应用本身、只读);两者皆无时
+ * 抛错(错误消息面向模型呈现)。
+ */
+function resolveAuth(options: KnowledgeOptions): {
+  headers: Record<string, string>
+  /** 工具调用使用的 web-console 路径前缀。 */
+  pathPrefix: '/api/kb' | '/api/backend/kb'
+} {
+  const token = options.token()
+  if (token !== undefined) {
+    return { headers: { authorization: `Bearer ${token}` }, pathPrefix: '/api/kb' }
+  }
+  const serviceKey = options.serviceKey()
+  if (serviceKey !== '') {
+    return { headers: { 'x-service-key': serviceKey }, pathPrefix: '/api/backend/kb' }
+  }
+  throw new Error('未登录且未配置服务密钥,无法访问企业知识库')
+}
+
+/**
  * 调 web-console 知识库 REST 并解 {@code ApiResponse} 信封。
+ *
+ * <p>工具路径以员工端前缀 `/api/kb/*` 书写;服务密钥模式下由这里统一重写为
+ * `/api/backend/kb/*`(端点形态与员工端一一对应),调用方无需感知认证模式。
  *
  * @param options - 运行选项
  * @param path - 以 / 开头的绝对路径(不含 base)
  * @returns 信封 data
- * @throws Error 未登录 / 网络不可达 / 响应非 JSON / 信封失败(错误消息面向模型呈现)
+ * @throws Error 未登录且无服务密钥 / 网络不可达 / 响应非 JSON / 信封失败(错误消息面向模型呈现)
  */
 async function requestJson<T>(options: KnowledgeOptions, path: string): Promise<T> {
-  const token = options.token()
-  if (token === undefined) {
-    throw new Error('未登录,无法访问企业知识库')
-  }
+  const auth = resolveAuth(options)
+  const upstreamPath = path.startsWith('/api/kb/')
+    ? `${auth.pathPrefix}${path.slice('/api/kb'.length)}`
+    : path
   // volatile 配置:每次调用读取当前值,设置面板修改后无需重载即生效
   const webConsoleBaseUrl = options.webConsoleBaseUrl().replace(/\/+$/, '')
   if (validateBaseUrl(webConsoleBaseUrl) !== undefined) {
@@ -215,9 +262,7 @@ async function requestJson<T>(options: KnowledgeOptions, path: string): Promise<
   }
   let resp: Response
   try {
-    resp = await fetch(new URL(path, webConsoleBaseUrl), {
-      headers: { authorization: `Bearer ${token}` },
-    })
+    resp = await fetch(new URL(upstreamPath, webConsoleBaseUrl), { headers: auth.headers })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`web-console 不可达(${webConsoleBaseUrl}): ${message}`)
@@ -277,12 +322,16 @@ function folderPathById(folders: readonly KbFolderDto[]): Map<string, string> {
 /**
  * 注册代理路由与 kb_search / kb_read / kb_list 工具。
  *
- * <p>webConsoleBaseUrl 为 volatile 配置:每次请求读取当前值,设置面板修改后
+ * <p>登录身份(`currentUser` 服务)不在 inject 中,经 `ctx.get` 无注入要求读取
+ * (直接访问 `ctx.currentUser` 在 cordis 下会抛 "without inject"):enterprise
+ * profile 下 JWT 优先;backend profile 无该服务,读取为 undefined,工具调用回退
+ * {@code config.serviceKey}(路径重写为服务身份白名单端点,见 resolveAuth)。
+ * webConsoleBaseUrl 为 volatile 配置:每次请求读取当前值,设置面板修改后
  * 无需重载即生效(值无效时该次请求报错,不阻断后续);readMaxChars 必须为
  * 正有限数。工具经 {@code ctx.tools.register} 注册,随调用方 fiber 生命周期
  * 自动反注册。
  *
- * @param ctx - 携带 `webServer` / `currentUser` / `tools` 的 Cordis 上下文。
+ * @param ctx - 携带 `webServer` / `tools` 的 Cordis 上下文(登录身份可选)。
  * @param config - 插件配置。
  */
 export function apply(ctx: Context, config: Config): void {
@@ -292,7 +341,10 @@ export function apply(ctx: Context, config: Config): void {
   const options: KnowledgeOptions = {
     webConsoleBaseUrl: () => config.webConsoleBaseUrl.get(),
     readMaxChars: config.readMaxChars,
-    token: () => ctx.currentUser.getToken(),
+    // 每次调用实时读取:apply 时该服务可能尚未激活,捕获快照会错过;服务缺席
+    // (backend profile)返回 undefined 回退服务密钥。
+    token: () => (ctx.get('currentUser') as CurrentUserService | undefined)?.getToken(),
+    serviceKey: () => config.serviceKey,
   }
   for (const { local, upstream } of PROXY_ROUTES) {
     ctx.effect(

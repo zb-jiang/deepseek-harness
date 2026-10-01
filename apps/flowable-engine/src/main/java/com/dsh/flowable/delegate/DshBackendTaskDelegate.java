@@ -37,6 +37,10 @@ import org.springframework.stereotype.Component;
  *       未声明变量拒绝写入抛错。</li>
  * </ol>
  *
+ * <p>知识库(2026-10 集成):提交前经 {@link WebConsoleKbClient} 按流程定义解析
+ * 所属工程的知识库,kb 随 payload(kbId/kbName)下发,backend profile 据此注入
+ * kb 上下文并圈定 kb_* 工具;未开通/解析降级为 null,payload 不带 kb 字段。
+ *
  * <p>任何失败(HTTP 不通/超时/failed/JSON 不合法/映射失败)抛异常,交给 async job
  * 按 {@code flowable:failedJobRetryTimeCycle} 重试;重试耗尽走异常边界事件。
  */
@@ -47,15 +51,18 @@ public class DshBackendTaskDelegate implements JavaDelegate {
 
     private final DshExtensionResolver resolver;
     private final DshBackendClient client;
+    private final WebConsoleKbClient kbClient;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
 
     public DshBackendTaskDelegate(DshExtensionResolver resolver,
                                    DshBackendClient client,
+                                   WebConsoleKbClient kbClient,
                                    ObjectMapper objectMapper,
                                    MeterRegistry meterRegistry) {
         this.resolver = resolver;
         this.client = client;
+        this.kbClient = kbClient;
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;
     }
@@ -76,14 +83,18 @@ public class DshBackendTaskDelegate implements JavaDelegate {
                 + "(activity " + activityId + ",流程应经 web-console 发布校验)");
         }
         String prompt = interpolatePrompt(props, execution);
+        // 知识库是可选增强:解析失败/未开通都降级为无 kb,不阻塞任务
+        WebConsoleKbClient.KbRef kb = kbClient.resolveOrNull(
+            execution.getProcessDefinitionId(), activityId);
         // 每次尝试(含 async job 重试)都在实例日志留下完整输入/产出/失败,重试重放会重复记录
-        ProcessLog.log(execution, "提交 backend task -> {}\n{}", profileUrl, prompt);
+        ProcessLog.log(execution, "提交 backend task -> {}\n{}",
+            profileUrl, prompt + (kb == null ? "" : "\n[知识库] " + kb.kbId() + " " + kb.kbName()));
         // 运维指标:backend task 调用计时(success/failed 分 tag)+ 失败计数
         // (分析看板按 dsh_metrics_sample 的 COUNT/TOTAL_TIME 窗口差分算成功率与平均时延)
         long start = System.nanoTime();
         Map<String, Object> result;
         try {
-            result = client.execute(profileUrl, prompt, props.skillRefs(), activityId);
+            result = client.execute(profileUrl, prompt, props.skillRefs(), activityId, kb);
         } catch (RuntimeException e) {
             meterRegistry.timer("dsh.backend.task", "outcome", "failed")
                 .record(System.nanoTime() - start, TimeUnit.NANOSECONDS);

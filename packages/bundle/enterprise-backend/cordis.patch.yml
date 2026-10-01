@@ -1,7 +1,9 @@
 # The dsh-enterprise-backend bundle patch: server-side unattended backend
 # task runner over dsh-base (design 2026-09-14 §7.2). It mounts the webserver
-# (REST task endpoints consumed by flowable-engine's DshBackendTaskDelegate)
-# and the backend-task plugin; no browser UI and no employee-facing plugins.
+# (REST task endpoints consumed by flowable-engine's DshBackendTaskDelegate),
+# the backend-task plugin, and the knowledge plugin (kb_* tools over the
+# web-console service-key endpoints; kbId arrives in each task payload from
+# the delegate); no browser UI and no employee-facing plugins.
 # Each instance starts in its own working directory (the task workspace) with
 # LLM credentials from the normal settings/env plane; DSH_BACKEND_URL must be
 # the address flowable-engine and web-console can reach this instance on.
@@ -35,3 +37,12 @@
         skillhubToken: !!js process.env.SKILLHUB_API_TOKEN ?? ''
         syncIntervalMs: !!js Number(process.env.DSH_BACKEND_SYNC_INTERVAL_MS ?? 300000)
         registerIntervalMs: !!js Number(process.env.DSH_BACKEND_REGISTER_INTERVAL_MS ?? 60000)
+
+    # 知识库工具(kb_search/kb_read/kb_list):无登录身份,任务 payload 携带 kbId
+    # 时经服务密钥白名单端点(/api/backend/kb/*)访问 web-console。serviceKey 须与
+    # web-console dsh.service-key、flowable-engine dsh.web-console.service-key 一致。
+    - id: knowledge
+      name: '@deepseek-ai/dsh-knowledge'
+      config:
+        webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
+        serviceKey: !!js process.env.DSH_SERVICE_KEY ?? ''

@@ -2243,6 +2243,9 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-knowledge':
+        specifier: workspace:^
+        version: link:../../enterprise/knowledge
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -7380,6 +7383,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-kb-context':
+        specifier: workspace:^
+        version: link:../kb-context
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
