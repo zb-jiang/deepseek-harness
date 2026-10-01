@@ -86,6 +86,8 @@ export type CompletedTask = {
   id: string
   processInstanceId: string
   processDefinitionId: string
+  /** 流程定义名(BPMN process name),已完成分组人读展示;定义不可查时为 null。 */
+  processDefinitionName: string | null
   taskDefinitionKey: string
   name: string | null
   assignee: string | null

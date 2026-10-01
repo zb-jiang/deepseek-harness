@@ -139,6 +139,7 @@ class DshHistoryQueryTest {
         assertThat(tasks.get(0).assignee()).isEqualTo("user-1");
         assertThat(tasks.get(0).endTime()).isNotNull();
         assertThat(tasks.get(0).taskDefinitionKey()).isEqualTo("approve");
+        assertThat(tasks.get(0).processDefinitionName()).isEqualTo("历史查询测试流程");
     }
 
     @Test

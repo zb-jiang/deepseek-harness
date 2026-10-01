@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param id                   历史任务 id(等于运行时 task id)
  * @param processInstanceId    实例 id
  * @param processDefinitionId  流程定义 id
+ * @param processDefinitionName 流程定义名(BPMN process name);定义已不在 ACT_RE_PROCDEF 时为 null
  * @param taskDefinitionKey    BPMN 节点 def key
  * @param name                 任务名称(BPMN userTask name)
  * @param assignee            处理人 user.id;null 表示未认领
@@ -32,6 +33,7 @@ public record HistoricTaskDto(
     String id,
     String processInstanceId,
     String processDefinitionId,
+    String processDefinitionName,
     String taskDefinitionKey,
     String name,
     String assignee,

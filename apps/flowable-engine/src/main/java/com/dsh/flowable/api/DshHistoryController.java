@@ -132,7 +132,14 @@ public class DshHistoryController {
         }
 
         List<HistoricTaskInstance> tasks = query.listPage(firstResult, safeSize);
-        return tasks.stream().map(this::toDto).toList();
+        Set<String> procdefIds = new HashSet<>();
+        for (HistoricTaskInstance task : tasks) {
+            if (task.getProcessDefinitionId() != null) {
+                procdefIds.add(task.getProcessDefinitionId());
+            }
+        }
+        Map<String, ProcessDefinition> defById = loadProcdefByIds(procdefIds);
+        return tasks.stream().map(t -> toDto(t, defById)).toList();
     }
 
     /**
@@ -219,6 +226,16 @@ public class DshHistoryController {
                 procdefIds.add(instance.getProcessDefinitionId());
             }
         }
+        return loadProcdefByIds(procdefIds);
+    }
+
+    /**
+     * 按 distinct procdefId 集合一次批量查 ProcessDefinition(历史任务/实例共用)。
+     *
+     * @param procdefIds 去重后的定义 id;空集合直接返回空 Map,不发查询
+     * @return procdefId → ProcessDefinition
+     */
+    private Map<String, ProcessDefinition> loadProcdefByIds(Set<String> procdefIds) {
         if (procdefIds.isEmpty()) {
             return Map.of();
         }
@@ -408,7 +425,7 @@ public class DshHistoryController {
         return entries;
     }
 
-    private HistoricTaskDto toDto(HistoricTaskInstance task) {
+    private HistoricTaskDto toDto(HistoricTaskInstance task, Map<String, ProcessDefinition> defById) {
         Map<String, Object> localVars = task.getTaskLocalVariables();
         String metaJson = localVars == null
             ? null
@@ -428,10 +445,15 @@ public class DshHistoryController {
             }
         }
 
+        // 流程定义名从列表路径批量预查的 defById 取(避免逐条补查),查不到为 null
+        ProcessDefinition def = task.getProcessDefinitionId() == null
+            ? null : defById.get(task.getProcessDefinitionId());
+
         return new HistoricTaskDto(
             task.getId(),
             task.getProcessInstanceId(),
             task.getProcessDefinitionId(),
+            def == null ? null : def.getName(),
             task.getTaskDefinitionKey(),
             task.getName(),
             task.getAssignee(),
