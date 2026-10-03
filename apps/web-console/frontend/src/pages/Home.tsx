@@ -1,5 +1,5 @@
 import {
-  ApartmentOutlined, AuditOutlined, BarChartOutlined, ClockCircleOutlined, ClusterOutlined,
+  ApartmentOutlined, AuditOutlined, BarChartOutlined, BookOutlined, ClockCircleOutlined, ClusterOutlined,
   PartitionOutlined, RobotOutlined, TeamOutlined,
 } from '@ant-design/icons'
 import { Card, Col, Row, Statistic, Typography } from 'antd'
@@ -40,6 +40,12 @@ const MENU_GUIDES: readonly { icon: ReactNode; label: string; desc: string; role
     icon: <ClockCircleOutlined />,
     label: '流程实例',
     desc: '跟踪每笔流程的进度:发起新流程、处理待办、查看进展到哪个环节,必要时终止流程。',
+    role: 'all',
+  },
+  {
+    icon: <BookOutlined />,
+    label: '知识库',
+    desc: '检索应用知识库中的文档,直观查看向量、关键词、全文三路召回与重排打分的全过程;文档在应用详情的知识库页签上传维护。',
     role: 'all',
   },
   {

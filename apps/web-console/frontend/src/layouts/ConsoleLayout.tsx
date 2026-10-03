@@ -26,9 +26,9 @@ type MenuItem = Required<MenuProps>['items'][number]
 
 /**
  * 菜单项定义。
- * - system_admin: 首页、部门管理、用户管理、应用管理、流程定义、流程实例、LLM 管理(全部)、分析看板、审计
- * - app_admin: 首页、部门管理、应用管理、流程定义、流程实例、分析看板
- * - normal_user: 首页、部门管理(只读)、流程实例(仅自己发起的)、LLM 用量分析(仅本人)
+ * - system_admin: 首页、部门管理、用户管理、应用管理、流程定义、流程实例、知识库、LLM 管理(全部)、分析看板、审计
+ * - app_admin: 首页、部门管理、应用管理、流程定义、流程实例、知识库、分析看板
+ * - normal_user: 首页、部门管理(只读)、流程实例(仅自己发起的)、知识库、LLM 用量分析(仅本人)
  */
 function buildMenu(roles: string[]): MenuItem[] {
   const isSys = roles.includes(PLATFORM_ROLE.SYSTEM_ADMIN)
@@ -36,8 +36,6 @@ function buildMenu(roles: string[]): MenuItem[] {
   const items: MenuItem[] = [
     { key: '/', icon: <HomeOutlined />, label: '首页' },
     { key: '/org-units', icon: <ClusterOutlined />, label: '部门管理' },
-    // 知识库检索调试:全员可见,检索内容访问由后端成员校验收口
-    { key: '/knowledge', icon: <BookOutlined />, label: '知识库' },
   ]
   if (isSys) {
     items.push({ key: '/users', icon: <TeamOutlined />, label: '用户管理' })
@@ -47,6 +45,8 @@ function buildMenu(roles: string[]): MenuItem[] {
     items.push({ key: '/workflows', icon: <PartitionOutlined />, label: '流程定义' })
   }
   items.push({ key: '/instances', icon: <ClockCircleOutlined />, label: '流程实例' })
+  // 知识库检索调试:全员可见,检索内容访问由后端成员校验收口
+  items.push({ key: '/knowledge', icon: <BookOutlined />, label: '知识库' })
   // LLM 管理:模型接入/额度配置仅系统管理员(后端 @PreAuthorize 双保险);
   // 用量分析全员可见,非管理员由后端强制收敛到本人数据
   items.push({

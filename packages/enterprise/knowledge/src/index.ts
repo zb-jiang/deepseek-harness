@@ -374,11 +374,14 @@ export function apply(ctx: Context, config: Config): void {
     name: 'kb_search',
     description: 'Hybrid search over the enterprise knowledge base: vector similarity, keyword (trigram) and '
       + 'full-text (jieba) candidates fused with Reciprocal Rank Fusion into document-level hits, so paraphrased '
-      + 'queries also match. Documents still being parsed (OCR/extraction) are never returned; get the kbId from '
+      + 'queries also match. Keep the query short: distill the information need into 2-4 core keywords (the '
+      + 'keyword and full-text routes match contiguous substrings or whole tokens only, so long sentences miss '
+      + 'there); split a broad need into several focused searches instead of one long sentence. Documents still '
+      + 'being parsed (OCR/extraction) are never returned; get the kbId from '
       + 'the session context or the injected document list, then read full text of a hit with kb_read(docId).',
     parameters: {
       kbId: { type: 'string', required: true, description: 'Knowledge base id (kbId).' },
-      query: { type: 'string', required: true, description: 'Natural-language query text or keywords.' },
+      query: { type: 'string', required: true, description: 'Query text: prefer 2-4 distilled core keywords over verbatim long sentences; run multiple focused searches if needed.' },
       folderPath: { type: 'string', description: 'Optional folder path (e.g. /finance/reimburse) scoping the search; omit for the whole knowledge base.' },
       topK: { type: 'integer', description: `Maximum number of results (default ${DEFAULT_TOP_K}).` },
     },
