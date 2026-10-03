@@ -6,7 +6,9 @@
  * 每个待办首次点击时经 SessionsCreatePort 新建专属 DSH 会话并绑定,再次点击回到
  * 原会话。userPrompt 预填走 conversation.input 的草稿写路径,仅在草稿为空时填入,
  * 不覆盖员工已编辑的内容;预填失败原因记入 prefillNotice(侧栏提示,便于诊断);
- * 提交完成后解绑、记录回执并刷新队列。打开待办前先经 skill-sync 的即时安装
+ * 提交完成后解绑进行中绑定、记录回执并刷新队列;知识库归属保留(应用 id
+ * 随回执固化进持久化条目),已完成会话继续注入 kb 块、选择器入口继续可用。
+ * 打开待办前先经 skill-sync 的即时安装
  * 端点确保 dshMeta.skillRefs 就绪(仍缺失走 skillNotice 降级提示,不阻断会话;
  * skill-repo-design §7)。
  *
@@ -90,6 +92,8 @@ export type CompletedTaskRecord = {
   taskId: string
   taskName: string
   submittedAt: number
+  /** 流程所属应用 id;提交时从 Task.applicationId 固化(历史任务无此字段,kb 注入与选择器入口凭此解析)。 */
+  applicationId: string | null
 }
 
 /** 任务↔会话绑定状态(普通对象 + immer 核心 draft 路径;见模块文档)。 */
@@ -107,18 +111,36 @@ export type WorkbenchBindingsState = {
 /** localStorage 键:已完成任务的会话映射(刷新后回看聊天历史的入口)。 */
 const COMPLETED_SESSIONS_KEY = 'dsh-enterprise-completed-sessions'
 
-/** localStorage 键:进行中任务的会话绑定(刷新后回到原会话)。 */
-const TASK_SESSIONS_KEY = 'dsh-enterprise-task-sessions'
+/** 已完成任务→会话的持久化条目:应用归属在提交时固化,webserver 重启后 kb 归属重放仍可用。 */
+export type CompletedSessionEntry = {
+  sessionId: SessionId
+  /** 提交时的 Task.applicationId;旧版本持久化条目缺此信息,记 null(kb 归属重放跳过)。 */
+  applicationId: string | null
+}
 
-/** 读取持久化的已完成任务→会话映射;无存储或条目损坏按空处理。 */
-function loadCompletedSessions(): Record<string, SessionId> {
+/** 读取持久化的已完成任务→会话映射;无存储或条目损坏按空处理,旧版字符串值兼容为无归属条目。 */
+function loadCompletedSessions(): Record<string, CompletedSessionEntry> {
   if (typeof window === 'undefined') return {}
   try {
     const raw = window.localStorage.getItem(COMPLETED_SESSIONS_KEY)
     if (raw === null) return {}
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return {}
-    return parsed as Record<string, SessionId>
+    const entries: Record<string, CompletedSessionEntry> = {}
+    for (const [taskId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      // 旧版格式值为纯会话 id 字符串;新版为 { sessionId, applicationId }。
+      if (typeof value === 'string') {
+        entries[taskId] = { sessionId: value as SessionId, applicationId: null }
+      } else if (typeof value === 'object' && value !== null
+        && typeof (value as { sessionId?: unknown }).sessionId === 'string') {
+        const appId = (value as { applicationId?: unknown }).applicationId
+        entries[taskId] = {
+          sessionId: (value as { sessionId: string }).sessionId as SessionId,
+          applicationId: typeof appId === 'string' ? appId : null,
+        }
+      }
+    }
+    return entries
   } catch {
     // localStorage 条目损坏(JSON 解析失败):按无映射处理,已完成任务
     // 退化为只读档案视图,不阻断工作台。
@@ -127,7 +149,7 @@ function loadCompletedSessions(): Record<string, SessionId> {
 }
 
 /** 写回持久化映射;存储不可写(私隐模式/配额)时仅内存生效。 */
-function saveCompletedSessions(map: Record<string, SessionId>): void {
+function saveCompletedSessions(map: Record<string, CompletedSessionEntry>): void {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(COMPLETED_SESSIONS_KEY, JSON.stringify(map))
@@ -135,6 +157,9 @@ function saveCompletedSessions(map: Record<string, SessionId>): void {
     // 写失败只损失刷新后的回看入口,内存映射当次会话仍有效。
   }
 }
+
+/** localStorage 键:进行中任务的会话绑定(刷新后回到原会话)。 */
+const TASK_SESSIONS_KEY = 'dsh-enterprise-task-sessions'
 
 /** 读取持久化的进行中任务→会话绑定;无存储或条目损坏按空处理。 */
 function loadTaskSessions(): Record<string, SessionId> {
@@ -195,7 +220,7 @@ export class EnterpriseWorkbench {
   /** 任务↔会话绑定(高亮与档案归属)。 */
   readonly bindings: SnapshotStore<WorkbenchBindingsState>
   /** 已完成任务→会话的持久映射(刷新后回看聊天历史)。 */
-  private readonly completedSessions: Record<string, SessionId>
+  private readonly completedSessions: Record<string, CompletedSessionEntry>
   /** 已完成预填的任务 id(避免切回任务时重复覆盖草稿)。 */
   private readonly prefilledTasks = new Set<string>()
   /**
@@ -375,18 +400,21 @@ export class EnterpriseWorkbench {
     this.navigationSeq++
     this.note(`openCompletedTask ${task.id} seq=${this.navigationSeq}`)
     const memory = this.bindings.getSnapshot().completedByTask[task.id]
-    const sessionId = memory ?? this.completedSessions[task.id]
+    const persisted = this.completedSessions[task.id]
+    const sessionId = memory ?? persisted?.sessionId
     const sessionLive = sessionId !== undefined
       && this.deps.sessions.list.getSnapshot().byId[sessionId] !== undefined
     if (sessionLive === true && sessionId !== undefined) {
       this.tasks.update((draft) => { draft.selectedCompleted = null })
-      // 刷新后内存回执丢失时从历史任务补全,档案栏才能渲染完成回执。
+      // 刷新后内存回执丢失时从历史任务补全,档案栏才能渲染完成回执;
+      // 应用归属取提交时固化的持久化条目(历史任务数据无此字段)。
       this.bindings.update((draft) => {
         if (draft.completedBySession[sessionId] === undefined) {
           draft.completedBySession[sessionId] = {
             taskId: task.id,
             taskName: task.name ?? task.id,
             submittedAt: task.endTime !== null ? (Date.parse(task.endTime) || Date.now()) : Date.now(),
+            applicationId: persisted?.applicationId ?? null,
           }
         }
         draft.completedByTask[task.id] = sessionId
@@ -786,7 +814,20 @@ export class EnterpriseWorkbench {
     reportSessionKb([{ sessionId, applicationId }])
   }
 
-  /** 重放全部持久绑定的会话归属(初始化与每次刷新后;webserver 重启自愈)。 */
+  /**
+   * 已完成会话的应用归属(查持久化条目;刷新后无需先开档案回执即可解析,
+   * 供知识库选择器入口与 '@' 触发源在会话直开场景使用)。
+   * @param sessionId - 目标会话。
+   * @returns 提交时固化的应用 id;非已完成会话或旧版无归属条目为 null。
+   */
+  completedApplicationId(sessionId: SessionId): string | null {
+    for (const entry of Object.values(this.completedSessions)) {
+      if (entry.sessionId === sessionId) return entry.applicationId
+    }
+    return null
+  }
+
+  /** 重放全部持久绑定的会话归属(初始化与每次刷新后;webserver 重启自愈;含已完成会话)。 */
   private replaySessionKbReports(): void {
     const { taskToSession } = this.bindings.getSnapshot()
     const entries: SessionKbEntry[] = []
@@ -798,6 +839,14 @@ export class EnterpriseWorkbench {
       if (this.reportedSessionApps.get(sessionId) === applicationId) continue
       this.reportedSessionApps.set(sessionId, applicationId)
       entries.push({ sessionId, applicationId })
+    }
+    // 已完成会话:归属在提交时固化进持久化条目,重放使重启后的 kb 注入自愈;
+    // 无归属条目(旧版本数据/应用未归属)跳过,不产生 null 清除。
+    for (const entry of Object.values(this.completedSessions)) {
+      if (entry.applicationId === null) continue
+      if (this.reportedSessionApps.get(entry.sessionId) === entry.applicationId) continue
+      this.reportedSessionApps.set(entry.sessionId, entry.applicationId)
+      entries.push({ sessionId: entry.sessionId, applicationId: entry.applicationId })
     }
     if (entries.length > 0) reportSessionKb(entries)
   }
@@ -819,6 +868,7 @@ export class EnterpriseWorkbench {
             taskId: task.id,
             taskName: task.name ?? task.id,
             submittedAt: Date.now(),
+            applicationId: task.applicationId,
           }
           draft.completedByTask[task.id] = sessionId
           persisted = sessionId
@@ -826,10 +876,10 @@ export class EnterpriseWorkbench {
       }
     })
     if (persisted !== undefined) {
-      this.completedSessions[task.id] = persisted
+      // 知识库归属保留不清除:已完成会话继续注入 kb 块、选择器入口继续可用;
+      // 应用归属在提交时固化进持久化条目,webserver 重启后归属重放自愈。
+      this.completedSessions[task.id] = { sessionId: persisted, applicationId: task.applicationId }
       saveCompletedSessions(this.completedSessions)
-      // 服务端解除该会话的知识库归属,下一轮起不再注入 kb 块。
-      this.reportSessionApp(persisted, null)
     }
     // 提交完成后任务不再"进行中":从持久化绑定中移除,避免刷新后残留。
     saveTaskSessions(this.bindings.getSnapshot().taskToSession)

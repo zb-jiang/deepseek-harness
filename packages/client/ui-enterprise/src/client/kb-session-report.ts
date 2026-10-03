@@ -4,11 +4,13 @@
  * `/api/enterprise/kb/session-context`(kb-context 插件自有路由,不经
  * kb-api.ts 的 web-console 代理)。上报是尽力而为:失败只损失下一轮的
  * kb 注入,由下一次重放/重绑自愈,因此错误静默降级,不打断工作台。
+ * 归属覆盖进行中与已完成会话:任务提交完成后归属保留(applicationId 不
+ * 清 null),已完成会话继续注入 kb 块、选择器入口继续可用。
  */
 
 import { readToken } from './task-api.ts'
 
-/** 一条会话归属:applicationId 为 null 表示解除归属(完成解绑/无应用)。 */
+/** 一条会话归属:applicationId 为 null 表示客户端明确解除归属(会话与应用解绑/无应用)。 */
 export interface SessionKbEntry {
   readonly sessionId: string
   readonly applicationId: string | null

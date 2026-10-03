@@ -11,9 +11,9 @@
  * 占据者的 inject 面分发。认证遮罩(shell.overlay)未登录时盖住整帧。
  *
  * <p>知识库三面(design 2026-09-11 §6):KnowledgeWorkbench 同样在 apply
- * 构造一次;选择器入口占据 `conversation.input.left`(仅待办会话且应用
- * 已开通时渲染),已选文档 chip 行占据 `conversation.input.dock`,输入框
- * '@' 知识库文档触发源注册进 ctx.inputTriggers(待办会话候选 → 内联
+ * 构造一次;选择器入口占据 `conversation.input.left`(待办/已完成回执会话
+ * 且应用已开通时渲染),已选文档 chip 行占据 `conversation.input.dock`,输入框
+ * '@' 知识库文档触发源注册进 ctx.inputTriggers(待办/已完成会话候选 → 内联
  * chip),工作空间文件行的「上传到知识库」占据 ui-sidebar-files 声明的
  * `sidebar.files.entry.action`(readBytes 经 ctx.remote.workspaceFiles 绑定);
  * 历史消息里的 `知识库文档 docid: <id>` wire 文本经 ui-primitives 的
@@ -120,7 +120,7 @@ export function apply(ctx: ClientContext): void {
     inject: () => ({ workbench }),
   }, TaskArchivePanel))
 
-  // 知识库选择器入口:输入框左侧(仅待办会话且应用已开通时渲染)。
+  // 知识库选择器入口:输入框左侧(待办/已完成回执会话且应用已开通时渲染)。
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
     name: 'conversation.input.left',
     id: 'kb-picker',

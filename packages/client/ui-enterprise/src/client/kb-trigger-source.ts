@@ -1,9 +1,10 @@
 /**
- * '@' 知识库文档触发源(design 2026-09-11 §6 第二期):待办会话里敲 '@'
- * 出现知识库文档候选,选中在输入框插入内联 chip(文档图标 + 文档名)。
+ * '@' 知识库文档触发源(design 2026-09-11 §6 第二期):待办/已完成回执的
+ * 会话里敲 '@' 出现知识库文档候选,选中在输入框插入内联 chip(文档图标 +
+ * 文档名)。
  *
- * <p>候选解析链:会话 → 待办绑定(EnterpriseWorkbench)→ 应用 → 知识库
- * (KnowledgeWorkbench 缓存)→ 文档树(kbMenuTree 缓存,Modal 打开时
+ * <p>候选解析链:会话 → 待办绑定或已完成回执(EnterpriseWorkbench)→ 应用
+ * → 知识库(KnowledgeWorkbench 缓存)→ 文档树(kbMenuTree 缓存,Modal 打开时
  * 刷新)。空 query 列全部解析 ready 的文档,非空按路径+文档名大小写不
  * 敏感过滤。候选 name=文档名(value=文档 id 是不透明 pick 载荷),仅作
  * 本源的展示与检索键,不参与 space/enter 裁决(本源不实现 match 钩子)。
@@ -25,22 +26,30 @@ import type { KnowledgeBase } from './kb-api.ts'
 const SECTION_LABEL = '知识库文档'
 
 /**
- * 解析会话的知识库:会话 → 待办绑定 → 应用 → 知识库(kbForApp 带缓存)。
+ * 解析会话的知识库:会话 → 待办绑定或已完成回执 → 应用 → 知识库(kbForApp 带缓存)。
+ * 进行中取任务绑定(sessionToTask → Task.applicationId);已完成取提交时
+ * 固化的归属——先内存回执(completedBySession),再持久化条目直查
+ * (completedApplicationId,覆盖刷新后未开档案的会话直开场景)。
  * @param workbench - 待办绑定来源。
  * @param knowledge - 应用→知识库解析。
  * @param sessionId - 目标会话。
- * @returns 知识库;非待办会话或应用未开通为 null(菜单不出候选)。
+ * @returns 知识库;非待办/已完成会话或应用未开通为 null(菜单不出候选)。
  */
 export async function resolveSessionKb(
   workbench: EnterpriseWorkbench,
   knowledge: KnowledgeWorkbench,
   sessionId: ClientSessionContext['sessionId'],
 ): Promise<KnowledgeBase | null> {
-  const taskId = workbench.bindings.getSnapshot().sessionToTask[sessionId]
-  if (taskId === undefined) return null
-  const task = workbench.tasks.getSnapshot().items.find(item => item.id === taskId)
-  if (task === undefined || task.applicationId === null) return null
-  return knowledge.kbForApp(task.applicationId)
+  const bindings = workbench.bindings.getSnapshot()
+  const taskId = bindings.sessionToTask[sessionId]
+  const task = taskId !== undefined
+    ? workbench.tasks.getSnapshot().items.find(item => item.id === taskId)
+    : undefined
+  const applicationId = task?.applicationId
+    ?? bindings.completedBySession[sessionId]?.applicationId
+    ?? workbench.completedApplicationId(sessionId)
+  if (applicationId === null) return null
+  return knowledge.kbForApp(applicationId)
 }
 
 /**

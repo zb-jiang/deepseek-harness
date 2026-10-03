@@ -1,9 +1,11 @@
 /**
  * 知识库选择器入口:conversation.input.left 座位占据者(design 2026-09-11 §6)。
  *
- * <p>仅待办绑定的会话且其应用已开通知识库时渲染「知识库」入口按钮:
- * 当前会话经 EnterpriseWorkbench 的任务绑定解析待办,再凭
- * Task.applicationId 经 KnowledgeWorkbench 的缓存解析知识库;解析失败/
+ * <p>仅待办绑定或已完成回执的会话且其应用已开通知识库时渲染「知识库」入口
+ * 按钮:当前会话经 EnterpriseWorkbench 解析应用归属——进行中取任务绑定
+ * (sessionToTask → Task.applicationId),已完成取提交时固化的回执记录
+ * (completedBySession.applicationId,历史任务数据无应用字段)——再凭
+ * applicationId 经 KnowledgeWorkbench 的缓存解析知识库;解析失败/
  * 未开通(null)都不渲染(设计:无知识库的应用选择器入口隐藏)。点击
  * 打开选择器 Modal,确认后由 Modal 把引导文本写入会话草稿;chip 行
  * (input.dock)单独展示已选文档。
@@ -43,7 +45,11 @@ export function KbPickerButton({ sessionId, workbench, knowledge }: KbPickerButt
 
   const taskId = bindings.sessionToTask[sessionId]
   const task = taskId !== undefined ? tasks.items.find(item => item.id === taskId) : undefined
-  const appId = task?.applicationId ?? null
+  // 进行中取任务绑定;已完成取提交时固化的归属——先内存回执(开过档案),
+  // 再持久化条目直查(刷新后未开档案的会话直开场景)。
+  const appId = task?.applicationId
+    ?? bindings.completedBySession[sessionId]?.applicationId
+    ?? workbench.completedApplicationId(sessionId)
 
   useEffect(() => {
     if (appId === null) {
