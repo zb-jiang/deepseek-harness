@@ -103,7 +103,7 @@ interface KbFolderDto {
   path: string
 }
 
-/** web-console {@code KbDocumentDto}(本插件只消费展示字段)。 */
+/** web-console {@code KbDocumentDto}(kb_list 消费的展示字段)。 */
 interface KbDocumentDto {
   id: string
   name: string
@@ -111,6 +111,18 @@ interface KbDocumentDto {
   sizeBytes: number
   parseStatus: string
   textExcerpt: string
+}
+
+/**
+ * web-console {@code KbSearchHitDto}(kb_search 混合检索端点,文档级命中;三路
+ * 候选统一按文档聚合,同文档只出现一条,snippet 为该文档的最优命中摘录)。
+ */
+interface KbSearchHit {
+  docId: string
+  docName: string
+  folderId: string | null
+  snippet: string
+  score: number
 }
 
 /** web-console {@code KbDocumentTextDto}(kb_read 端点)。 */
@@ -360,12 +372,13 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'kb_search',
-    description: 'Search the enterprise knowledge base by keyword (matches document names and extracted text). '
-      + 'Documents still being parsed (OCR/extraction) are never returned; get the kbId from the session context '
-      + 'or the injected document list, then read full text of a hit with kb_read(docId).',
+    description: 'Hybrid search over the enterprise knowledge base: vector similarity, keyword (trigram) and '
+      + 'full-text (jieba) candidates fused with Reciprocal Rank Fusion into document-level hits, so paraphrased '
+      + 'queries also match. Documents still being parsed (OCR/extraction) are never returned; get the kbId from '
+      + 'the session context or the injected document list, then read full text of a hit with kb_read(docId).',
     parameters: {
       kbId: { type: 'string', required: true, description: 'Knowledge base id (kbId).' },
-      query: { type: 'string', required: true, description: 'Keyword to match against names and extracted text.' },
+      query: { type: 'string', required: true, description: 'Natural-language query text or keywords.' },
       folderPath: { type: 'string', description: 'Optional folder path (e.g. /finance/reimburse) scoping the search; omit for the whole knowledge base.' },
       topK: { type: 'integer', description: `Maximum number of results (default ${DEFAULT_TOP_K}).` },
     },
@@ -385,7 +398,7 @@ export function apply(ctx: Context, config: Config): void {
                 name: { type: 'string', required: true },
                 folderPath: { type: 'string', required: true },
                 snippet: { type: 'string', required: true },
-                parseStatus: { type: 'string', required: true },
+                score: { type: 'number', required: true },
               },
             },
           },
@@ -398,7 +411,7 @@ export function apply(ctx: Context, config: Config): void {
             ? '知识库检索:无命中。'
             : `知识库检索 ${value.results.length} 条命中:\n${
               value.results
-                .map(r => `- ${r.name} (docId: ${r.docId}, 路径: ${r.folderPath}, 解析: ${r.parseStatus})${r.snippet === '' ? '' : `\n  摘要: ${r.snippet}`}`)
+                .map(r => `- ${r.name} (docId: ${r.docId}, 路径: ${r.folderPath}, 相关度: ${r.score.toFixed(4)})${r.snippet === '' ? '' : `\n  摘要: ${r.snippet}`}`)
                 .join('\n')
             }`,
         },
@@ -407,23 +420,25 @@ export function apply(ctx: Context, config: Config): void {
     async execute(args) {
       // folderPath 缺省按根路径解析:resolveFolder 对 '/' 直接返回 undefined(不发请求)。
       const folderId = await resolveFolder(options, args.kbId, args.folderPath ?? '/')
-      const params = new URLSearchParams({ recursive: 'true', kw: args.query })
+      const params = new URLSearchParams({ query: args.query })
       if (folderId !== undefined) {
         params.set('folderId', folderId)
       }
-      const [docs, folders] = await Promise.all([
-        requestJson<KbDocumentDto[]>(options, `/api/kb/${args.kbId}/documents?${params}`),
+      if (args.topK !== undefined) {
+        params.set('topK', String(args.topK))
+      }
+      const [hits, folders] = await Promise.all([
+        requestJson<KbSearchHit[]>(options, `/api/kb/${args.kbId}/search?${params}`),
         requestJson<KbFolderDto[]>(options, `/api/kb/${args.kbId}/folders`),
       ])
       const pathById = folderPathById(folders)
-      const topK = args.topK ?? DEFAULT_TOP_K
       return {
-        results: docs.slice(0, topK).map(doc => ({
-          docId: doc.id,
-          name: doc.name,
-          folderPath: doc.folderId === null ? '/' : (pathById.get(doc.folderId) ?? '/'),
-          snippet: doc.textExcerpt,
-          parseStatus: doc.parseStatus,
+        results: hits.map(hit => ({
+          docId: hit.docId,
+          name: hit.docName,
+          folderPath: hit.folderId === null ? '/' : (pathById.get(hit.folderId) ?? '/'),
+          snippet: hit.snippet,
+          score: hit.score,
         })),
       }
     },

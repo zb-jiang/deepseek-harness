@@ -7,6 +7,8 @@ import com.dsh.console.knowledge.dto.KbDocumentContentDto;
 import com.dsh.console.knowledge.dto.KbDocumentDto;
 import com.dsh.console.knowledge.dto.KbDocumentTextDto;
 import com.dsh.console.knowledge.dto.KbFolderDto;
+import com.dsh.console.knowledge.dto.KbSearchHitDto;
+import com.dsh.console.knowledge.dto.KbSearchTraceDto;
 import com.dsh.console.knowledge.dto.KnowledgeBaseDto;
 import com.dsh.console.knowledge.dto.UpdateFolderRequest;
 import com.dsh.console.security.AuthContext;
@@ -136,14 +138,68 @@ public class KnowledgeController {
     }
 
     /**
-     * 上传文档(multipart;目标文件夹可空 = 根;响应为 pending,解析异步进行)。
+     * 混合检索(文档级):向量 + pg_trgm 关键词 + jiebacfg 全文三路候选按 RRF 融合
+     * 排序,统一聚合为文档级命中(同文档只出现一条),只返回解析 ready 的文档。
+     * folderId 限定其子树(含自身),缺省全库;topK 缺省 8,超范围自动收敛到 1~50。
+     */
+    @GetMapping("/api/kb/{kbId}/search")
+    public ApiResponse<List<KbSearchHitDto>> search(@PathVariable UUID kbId,
+                                                    @AuthenticationPrincipal AuthContext auth,
+                                                    @RequestParam String query,
+                                                    @RequestParam(required = false) UUID folderId,
+                                                    @RequestParam(required = false) Integer topK) {
+        return ApiResponse.ok(knowledgeService.searchChunks(auth, kbId, query, folderId, topK));
+    }
+
+    /**
+     * 混合检索 debug 追踪(web console「知识库」检索可视化页面):执行与
+     * {@link #search} 完全相同的检索流程,额外返回三路候选、文档级 RRF 融合明细
+     * 与最终命中,用于直观展示打分与排序过程。每次调用真实执行一次查询向量化。
+     */
+    @GetMapping("/api/kb/{kbId}/search-debug")
+    public ApiResponse<KbSearchTraceDto> searchDebug(@PathVariable UUID kbId,
+                                                     @AuthenticationPrincipal AuthContext auth,
+                                                     @RequestParam String query,
+                                                     @RequestParam(required = false) UUID folderId,
+                                                     @RequestParam(required = false) Integer topK) {
+        return ApiResponse.ok(knowledgeService.searchTrace(auth, kbId, query, folderId, topK));
+    }
+
+    /**
+     * 上传文档(multipart;目标文件夹可空 = 根;chunk 参数可空取配置默认;响应为 pending,
+     * 解析异步进行——多文档上传各自入队串行处理)。
      */
     @PostMapping(value = "/api/kb/{kbId}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<KbDocumentDto> uploadDocument(@PathVariable UUID kbId,
                                                      @AuthenticationPrincipal AuthContext auth,
                                                      @RequestPart("file") MultipartFile file,
-                                                     @RequestParam(required = false) UUID folderId) {
-        return ApiResponse.ok(knowledgeService.uploadDocument(auth, kbId, folderId, file));
+                                                     @RequestParam(required = false) UUID folderId,
+                                                     @RequestParam(required = false) Integer chunkMaxSize,
+                                                     @RequestParam(required = false) Integer chunkOverlap,
+                                                     @RequestParam(required = false) String chunkSeparator) {
+        return ApiResponse.ok(knowledgeService.uploadDocument(auth, kbId, folderId, file,
+            chunkMaxSize, chunkOverlap, chunkSeparator));
+    }
+
+    /**
+     * 重新解析(从 Storage 回读原文重走抽取 → chunk → embedding 全管线;
+     * chunk 参数可空沿用文档当前值;解析中拒绝)。
+     */
+    @PostMapping("/api/kb/{kbId}/documents/{docId}/reparse")
+    public ApiResponse<KbDocumentDto> reparseDocument(@PathVariable UUID kbId,
+                                                      @PathVariable UUID docId,
+                                                      @AuthenticationPrincipal AuthContext auth,
+                                                      @RequestBody(required = false) ReparseRequest body) {
+        ReparseRequest request = body == null ? ReparseRequest.EMPTY : body;
+        return ApiResponse.ok(knowledgeService.reparseDocument(auth, kbId, docId,
+            request.chunkMaxSize(), request.chunkOverlap(), request.chunkSeparator()));
+    }
+
+    /**
+     * 重新解析请求体(全字段可选,缺省沿用文档当前值)。
+     */
+    record ReparseRequest(Integer chunkMaxSize, Integer chunkOverlap, String chunkSeparator) {
+        static final ReparseRequest EMPTY = new ReparseRequest(null, null, null);
     }
 
     /**

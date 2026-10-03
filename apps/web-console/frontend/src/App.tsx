@@ -11,6 +11,7 @@ import AuditPage from './pages/Audit'
 import Home from './pages/Home'
 import InstanceDetailPage from './pages/InstanceDetail'
 import InstancesPage from './pages/Instances'
+import KnowledgeSearchDebugPage from './pages/KnowledgeSearchDebug'
 import LlmModelsPage from './pages/LlmModels'
 import LlmQuotasPage from './pages/LlmQuotas'
 import LlmUsagePage from './pages/LlmUsage'
@@ -64,6 +65,7 @@ export default function App() {
                 <Route index element={<Home />} />
                 <Route path="users" element={<UsersPage />} />
                 <Route path="org-units" element={<OrgUnitsPage />} />
+                <Route path="knowledge" element={<KnowledgeSearchDebugPage />} />
                 <Route path="apps" element={<AppsPage />} />
                 <Route path="apps/:appId" element={<AppDetailPage />} />
                 <Route path="workflows" element={<WorkflowsPage />} />

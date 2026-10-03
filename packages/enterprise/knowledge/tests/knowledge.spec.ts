@@ -133,8 +133,11 @@ const DOCS = [
   { id: 'doc3', name: '孤儿文档', folderId: 'no-such-folder', sizeBytes: 40, parseStatus: 'ready', textExcerpt: 'e3' },
 ]
 
-/** web-console folders/documents 端点桩(kb_search / kb_list 共用)。 */
-const consoleRoutes = (documents: unknown[], folders: unknown[] = FOLDERS) => [
+/**
+ * web-console folders/documents/search 端点桩(kb_search / kb_list 共用;
+ * documents 供 kb_list,hits 供 kb_search)。
+ */
+const consoleRoutes = (documents: unknown[], folders: unknown[] = FOLDERS, hits: unknown[] = []) => [
   {
     match: (url: string) => url === 'http://console:8080/api/kb/kb1/folders',
     response: () => jsonResponse(200, { success: true, data: folders }),
@@ -143,6 +146,10 @@ const consoleRoutes = (documents: unknown[], folders: unknown[] = FOLDERS) => [
     match: (url: string) => url.startsWith('http://console:8080/api/kb/kb1/documents'),
     response: () => jsonResponse(200, { success: true, data: documents }),
   },
+  {
+    match: (url: string) => url.startsWith('http://console:8080/api/kb/kb1/search'),
+    response: () => jsonResponse(200, { success: true, data: hits }),
+  },
 ]
 
 interface SearchHit {
@@ -150,7 +157,7 @@ interface SearchHit {
   name: string
   folderPath: string
   snippet: string
-  parseStatus: string
+  score: number
 }
 
 interface ListResult {
@@ -330,32 +337,36 @@ describe('knowledge', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('kb_search:全库检索映射 folderPath,默认 topK 截断,render/presentCall 可用', async () => {
-    const manyDocs = Array.from({ length: 10 }, (_, i) => ({
-      id: `doc${i}`,
-      name: `文档${i}`,
+  it('kb_search:混合检索映射文档级结果,topK 透传给后端(本地不截断),render/presentCall 可用', async () => {
+    const manyHits = Array.from({ length: 4 }, (_, i) => ({
+      docId: `doc${i}`,
+      docName: `文档${i}`,
       folderId: i === 0 ? null : i === 1 ? 'f1' : i === 2 ? 'no-such-folder' : 'f2',
-      sizeBytes: 10 + i,
-      parseStatus: 'ready',
-      textExcerpt: `摘录${i}`,
+      snippet: `摘要${i}`,
+      score: 1 / (60 + i + 1),
     }))
-    const fetchMock = stubFetch(consoleRoutes(manyDocs))
+    const fetchMock = stubFetch(consoleRoutes([], FOLDERS, manyHits))
     const { tools } = mount('jwt', fetchMock)
     const search = toolOf(tools, 'kb_search')
-    const result = await execute(search, { kbId: 'kb1', query: '发票' }) as { results: SearchHit[] }
-    expect(result.results).toHaveLength(8)
+    const result = await execute(search, { kbId: 'kb1', query: '发票', topK: 2 }) as { results: SearchHit[] }
+    // 截断由 web-console 按 topK 执行;工具侧原样透传,不本地截断
+    expect(result.results).toHaveLength(4)
+    const searchCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/search'))
+    expect(String(searchCall?.[0])).toContain('topK=2')
     expect(result.results[0]).toEqual({
-      docId: 'doc0', name: '文档0', folderPath: '/', snippet: '摘录0', parseStatus: 'ready',
+      docId: 'doc0', name: '文档0', folderPath: '/', snippet: '摘要0', score: manyHits[0]!.score,
     })
     expect(result.results[1]?.folderPath).toBe('/财务')
     expect(result.results[2]?.folderPath).toBe('/')
     expect(result.results[3]?.folderPath).toBe('/财务/报销')
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('folderId'))).toBe(false)
     expect(search.output.render(undefined as never, result as never)).toEqual([
       {
         type: 'text',
-        text: expect.stringContaining('知识库检索 8 条命中:\n- 文档0 (docId: doc0, 路径: /, 解析: ready)\n  摘要: 摘录0'),
+        text: expect.stringContaining('知识库检索 4 条命中:\n- 文档0 (docId: doc0, 路径: /, 相关度: 0.0164)\n  摘要: 摘要0'),
       },
+    ])
+    expect(search.output.render(undefined as never, result as never)).toEqual([
+      { type: 'text', text: expect.stringContaining('- 文档1 (docId: doc1, 路径: /财务, 相关度:') },
     ])
     expect(search.presentCall({ kbId: 'kb1', query: '发票' } as never)).toEqual({
       card: 'generic', title: '知识库检索', kind: 'search', rawInput: '发票',
@@ -363,7 +374,7 @@ describe('knowledge', () => {
   })
 
   it('kb_search:无命中时 render 提示无命中', async () => {
-    const fetchMock = stubFetch(consoleRoutes([]))
+    const fetchMock = stubFetch(consoleRoutes([], FOLDERS, []))
     const { tools } = mount('jwt', fetchMock)
     const search = toolOf(tools, 'kb_search')
     const result = await execute(search, { kbId: 'kb1', query: '不存在' }) as { results: SearchHit[] }
@@ -374,35 +385,38 @@ describe('knowledge', () => {
   })
 
   it('kb_search:folderPath 解析为 folderId 并限定范围,尾斜杠归一化,topK 生效', async () => {
-    const fetchMock = stubFetch(consoleRoutes(DOCS))
+    const fetchMock = stubFetch(consoleRoutes([], FOLDERS, []))
     const { tools } = mount('jwt', fetchMock)
-    const result = await execute(toolOf(tools, 'kb_search'), {
-      kbId: 'kb1', query: '发票', folderPath: '/财务/', topK: 1,
-    }) as { results: SearchHit[] }
-    expect(result.results).toHaveLength(1)
-    const docCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/documents'))
-    expect(String(docCall?.[0])).toContain('recursive=true')
-    expect(String(docCall?.[0])).toContain('folderId=f1')
+    await execute(toolOf(tools, 'kb_search'), {
+      kbId: 'kb1', query: '发票', folderPath: '/财务/', topK: 3,
+    })
+    const searchCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/search'))
+    expect(String(searchCall?.[0])).toContain('query=%E5%8F%91%E7%A5%A8')
+    expect(String(searchCall?.[0])).toContain('folderId=f1')
+    expect(String(searchCall?.[0])).toContain('topK=3')
   })
 
   it('kb_search:folderPath 无前导斜杠时补齐后解析', async () => {
-    const fetchMock = stubFetch(consoleRoutes(DOCS))
+    const fetchMock = stubFetch(consoleRoutes([], FOLDERS, []))
     const { tools } = mount('jwt', fetchMock)
     await execute(toolOf(tools, 'kb_search'), { kbId: 'kb1', query: 'x', folderPath: '财务' })
-    const docCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/documents'))
-    expect(String(docCall?.[0])).toContain('folderId=f1')
+    const searchCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/search'))
+    expect(String(searchCall?.[0])).toContain('folderId=f1')
   })
 
   it('kb_search:folderPath 为根("/")等价全库,不附 folderId', async () => {
-    const fetchMock = stubFetch(consoleRoutes(DOCS))
+    const fetchMock = stubFetch(consoleRoutes([], FOLDERS, [
+      { docId: 'doc0', docName: '根文档', folderId: null, snippet: 'e0', score: 0.03 },
+      { docId: 'doc1', docName: '财务文档', folderId: 'f1', snippet: 'e1', score: 0.02 },
+    ]))
     const { tools } = mount('jwt', fetchMock)
     const result = await execute(toolOf(tools, 'kb_search'), { kbId: 'kb1', query: 'x', folderPath: '/' }) as { results: SearchHit[] }
-    expect(result.results).toHaveLength(DOCS.length)
+    expect(result.results).toHaveLength(2)
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('folderId'))).toBe(false)
   })
 
   it('kb_search:folderPath 不存在时抛错', async () => {
-    const fetchMock = stubFetch(consoleRoutes(DOCS, []))
+    const fetchMock = stubFetch(consoleRoutes([], [], []))
     const { tools } = mount('jwt', fetchMock)
     await expect(execute(toolOf(tools, 'kb_search'), {
       kbId: 'kb1', query: 'x', folderPath: '/不存在',
@@ -501,6 +515,35 @@ describe('knowledge', () => {
     const [input, init] = fetchMock.mock.calls[0]!
     expect(String(input)).toBe('http://console:8080/api/backend/kb/documents/doc1/text')
     expect(init?.headers).toEqual({ 'x-service-key': 'sk-1' })
+  })
+
+  it('服务密钥回退:kb_search 走 /api/backend/kb 白名单端点并带 x-service-key 头', async () => {
+    const fetchMock = stubFetch([
+      {
+        match: url => url === 'http://console:8080/api/backend/kb/kb1/folders',
+        response: () => jsonResponse(200, { success: true, data: [] }),
+      },
+      {
+        match: url => url.startsWith('http://console:8080/api/backend/kb/kb1/search'),
+        response: () => jsonResponse(200, {
+          success: true,
+          data: [{ docId: 'doc9', docName: '服务身份命中', folderId: null, snippet: '片段', score: 0.0213 }],
+        }),
+      },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+    const tools = stubTools()
+    ctx.provide('tools', tools as never)
+    ctx.provide('webServer', stubWebServer() as never)
+    // 不提供 currentUser:模拟 backend profile(无登录身份插件)
+    apply(ctx, { ...CONFIG, serviceKey: 'sk-1' })
+    const result = await execute(toolOf(tools, 'kb_search'), { kbId: 'kb1', query: 'x' }) as { results: SearchHit[] }
+    expect(result.results).toEqual([{
+      docId: 'doc9', name: '服务身份命中', folderPath: '/', snippet: '片段', score: 0.0213,
+    }])
+    const searchCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/search'))
+    expect(String(searchCall?.[0])).toBe('http://console:8080/api/backend/kb/kb1/search?query=x')
+    expect(searchCall?.[1]?.headers).toEqual({ 'x-service-key': 'sk-1' })
   })
 
   it('登录态优先于服务密钥:两者都在时走 /api/kb + Bearer(员工端成员校验)', async () => {

@@ -6,6 +6,7 @@ import com.dsh.console.knowledge.dto.BackendKbResolveDto;
 import com.dsh.console.knowledge.dto.KbDocumentDto;
 import com.dsh.console.knowledge.dto.KbDocumentTextDto;
 import com.dsh.console.knowledge.dto.KbFolderDto;
+import com.dsh.console.knowledge.dto.KbSearchHitDto;
 import com.dsh.console.workflow.WorkflowDefinitionJdbcRepository;
 import com.dsh.console.workflow.dto.WorkflowDefinitionDto;
 import java.util.List;
@@ -77,6 +78,19 @@ public class BackendKbController {
                                                           @RequestParam(required = false) String parseStatus) {
         return ApiResponse.ok(
             knowledgeService.listDocumentsForService(kbId, folderId, recursive, kw, parseStatus));
+    }
+
+    /**
+     * 混合检索知识库文档,参数语义同员工端 {@code GET /api/kb/{kbId}/search}
+     * (query/folderId/topK;向量 + 关键词 + 全文三路 RRF 融合为文档级命中,
+     * 只返回解析 ready)。
+     */
+    @GetMapping("/{kbId}/search")
+    public ApiResponse<List<KbSearchHitDto>> search(@PathVariable UUID kbId,
+                                                    @RequestParam String query,
+                                                    @RequestParam(required = false) UUID folderId,
+                                                    @RequestParam(required = false) Integer topK) {
+        return ApiResponse.ok(knowledgeService.searchChunksForService(kbId, query, folderId, topK));
     }
 
     /** 读文档全文,语义同员工端 {@code GET /api/kb/documents/{docId}/text}。 */

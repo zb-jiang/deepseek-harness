@@ -1,6 +1,8 @@
 # DSH Web Console 后端配置
 # 环境变量:SUPABASE_URL/SUPABASE_ANON_KEY 指向 Supabase 项目(Auth+Storage),
 # SUPABASE_DB_HOST/USER/PASSWORD 指向本地 PostgreSQL,
+# KB_EMBEDDING_API_KEY/KB_RERANK_API_KEY 为知识库解析与检索管线的 embedding/rerank
+# 密钥(默认均为硅基流动控制台创建,可分别指向不同供应商),
 # 参见 docs/plans/2026-08-19-supabase-setup-guide.md 与 docs/plans/2026-09-21-local-pg-setup-guide.md
 #
 # 所有敏感值通过环境变量注入,不写入仓库。
@@ -68,13 +70,34 @@ dsh:
     base-url: ${SKILLHUB_BASE_URL:http://127.0.0.1:8095}
     api-token: ${SKILLHUB_API_TOKEN:}
 
-  # 知识库模块:文件存 Supabase Storage,REST 走透传用户 JWT + anon key apikey 头,无 service_role
+  # 知识库模块:文件存 Supabase Storage,REST 走透传用户 JWT + anon key apikey 头,无 service_role;
+  # embedding 走硅基流动 OpenAI 兼容端点(独立 Key,不经 New API)
   knowledge:
     supabase-url: ${SUPABASE_URL}
     anon-key: ${SUPABASE_ANON_KEY}
     # Tesseract 语言训练数据目录(不配则图片 OCR 标记解析失败)
     tessdata-path: ${TESSDATA_PATH:}
     max-upload-size-mb: ${KB_MAX_UPLOAD_MB:50}
+    # 解析管线 embedding API(OpenAI 兼容 /embeddings;密钥在硅基流动控制台创建)
+    embedding-api-url: ${KB_EMBEDDING_API_URL:https://api.siliconflow.cn/v1}
+    embedding-api-key: ${KB_EMBEDDING_API_KEY}
+    embedding-model: ${KB_EMBEDDING_MODEL:Qwen/Qwen3-Embedding-4B}
+    # 输出维度:请求体 dimensions 钉死宽度;须与 kb_chunks.embedding 列的 halfvec(N) 一致(setup guide §3.3.1 第 5 步)
+    embedding-dimensions: ${KB_EMBEDDING_DIMENSIONS:2560}
+    embedding-connect-timeout: ${KB_EMBEDDING_CONNECT_TIMEOUT:10s}
+    embedding-response-timeout: ${KB_EMBEDDING_RESPONSE_TIMEOUT:120s}
+    # chunk 拆分默认参数(上传/重新解析未显式指定时使用)
+    chunk-max-size: 1000
+    chunk-overlap: 150
+    chunk-separator: "\n\n"
+    # 向量路召回余弦距离阈值:只挡极端垃圾(kNN 对任意查询必然有输出),边界候选交 rerank 判断
+    embedding-max-distance: ${KB_EMBEDDING_MAX_DISTANCE:0.7}
+    # 重排:RRF 融合后取 2×topK 候选调 rerank 模型精排,按重排分过滤排序取 topK;失败降级 RRF 排序。
+    # rerank API 与 embedding 相互独立(基址/密钥分开配),默认同为硅基流动,可指向其他供应商
+    rerank-api-url: ${KB_RERANK_API_URL:https://api.siliconflow.cn/v1}
+    rerank-api-key: ${KB_RERANK_API_KEY}
+    rerank-model: ${KB_RERANK_MODEL:Qwen/Qwen3-Reranker-8B}
+    rerank-min-score: ${KB_RERANK_MIN_SCORE:0.1}
 
   # 服务密钥（X-Service-Key）：flowable-engine / backend profile 等内网机器调
   # /api/backend/kb/** 只读端点用；空白=机制关闭（所有带此头的请求 401）。

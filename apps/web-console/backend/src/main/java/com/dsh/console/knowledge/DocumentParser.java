@@ -66,6 +66,17 @@ public class DocumentParser {
         return null;
     }
 
+    /**
+     * 上传来源格式校验:扩展名是否在支持列表内(纯文本 / 图片 / Tika 族)。
+     * 知识库只接受文件与图片上传,白名单外在 {@code KnowledgeService.uploadDocument} 拒绝。
+     */
+    public static boolean isSupported(String name) {
+        String extension = extensionOf(name);
+        return PLAIN_EXTENSIONS.contains(extension)
+            || IMAGE_EXTENSIONS.contains(extension)
+            || TIKA_EXTENSIONS.contains(extension);
+    }
+
     private String ocr(byte[] content) throws Exception {
         if (!properties.ocrEnabled()) {
             throw new IllegalStateException("未配置 TESSDATA_PATH,无法 OCR 图片文档(setup guide §12.3)");

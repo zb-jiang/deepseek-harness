@@ -5,6 +5,7 @@ import {
   Dropdown,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Select,
@@ -19,7 +20,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { DataNode } from 'antd/es/tree'
-import type { UploadProps } from 'antd'
+import type { UploadFile, UploadProps } from 'antd'
 import {
   FileDoneOutlined,
   FileSyncOutlined,
@@ -27,18 +28,52 @@ import {
   FolderOpenOutlined,
   FolderOutlined,
   MoreOutlined,
+  RedoOutlined,
   ReloadOutlined,
   SearchOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { type KbDocumentDto, type KbFolderDto, type KnowledgeBaseDto, kbApi } from '../api/kb'
+import {
+  type ChunkParams,
+  type KbDocumentDto,
+  type KbFolderDto,
+  type KnowledgeBaseDto,
+  kbApi,
+} from '../api/kb'
 
 const PARSE_STATUS_META: Record<string, { color: string; label: string; icon: React.ReactNode }> = {
   pending: { color: 'processing', label: '解析中', icon: <FileSyncOutlined /> },
   ready: { color: 'success', label: '就绪', icon: <FileDoneOutlined /> },
   failed: { color: 'error', label: '失败', icon: null },
+}
+
+/** 上传来源白名单(与后端 DocumentParser 一致):文本/图片/Tika 族,白名单外后端拒绝。 */
+const SUPPORTED_EXTENSIONS = [
+  'txt', 'md', 'markdown', 'csv', 'log', 'json',
+  'png', 'jpg', 'jpeg', 'bmp', 'gif', 'tif', 'tiff', 'webp',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf', 'html', 'htm', 'epub',
+]
+
+/** chunk 分隔符预设(值为真实字符;自定义经 Select 输入)。 */
+const SEPARATOR_PRESETS = [
+  { value: '\n\n', label: '空行(段落)' },
+  { value: '\n', label: '换行' },
+  { value: '。', label: '句号' },
+  { value: '；', label: '分号' },
+  { value: ' ', label: '空格' },
+]
+
+/** 分隔符展示名(预设值给可读名,其余原样)。 */
+function displaySeparator(separator: string): string {
+  return SEPARATOR_PRESETS.find(p => p.value === separator)?.label ?? JSON.stringify(separator)
+}
+
+function isSupportedFile(name: string): boolean {
+  const dot = name.lastIndexOf('.')
+  if (dot < 0 || dot === name.length - 1) return false
+  return SUPPORTED_EXTENSIONS.includes(name.substring(dot + 1).toLowerCase())
 }
 
 function formatSize(bytes: number): string {
@@ -83,6 +118,15 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
   const [renameFolderForm] = Form.useForm<{ name: string }>()
   const [moveFolderTarget, setMoveFolderTarget] = useState<KbFolderDto | null>(null)
   const [moveFolderParent, setMoveFolderParent] = useState<string | undefined>(undefined)
+
+  /** 上传对话框(多文件 + chunk 参数;确认后逐个提交,后端串行入队解析)。 */
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([])
+  const [uploadForm] = Form.useForm<ChunkParams>()
+  /** 重新解析对话框(预填文档当前 chunk 参数,可修改后重跑全管线)。 */
+  const [reparseTarget, setReparseTarget] = useState<KbDocumentDto | null>(null)
+  const [reparseForm] = Form.useForm<ChunkParams>()
 
   const kbId = kb?.id ?? null
 
@@ -277,25 +321,83 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
     await Promise.all([loadFolders(kbId), loadDocs(kbId, currentFolderId, kw, recursive, parseStatusFilter)])
   }, [kbId, currentFolderId, kw, recursive, parseStatusFilter, loadFolders, loadDocs])
 
-  const handleUpload = async (file: File) => {
-    if (!kbId) return
-    try {
-      await kbApi.upload(kbId, file, currentFolderId)
-      message.success(`「${file.name}」上传成功,后台解析中`)
-      await loadDocs(kbId, currentFolderId, kw, recursive, parseStatusFilter)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '上传失败')
-    }
+  // ---------- 上传与重新解析 ----------
+
+  /** 上传对话框文件列表:选择期校验扩展名(白名单外拒绝并提示),不自动上传。 */
+  const uploadSelectProps: UploadProps = {
+    multiple: true,
+    beforeUpload: (_file, fileList) => {
+      const invalid = fileList.filter(f => !isSupportedFile(f.name))
+      if (invalid.length > 0) {
+        message.warning(`不支持的格式: ${invalid.map(f => f.name).join('、')}(仅支持文本/图片/pdf/office 文件)`)
+      }
+      return false
+    },
+    fileList: uploadFileList,
+    onChange: ({ fileList }) => {
+      setUploadFileList(fileList.filter(f => isSupportedFile(f.name)))
+    },
+    onRemove: (file) => {
+      setUploadFileList(prev => prev.filter(f => f.uid !== file.uid))
+    },
   }
 
-  const uploadProps: UploadProps = {
-    multiple: true,
-    showUploadList: false,
-    customRequest: ({ file, onSuccess, onError }) => {
-      void handleUpload(file as File)
-        .then(() => onSuccess?.(undefined as unknown as string))
-        .catch(e => onError?.(e as Error))
-    },
+  /** 确认上传:逐个提交(后端各自入队,串行解析),单个失败不打断后续。 */
+  const handleUploadSubmit = async () => {
+    if (!kbId) return
+    const files = uploadFileList
+      .map(f => f.originFileObj)
+      .filter((f): f is File => f instanceof File)
+    if (files.length === 0) {
+      message.warning('请先选择文件')
+      return
+    }
+    const params = await uploadForm.validateFields()
+    setUploading(true)
+    let success = 0
+    const failures: string[] = []
+    for (const file of files) {
+      try {
+        await kbApi.upload(kbId, file, currentFolderId, params)
+        success += 1
+      } catch (e) {
+        failures.push(`${file.name}: ${e instanceof Error ? e.message : '上传失败'}`)
+      }
+    }
+    setUploading(false)
+    if (success > 0) {
+      message.success(`${success} 个文档上传成功,后台解析中(解析队列串行处理,可稍后刷新查看状态)`)
+    }
+    if (failures.length > 0) {
+      message.error(`上传失败: ${failures.join(';')}`)
+    }
+    setUploadOpen(false)
+    setUploadFileList([])
+    uploadForm.resetFields()
+    await loadDocs(kbId, currentFolderId, kw, recursive, parseStatusFilter)
+  }
+
+  const openReparse = (doc: KbDocumentDto) => {
+    reparseForm.setFieldsValue({
+      chunkMaxSize: doc.chunkMaxSize,
+      chunkOverlap: doc.chunkOverlap,
+      chunkSeparator: doc.chunkSeparator,
+    })
+    setReparseTarget(doc)
+  }
+
+  /** 确认重新解析:重走抽取 → chunk → embedding 全管线,旧 chunk 在完成时整篇覆盖。 */
+  const handleReparseSubmit = async () => {
+    if (!kbId || !reparseTarget) return
+    const params = await reparseForm.validateFields()
+    try {
+      await kbApi.reparse(kbId, reparseTarget.id, params)
+      message.success(`「${reparseTarget.name}」已重新入队解析`)
+      setReparseTarget(null)
+      await loadDocs(kbId, currentFolderId, kw, recursive, parseStatusFilter)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '重新解析失败')
+    }
   }
 
   const handleDownload = async (doc: KbDocumentDto) => {
@@ -363,9 +465,21 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
     {
       title: '操作',
       key: 'actions',
-      width: 130,
+      width: 190,
       render: (_, doc) => (
         <Space size={4}>
+          <Tooltip title={doc.parseStatus === 'pending' ? '解析进行中,完成后可重新解析' : '重新抽取 → 拆 chunk → 生成向量,可调整 chunk 参数'}>
+            <Button
+              type="link"
+              size="small"
+              style={{ paddingInline: 4 }}
+              disabled={doc.parseStatus === 'pending'}
+              icon={<RedoOutlined />}
+              onClick={() => openReparse(doc)}
+            >
+              重新解析
+            </Button>
+          </Tooltip>
           <Button type="link" size="small" style={{ paddingInline: 4 }} onClick={() => void handleDownload(doc)}>
             下载
           </Button>
@@ -406,11 +520,17 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
         borderBottom: 'none',
       }}
     >
-      <Upload {...uploadProps}>
-        <Button type="primary" icon={<UploadOutlined />}>
-          上传文档
-        </Button>
-      </Upload>
+      <Button
+        type="primary"
+        icon={<UploadOutlined />}
+        onClick={() => {
+          setUploadFileList([])
+          uploadForm.resetFields()
+          setUploadOpen(true)
+        }}
+      >
+        上传文档
+      </Button>
       <Button
         icon={<FolderAddOutlined />}
         onClick={() => {
@@ -650,6 +770,97 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
             .filter(f => f.id !== moveFolderTarget?.id)
             .map(f => ({ value: f.id, label: f.path }))}
         />
+      </Modal>
+
+      <Modal
+        title={`上传文档到「${currentFolderName}」`}
+        open={uploadOpen}
+        onCancel={() => !uploading && setUploadOpen(false)}
+        onOk={() => void handleUploadSubmit()}
+        confirmLoading={uploading}
+        okText={`上传 ${uploadFileList.length > 0 ? `(${uploadFileList.length})` : ''}`}
+        destroyOnClose
+      >
+        <Form form={uploadForm} layout="vertical" initialValues={{ chunkMaxSize: 1000, chunkOverlap: 150, chunkSeparator: '\n\n' }}>
+          <Form.Item label="文件(可多选;仅支持文本 / 图片 / pdf / office 文件)">
+            <Upload.Dragger {...uploadSelectProps}>
+              <p className="ant-upload-drag-icon"><UploadOutlined /></p>
+              <p className="ant-upload-text">点击或拖拽文件到此处</p>
+              <p className="ant-upload-hint">上传后进入解析队列:抽取文本 → 拆分 chunk → 生成 embedding 向量,完成后可检索</p>
+            </Upload.Dragger>
+          </Form.Item>
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+            chunk 拆分参数(影响向量检索粒度;留空使用服务端默认值)
+          </Typography.Text>
+          <Space size="large" style={{ display: 'flex' }} wrap>
+            <Form.Item
+              name="chunkMaxSize"
+              label="最大尺寸(字符)"
+              style={{ marginBottom: 0 }}
+              rules={[{ type: 'number', min: 100, max: 8000, message: '100~8000' }]}
+            >
+              <InputNumber min={100} max={8000} style={{ width: 140 }} placeholder="1000" />
+            </Form.Item>
+            <Form.Item
+              name="chunkOverlap"
+              label="相邻重叠(字符)"
+              style={{ marginBottom: 0 }}
+              rules={[{ type: 'number', min: 0, max: 4000, message: '0~4000 且小于最大尺寸/2' }]}
+            >
+              <InputNumber min={0} max={4000} style={{ width: 140 }} placeholder="150" />
+            </Form.Item>
+            <Form.Item name="chunkSeparator" label="分隔符" style={{ marginBottom: 0 }}>
+              <Select
+                style={{ width: 160 }}
+                allowClear
+                showSearch
+                options={SEPARATOR_PRESETS}
+                placeholder="空行(段落)"
+              />
+            </Form.Item>
+          </Space>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`重新解析「${reparseTarget?.name ?? ''}」`}
+        open={reparseTarget !== null}
+        onCancel={() => setReparseTarget(null)}
+        onOk={() => void handleReparseSubmit()}
+        destroyOnClose
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          从存储回读原文,重走「抽取文本 → 拆分 chunk → 生成 embedding 向量」全管线;旧 chunk 在解析完成时整篇覆盖。
+          {reparseTarget?.parseStatus === 'failed' && reparseTarget.parseError && (
+            <>上次失败原因:{reparseTarget.parseError}</>
+          )}
+        </Typography.Paragraph>
+        <Form form={reparseForm} layout="vertical">
+          <Space size="large" style={{ display: 'flex' }} wrap>
+            <Form.Item
+              name="chunkMaxSize"
+              label="最大尺寸(字符)"
+              rules={[{ type: 'number', min: 100, max: 8000, message: '100~8000' }]}
+            >
+              <InputNumber min={100} max={8000} style={{ width: 140 }} />
+            </Form.Item>
+            <Form.Item
+              name="chunkOverlap"
+              label="相邻重叠(字符)"
+              rules={[{ type: 'number', min: 0, max: 4000, message: '0~4000 且小于最大尺寸/2' }]}
+            >
+              <InputNumber min={0} max={4000} style={{ width: 140 }} />
+            </Form.Item>
+            <Form.Item name="chunkSeparator" label="分隔符">
+              <Select
+                style={{ width: 160 }}
+                allowClear
+                showSearch
+                options={SEPARATOR_PRESETS}
+              />
+            </Form.Item>
+          </Space>
+        </Form>
       </Modal>
     </div>
   )

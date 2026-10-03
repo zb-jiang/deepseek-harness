@@ -1,0 +1,646 @@
+/* 知识库检索 debug 页面(检索实验室风格:图纸底纹 + 三路语义色 + RRF 贡献堆叠条) */
+
+.kb-debug-page {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 112px);
+  min-height: 480px;
+}
+
+/* ---------- 左侧知识库列表 ---------- */
+
+.kb-debug-side {
+  width: 300px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #e6e9f5;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.kb-debug-side-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid #eef1fa;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.kb-debug-side-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.kb-debug-side-list {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.kb-debug-kb-item {
+  padding: 8px 10px 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background-color 0.15s ease;
+}
+
+.kb-debug-kb-item:hover {
+  background: #f5f6fd;
+}
+
+.kb-debug-kb-item.selected {
+  background: #eef0fe;
+  border-left-color: #4d5cf5;
+}
+
+.kb-debug-kb-app {
+  font-size: 12px;
+  color: #8b90a7;
+}
+
+.kb-debug-kb-name {
+  font-size: 13px;
+  color: #26283a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 主区 ---------- */
+
+.kb-debug-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kb-debug-querybar {
+  background: #fff;
+  border: 1px solid #e6e9f5;
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 图纸底纹的流程面板 */
+.kb-debug-flow {
+  flex: 1;
+  overflow: auto;
+  background-color: #fff;
+  border: 1px solid #e6e9f5;
+  border-radius: 10px;
+  padding: 20px;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(77, 92, 245, 0.045) 0, rgba(77, 92, 245, 0.045) 1px, transparent 1px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(77, 92, 245, 0.045) 0, rgba(77, 92, 245, 0.045) 1px, transparent 1px, transparent 26px);
+}
+
+.kb-debug-flow-inner {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 100%;
+}
+
+.kb-debug-stage-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #8b90a7;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* 查询节点 */
+.kb-debug-query-node {
+  width: 170px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.kb-debug-query-card {
+  background: #fff;
+  border: 1.5px solid #4d5cf5;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(77, 92, 245, 0.14);
+  padding: 12px;
+  word-break: break-all;
+  font-size: 13px;
+  color: #26283a;
+}
+
+.kb-debug-query-caption {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #8b90a7;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+/* 连接线 */
+.kb-debug-connector {
+  width: 26px;
+  flex-shrink: 0;
+  align-self: center;
+  display: flex;
+  align-items: center;
+}
+
+.kb-debug-connector::before {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, #c3c9f2, #8f97e8);
+}
+
+.kb-debug-connector::after {
+  content: '';
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid #8f97e8;
+}
+
+/* 三路泳道 */
+.kb-debug-lanes {
+  flex-shrink: 0;
+  width: 390px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kb-debug-lane {
+  background: #fff;
+  border: 1px solid #e6e9f5;
+  border-radius: 10px;
+  overflow: hidden;
+  animation: kbFadeIn 0.4s both;
+}
+
+.kb-debug-lane-head {
+  padding: 8px 12px;
+  border-bottom: 1px dashed #e6e9f5;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.kb-debug-lane-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.kb-debug-lane-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #26283a;
+}
+
+.kb-debug-lane-count {
+  font-size: 11px;
+  color: #8b90a7;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  margin-left: auto;
+}
+
+.kb-debug-lane-metric {
+  padding: 3px 12px 0;
+  font-size: 11px;
+  color: #8b90a7;
+}
+
+.kb-debug-lane-body {
+  padding: 6px 8px 10px;
+  max-height: 150px;
+  overflow: auto;
+}
+
+.kb-debug-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: #fafbff;
+  border: 1px solid #eef1fa;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #26283a;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.kb-debug-chip:hover {
+  background: #f0f2fe;
+  border-color: #d5d9f6;
+}
+
+.kb-debug-chip-rank {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.kb-debug-chip-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-debug-chip-score {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #8b90a7;
+  flex-shrink: 0;
+}
+
+.kb-debug-lane-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #b0b4c8;
+}
+
+/* RRF 节点 */
+.kb-debug-rrf {
+  width: 168px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.kb-debug-rrf-card {
+  background: #26283a;
+  border-radius: 10px;
+  color: #fff;
+  padding: 14px 12px;
+  box-shadow: 0 3px 14px rgba(38, 40, 58, 0.28);
+}
+
+.kb-debug-rrf-title {
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.kb-debug-rrf-formula {
+  margin-top: 8px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #b8bdf4;
+  word-break: break-all;
+}
+
+.kb-debug-rrf-note {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #9aa0bd;
+  line-height: 1.5;
+}
+
+/* 结果列 */
+.kb-debug-results {
+  flex: 1;
+  /* 固定宽度列(查询/三路/RRF/rerank/连接线)合计约 1212px,保底防被挤压成竖条 */
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  /* 垂直居中:与 RRF 节点及其后箭头的中心对齐 */
+  justify-content: center;
+}
+
+.kb-debug-result-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.kb-debug-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid #e6e9f5;
+  border-radius: 8px;
+  padding: 7px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  animation: kbRowIn 0.4s both;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kb-debug-result-row:hover {
+  border-color: #b9bff2;
+  box-shadow: 0 2px 8px rgba(77, 92, 245, 0.12);
+}
+
+.kb-debug-result-row.muted {
+  opacity: 0.55;
+}
+
+.kb-debug-result-rank {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #4d5cf5;
+  color: #fff;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kb-debug-result-row.muted .kb-debug-result-rank {
+  background: #b0b4c8;
+}
+
+.kb-debug-result-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-debug-result-name {
+  font-size: 13px;
+  color: #26283a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* RRF 贡献堆叠条:每段一条路的贡献,宽度按分数占比 */
+.kb-debug-contrib-bar {
+  margin-top: 4px;
+  height: 6px;
+  border-radius: 3px;
+  background: #eef1fa;
+  overflow: hidden;
+  display: flex;
+}
+
+.kb-debug-contrib-seg {
+  height: 100%;
+}
+
+.kb-debug-result-score {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  color: #4d5cf5;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.kb-debug-cutoff {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  color: #8b90a7;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.kb-debug-cutoff::before,
+.kb-debug-cutoff::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed #c9cde8;
+}
+
+/* ---------- 融合结果 / rerank 精排泳道 ---------- */
+
+/* stage 列:阶段标题 + 单个泳道卡片,垂直居中与前后箭头对准 */
+.kb-debug-stage {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  width: 380px;
+  flex-shrink: 0;
+}
+
+.kb-debug-stage .kb-debug-lane {
+  animation: kbFadeIn 0.4s both;
+}
+
+.kb-debug-rerank-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fafbff;
+  border: 1px solid #eef1fa;
+  border-left: 3px solid #c9b8f5;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #26283a;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  animation: kbRowIn 0.3s ease backwards;
+}
+
+.kb-debug-rerank-row:hover {
+  background: #f0f2fe;
+  border-color: #d5d9f6;
+}
+
+.kb-debug-rerank-row.filtered {
+  opacity: 0.45;
+  border-left-color: #d8dced;
+}
+
+.kb-debug-rerank-row.selected {
+  border-left-color: #7c3aed;
+  background: #f6f2ff;
+}
+
+.kb-debug-rerank-rrf {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: #8b90a7;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.kb-debug-rerank-arrow {
+  color: #b0b4cd;
+  flex-shrink: 0;
+}
+
+.kb-debug-rerank-bar-track {
+  flex: 1;
+  min-width: 40px;
+  height: 8px;
+  background: #eef1fa;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.kb-debug-rerank-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #a78bfa, #7c3aed);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.kb-debug-rerank-score {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c3aed;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 38px;
+  text-align: right;
+}
+
+/* 详情抽屉 */
+.kb-debug-drawer-block {
+  margin-bottom: 16px;
+}
+
+.kb-debug-drawer-label {
+  font-size: 12px;
+  color: #8b90a7;
+  margin-bottom: 2px;
+}
+
+.kb-debug-drawer-value {
+  font-size: 13px;
+  color: #26283a;
+}
+
+.kb-debug-drawer-mono {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+.kb-debug-snippet {
+  background: #fafbff;
+  border: 1px solid #eef1fa;
+  border-left: 3px solid #4d5cf5;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #3c3f55;
+  word-break: break-all;
+  max-height: 220px;
+  overflow: auto;
+}
+
+@keyframes kbFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes kbRowIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 左侧列表折叠 ---------- */
+
+.kb-debug-side-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kb-debug-side.collapsed {
+  width: 46px;
+}
+
+.kb-debug-side.collapsed .kb-debug-side-head {
+  justify-content: center;
+  padding: 10px 4px;
+}
+
+.kb-debug-side.collapsed .kb-debug-side-list {
+  display: none;
+}
+
+/* ---------- 向量路两阶段:候选块 → 同文档聚合 ---------- */
+
+.kb-debug-stage-label {
+  padding: 2px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6a6f8a;
+}
+
+.kb-debug-merge-note {
+  margin: 6px 4px;
+  padding: 5px 8px;
+  background: #f0f7fd;
+  border: 1px dashed #9cc8ec;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #23689b;
+}
+
+.kb-debug-lane-body.tall {
+  max-height: 280px;
+}
+
+.kb-debug-agg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #eef1fa;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #26283a;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.kb-debug-agg-row:hover {
+  background: #f0f2fe;
+  border-color: #d5d9f6;
+}
+
+.kb-debug-agg-blocks {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+}

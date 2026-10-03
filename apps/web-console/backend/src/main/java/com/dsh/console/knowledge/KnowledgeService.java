@@ -4,13 +4,24 @@ import com.dsh.console.app.ApplicationJdbcRepository;
 import com.dsh.console.app.dto.ApplicationDto;
 import com.dsh.console.audit.AuditService;
 import com.dsh.console.common.GlobalExceptionHandler.NotFoundException;
+import com.dsh.console.config.KnowledgeProperties;
 import com.dsh.console.knowledge.dto.KbAppSummaryDto;
 import com.dsh.console.knowledge.dto.KbDocumentContentDto;
 import com.dsh.console.knowledge.dto.KbDocumentDto;
 import com.dsh.console.knowledge.dto.KbDocumentTextDto;
 import com.dsh.console.knowledge.dto.KbFolderDto;
+import com.dsh.console.knowledge.dto.KbSearchHitDto;
+import com.dsh.console.knowledge.dto.KbSearchTraceDto;
+import com.dsh.console.knowledge.dto.KbTraceCandidateDto;
+import com.dsh.console.knowledge.dto.KbTraceContributionDto;
+import com.dsh.console.knowledge.dto.KbTraceDocDto;
+import com.dsh.console.knowledge.dto.KbTracePathDto;
+import com.dsh.console.knowledge.dto.KbTraceRerankDto;
 import com.dsh.console.knowledge.dto.KnowledgeBaseDto;
 import com.dsh.console.security.AuthContext;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -18,10 +29,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -37,25 +52,49 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class KnowledgeService {
 
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeService.class);
+
     /** 全部知识库共用的 Storage 桶(setup guide §4.1 一次性手工预建),应用间以对象路径 {appId}/ 段隔离。 */
     private static final String KB_BUCKET = "kb-documents";
+
+    /** 混合检索默认返回条数(调用方未传 topK 时)。 */
+    private static final int DEFAULT_SEARCH_TOP_K = 8;
+
+    /** 混合检索返回条数上限(防大结果集;超范围 topK 收敛到 1..该值)。 */
+    private static final int MAX_SEARCH_TOP_K = 50;
+
+    /** rrfMerge 默认 snippet 的截断长度(字符);最终输出 snippet 由 {@link #finalSnippets}
+     * 按设计文档 §6 规则组合覆盖,此截断仅作组合前的兜底。 */
+    private static final int SNIPPET_MAX_CHARS = 300;
+
+    /** RRF 融合常数 k(标准取值 60;rank 从 1 起,score = Σ 1/(k + rank))。 */
+    static final int RRF_K = 60;
 
     private final KnowledgeJdbcRepository repository;
     private final ApplicationJdbcRepository appRepository;
     private final SupabaseStorageClient storageClient;
     private final KbParsePipeline parsePipeline;
+    private final KbEmbeddingClient embeddingClient;
+    private final KbRerankClient rerankClient;
     private final AuditService auditService;
+    private final KnowledgeProperties properties;
 
     public KnowledgeService(KnowledgeJdbcRepository repository,
                             ApplicationJdbcRepository appRepository,
                             SupabaseStorageClient storageClient,
                             KbParsePipeline parsePipeline,
-                            AuditService auditService) {
+                            KbEmbeddingClient embeddingClient,
+                            KbRerankClient rerankClient,
+                            AuditService auditService,
+                            KnowledgeProperties properties) {
         this.repository = repository;
         this.appRepository = appRepository;
         this.storageClient = storageClient;
         this.parsePipeline = parsePipeline;
+        this.embeddingClient = embeddingClient;
+        this.rerankClient = rerankClient;
         this.auditService = auditService;
+        this.properties = properties;
     }
 
     // ---------- 知识库开通 ----------
@@ -256,13 +295,367 @@ public class KnowledgeService {
             .toList();
     }
 
+    // ---------- 混合检索(三路 RRF) ----------
+
     /**
-     * 上传文档:预检同名 → Storage 上传(透传 JWT)→ 落 pending 元数据行 → 提交异步解析。
+     * 混合检索(文档级):查询文本向量化 + 仓储层三路候选(向量余弦 / pg_trgm 关键词 /
+     * jiebacfg 全文)按 RRF 融合排序,统一聚合为文档级命中。folderId 限定其子树(含
+     * 自身),null 为全库;未解析完成的文档不进任何一路。检索为读操作,不写审计
+     * (与列表端点一致)。
+     */
+    public List<KbSearchHitDto> searchChunks(AuthContext auth, UUID kbId, String query,
+                                             UUID folderId, Integer topK) {
+        checkKbAccess(auth, kbId);
+        return searchChunksCore(kbId, query, folderId, topK);
+    }
+
+    /**
+     * 服务身份变体(X-Service-Key):混合检索,不做员工成员校验,语义同
+     * {@link #searchChunks}。仅限 {@code BackendKbController} 的只读端点。
+     */
+    public List<KbSearchHitDto> searchChunksForService(UUID kbId, String query,
+                                                       UUID folderId, Integer topK) {
+        return searchChunksCore(kbId, query, folderId, topK);
+    }
+
+    /** 检索共用实现:参数归一 → 查询向量化 → 三路候选 → RRF 合并截断。 */
+    private List<KbSearchHitDto> searchChunksCore(UUID kbId, String query, UUID folderId, Integer topK) {
+        return runSearch(kbId, query, folderId, topK).results();
+    }
+
+    /**
+     * 检索 debug 追踪:执行与 {@link #searchChunksCore} 完全相同的检索流程,额外保留
+     * 三路候选与 RRF 融合中间态,供 web console 检索可视化页面展示打分与排序过程。
+     * 每次调用真实执行一次查询向量化(硅基流动);不做审计(与检索一致)。
+     */
+    public KbSearchTraceDto searchTrace(AuthContext auth, UUID kbId, String query, UUID folderId, Integer topK) {
+        checkKbAccess(auth, kbId);
+        return buildTrace(kbId, query, folderId, runSearch(kbId, query, folderId, topK));
+    }
+
+    /**
+     * 检索共用执行体:参数归一 → 查询向量化 → 三路候选 → RRF 融合(候选池 2×topK)
+     * → rerank 精排(按重排分过滤排序取 topK;调用失败降级为 RRF 排序)→ 最终 snippet 组合。
+     * search 与 search-debug 走同一方法,保证 debug 视图与真实检索语义一致。
+     */
+    private SearchRun runSearch(UUID kbId, String query, UUID folderId, Integer topK) {
+        if (query == null || query.isBlank()) {
+            throw new IllegalArgumentException("检索词不能为空");
+        }
+        int effectiveTopK = clampTopK(topK);
+        KbFolderDto folder = folderId == null ? null : requireFolder(kbId, folderId);
+        String queryVector = embedQuery(query);
+        // 每路候选取 topK 的 3 倍:三路各自排序后融合,候选池留足交集空间
+        int candidateLimit = effectiveTopK * 3;
+        List<KbSearchCandidate> vectorRoute =
+            repository.searchVectorCandidates(kbId, folder, queryVector, candidateLimit,
+                properties.embeddingMaxDistance());
+        List<KbSearchCandidate> keywordRoute =
+            repository.searchKeywordCandidates(kbId, folder, query, candidateLimit);
+        List<KbSearchCandidate> ftsRoute =
+            repository.searchFtsCandidates(kbId, folder, query, candidateLimit);
+        // RRF 融合取 2×topK 候选池:rerank 从中精选 topK,给精排留足挑选余地
+        List<KbSearchHitDto> merged =
+            rrfMerge(vectorRoute, keywordRoute, ftsRoute, effectiveTopK * 2);
+        RerankOutcome outcome = rerankPipeline(kbId, query, merged, vectorRoute, effectiveTopK);
+        return new SearchRun(effectiveTopK, candidateLimit, properties.embeddingMaxDistance(),
+            properties.rerankMinScore(), properties.rerankModel(),
+            vectorRoute, keywordRoute, ftsRoute, outcome.pool(), outcome.results());
+    }
+
+    /** rerank 阶段产物:候选池逐行中间态(供 debug 追踪)+ 最终命中。 */
+    private record RerankOutcome(List<KbTraceRerankDto> pool, List<KbSearchHitDto> results) {
+    }
+
+    /**
+     * rerank 精排:先给池内每篇候选组装最终 snippet(rerank 输入与最终输出同源),
+     * 再调 rerank 模型逐个打分。调用失败(网络/网关/响应不合法)降级为按 RRF 序
+     * 取前 topK 并告警——检索主路径不被增强组件绑架,降级期间 score 语义变为
+     * RRF 融合分(见 KbSearchHitDto)。
+     */
+    private RerankOutcome rerankPipeline(UUID kbId, String query, List<KbSearchHitDto> pool,
+                                         List<KbSearchCandidate> vectorRoute, int topK) {
+        Map<UUID, String> snippets = finalSnippets(kbId, pool, vectorRoute);
+        List<KbSearchHitDto> prepared = pool.stream()
+            .map(hit -> new KbSearchHitDto(hit.docId(), hit.docName(), hit.folderId(),
+                snippets.getOrDefault(hit.docId(), hit.snippet()), hit.score()))
+            .toList();
+        List<KbSearchHitDto> rrfOrder = List.copyOf(prepared.subList(0, Math.min(topK, prepared.size())));
+        if (prepared.isEmpty()) {
+            return new RerankOutcome(rerankPoolOf(prepared, null, rrfOrder), rrfOrder);
+        }
+        try {
+            List<String> documents = prepared.stream()
+                .map(hit -> hit.docName() + "\n" + hit.snippet())
+                .toList();
+            List<Double> scores = rerankClient.rerank(query, documents);
+            List<KbSearchHitDto> results =
+                applyRerank(prepared, scores, properties.rerankMinScore(), topK);
+            return new RerankOutcome(rerankPoolOf(prepared, scores, results), results);
+        } catch (IOException e) {
+            log.warn("rerank 失败,本次降级为 RRF 排序: {}", e.getMessage());
+            return new RerankOutcome(rerankPoolOf(prepared, null, rrfOrder), rrfOrder);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("rerank 被中断,本次降级为 RRF 排序");
+            return new RerankOutcome(rerankPoolOf(prepared, null, rrfOrder), rrfOrder);
+        }
+    }
+
+    /**
+     * rerank 采纳纯函数:过滤低于阈值的候选,按重排分降序取前 topK,score 替换为重排分。
+     * 过阈值的候选不足 topK 时返回全部过阈值者(全部低于阈值返回空,与词法两路零命中语义一致)。
+     * static 包内可见:纯函数,测试直接构造验证。
+     */
+    static List<KbSearchHitDto> applyRerank(List<KbSearchHitDto> pool, List<Double> scores,
+                                            double minScore, int topK) {
+        record Scored(KbSearchHitDto hit, double rerankScore) {
+        }
+        return java.util.stream.IntStream.range(0, pool.size())
+            .mapToObj(i -> new Scored(pool.get(i), scores.get(i)))
+            .filter(scored -> scored.rerankScore() >= minScore)
+            .sorted(java.util.Comparator.comparingDouble(Scored::rerankScore).reversed())
+            .limit(topK)
+            .map(scored -> new KbSearchHitDto(scored.hit().docId(), scored.hit().docName(),
+                scored.hit().folderId(), scored.hit().snippet(), scored.rerankScore()))
+            .toList();
+    }
+
+    /** 组装 rerank 泳道中间态:池序与 RRF 融合序一致,重排分为 null 表示未执行 rerank。 */
+    private static List<KbTraceRerankDto> rerankPoolOf(List<KbSearchHitDto> pool, List<Double> scores,
+                                                       List<KbSearchHitDto> results) {
+        Set<UUID> inTopK = results.stream().map(KbSearchHitDto::docId).collect(Collectors.toSet());
+        List<KbTraceRerankDto> rows = new ArrayList<>(pool.size());
+        for (int i = 0; i < pool.size(); i++) {
+            KbSearchHitDto hit = pool.get(i);
+            rows.add(new KbTraceRerankDto(hit.docId(), hit.docName(), hit.score(),
+                scores == null ? null : scores.get(i), inTopK.contains(hit.docId())));
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * 最终 snippet 文本组合(kb-hybrid-search-design §6 规则 4):文档前 1000 字符在前,
+     * 名次最优块在后(有向量命中时,换行拼接),覆盖 rrfMerge 输出的默认 snippet;
+     * 文档摘录批量一次查询。rerank 输入文本与最终输出同源于此。
+     */
+    private Map<UUID, String> finalSnippets(UUID kbId, List<KbSearchHitDto> hits,
+                                            List<KbSearchCandidate> vectorRoute) {
+        if (hits.isEmpty()) {
+            return Map.of();
+        }
+        // 向量路行按名次升序,putIfAbsent 保留每篇文档名次最优块的文本
+        Map<UUID, String> bestChunkByDoc = new LinkedHashMap<>();
+        for (KbSearchCandidate candidate : vectorRoute) {
+            bestChunkByDoc.putIfAbsent(candidate.docId(), candidate.snippet());
+        }
+        Map<UUID, String> excerpts =
+            repository.docExcerpts(kbId, hits.stream().map(KbSearchHitDto::docId).toList());
+        Map<UUID, String> composed = new LinkedHashMap<>();
+        for (KbSearchHitDto hit : hits) {
+            composed.put(hit.docId(), composeSnippet(excerpts.get(hit.docId()),
+                bestChunkByDoc.get(hit.docId()), hit.snippet()));
+        }
+        return composed;
+    }
+
+    /**
+     * snippet 组合纯函数:文档摘录在前、名次最优块在后,换行分隔;一方缺失取另一方,
+     * 两方皆缺回退 rrfMerge 的默认 snippet。
+     */
+    static String composeSnippet(String docExcerpt, String bestChunk, String fallback) {
+        String head = docExcerpt == null ? "" : docExcerpt.strip();
+        String tail = bestChunk == null ? "" : bestChunk.strip();
+        if (head.isEmpty() && tail.isEmpty()) {
+            return fallback == null ? "" : fallback.strip();
+        }
+        if (head.isEmpty()) {
+            return tail;
+        }
+        return tail.isEmpty() ? head : head + "\n" + tail;
+    }
+
+    /**
+     * 检索执行快照:入口参数与各阶段中间态,debug 追踪据此组装;results 为最终命中。
+     * 包内可见:buildTrace 纯函数测试需要构造。
+     */
+    record SearchRun(int topK, int candidateLimit, double vectorMaxDistance,
+                     double rerankMinScore, String rerankModel,
+                     List<KbSearchCandidate> vectorRoute,
+                     List<KbSearchCandidate> keywordRoute,
+                     List<KbSearchCandidate> ftsRoute,
+                     List<KbTraceRerankDto> rerankPool,
+                     List<KbSearchHitDto> results) {
+    }
+
+    /** 查询文本向量化(单条;失败包装为运行时异常,检索是同步请求路径,不能泄出受检异常)。 */
+    private String embedQuery(String query) {
+        try {
+            List<List<Float>> vectors = embeddingClient.embed(List.of(query));
+            if (vectors.isEmpty()) {
+                throw new IllegalStateException("查询向量化返回空结果");
+            }
+            return KbEmbeddingClient.toHalfvecLiteral(vectors.get(0));
+        } catch (IOException e) {
+            throw new IllegalStateException("查询向量化失败: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("查询向量化被中断", e);
+        }
+    }
+
+    /**
+     * RRF(Reciprocal Rank Fusion)合并:三路候选统一按 docId 聚合为文档级命中,
+     * 每条候选行按名次给所属文档贡献 {@code 1/(k + rank)}(rank 从 1 起),同文档
+     * 跨路、跨块分数累加,按总分降序取前 topK(同分按首次出现顺序稳定排序)。
+     *
+     * <p>snippet 选优:向量路块文本优先——路由顺序固定为向量 → 关键词 → 全文,
+     * 向量路内按名次升序,故 {@code putIfAbsent} 首次写入即该文档名次最优的块文本;
+     * 纯词法命中的文档退回抽取全文。输出侧统一截断。
+     *
+     * <p>static 包内可见:纯函数,测试直接构造候选验证排序与融合。
+     */
+    static List<KbSearchHitDto> rrfMerge(List<KbSearchCandidate> vectorRoute,
+                                         List<KbSearchCandidate> keywordRoute,
+                                         List<KbSearchCandidate> ftsRoute,
+                                         int topK) {
+        Map<UUID, Double> scores = new LinkedHashMap<>();
+        Map<UUID, String> snippets = new LinkedHashMap<>();
+        Map<UUID, KbSearchCandidate> representatives = new LinkedHashMap<>();
+        for (List<KbSearchCandidate> route : List.of(vectorRoute, keywordRoute, ftsRoute)) {
+            int rank = 1;
+            for (KbSearchCandidate candidate : route) {
+                scores.merge(candidate.docId(), 1.0 / (RRF_K + rank), Double::sum);
+                snippets.putIfAbsent(candidate.docId(), candidate.snippet());
+                representatives.putIfAbsent(candidate.docId(), candidate);
+                rank++;
+            }
+        }
+        return scores.entrySet().stream()
+            .sorted(Map.Entry.<UUID, Double>comparingByValue().reversed())
+            .limit(topK)
+            .map(entry -> {
+                UUID docId = entry.getKey();
+                KbSearchCandidate representative = representatives.get(docId);
+                return new KbSearchHitDto(
+                    docId,
+                    representative.docName(),
+                    representative.folderId(),
+                    truncateSnippet(snippets.get(docId)),
+                    entry.getValue());
+            })
+            .toList();
+    }
+
+    /**
+     * 组装 debug 追踪:三路候选逐行给名次与 RRF 贡献;文档级聚合沿用 {@link #rrfMerge}
+     * 的遍历顺序(路序固定、路内名次升序),按总分降序稳定排序,保证 docs 排序与最终
+     * results 完全一致。docs 含出现在任意一路的全部文档(不只 topK),inTopK 标记落选。
+     * static 包内可见:纯函数,测试直接构造中间态验证。
+     */
+    static KbSearchTraceDto buildTrace(UUID kbId, String query, UUID folderId, SearchRun run) {
+        List<Map.Entry<String, List<KbSearchCandidate>>> routes = List.of(
+            Map.entry(KbSearchTraceDto.PATH_VECTOR, run.vectorRoute()),
+            Map.entry(KbSearchTraceDto.PATH_KEYWORD, run.keywordRoute()),
+            Map.entry(KbSearchTraceDto.PATH_FTS, run.ftsRoute()));
+        List<KbTracePathDto> paths = routes.stream()
+            .map(route -> tracePath(route.getKey(), route.getValue(), run.vectorMaxDistance()))
+            .toList();
+
+        record DocAgg(KbSearchCandidate representative, List<KbTraceContributionDto> contributions) {
+            double total() {
+                return contributions.stream().mapToDouble(KbTraceContributionDto::score).sum();
+            }
+        }
+        Map<UUID, DocAgg> aggregated = new LinkedHashMap<>();
+        for (Map.Entry<String, List<KbSearchCandidate>> route : routes) {
+            int rank = 1;
+            for (KbSearchCandidate candidate : route.getValue()) {
+                DocAgg agg = aggregated.computeIfAbsent(candidate.docId(),
+                    id -> new DocAgg(candidate, new ArrayList<>()));
+                agg.contributions().add(new KbTraceContributionDto(route.getKey(), rank, 1.0 / (RRF_K + rank)));
+                rank++;
+            }
+        }
+        // stream sorted 稳定:总分相同的文档保持首次出现序,与 rrfMerge 一致
+        List<Map.Entry<UUID, DocAgg>> sorted = aggregated.entrySet().stream()
+            .sorted(Map.Entry.<UUID, DocAgg>comparingByValue(
+                java.util.Comparator.comparingDouble(DocAgg::total).reversed()))
+            .toList();
+        List<KbTraceDocDto> docs = new ArrayList<>(sorted.size());
+        for (int i = 0; i < sorted.size(); i++) {
+            Map.Entry<UUID, DocAgg> entry = sorted.get(i);
+            docs.add(new KbTraceDocDto(
+                entry.getKey(),
+                entry.getValue().representative().docName(),
+                entry.getValue().representative().folderId(),
+                entry.getValue().total(),
+                i + 1,
+                i < run.topK(),
+                List.copyOf(entry.getValue().contributions())));
+        }
+        return new KbSearchTraceDto(kbId, query, folderId, run.topK(), run.candidateLimit(),
+            run.rerankMinScore(), run.rerankModel(),
+            paths, run.rerankPool(), List.copyOf(docs), run.results());
+    }
+
+    /** 单路候选明细:行序即名次(rank 从 1 起),逐行给出 RRF 贡献与命中文本
+     * (向量路 = chunk 原文,词法两路 = 文档前 1000 字符,由 SQL 层截取,此处不再截断)。 */
+    private static KbTracePathDto tracePath(String path, List<KbSearchCandidate> route,
+                                            double vectorMaxDistance) {
+        List<KbTraceCandidateDto> candidates = new ArrayList<>(route.size());
+        int rank = 1;
+        for (KbSearchCandidate candidate : route) {
+            candidates.add(new KbTraceCandidateDto(
+                candidate.docId(),
+                candidate.docName(),
+                candidate.folderId(),
+                rank,
+                candidate.rawScore(),
+                candidate.chunkIndex(),
+                1.0 / (RRF_K + rank),
+                candidate.snippet()));
+            rank++;
+        }
+        return new KbTracePathDto(path, pathMetric(path, vectorMaxDistance), List.copyOf(candidates));
+    }
+
+    /** 路内原始分语义说明(与三路 SQL 的排序表达式一一对应,面向调试展示;
+     * 向量路带距离阈值,超阈值的块在 SQL 层已过滤,0 候选即全部超阈值)。 */
+    private static String pathMetric(String path, double vectorMaxDistance) {
+        return switch (path) {
+            case KbSearchTraceDto.PATH_VECTOR -> "余弦距离(≤ " + vectorMaxDistance + ",越小越相关)";
+            case KbSearchTraceDto.PATH_KEYWORD -> "pg_trgm 相似度(0~1,越大越相关)";
+            case KbSearchTraceDto.PATH_FTS -> "ts_rank 词命中分(越大越相关)";
+            default -> throw new IllegalStateException("未知检索路径: " + path);
+        };
+    }
+
+    private static String truncateSnippet(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        return text.length() <= SNIPPET_MAX_CHARS ? text : text.substring(0, SNIPPET_MAX_CHARS) + "…";
+    }
+
+    private static int clampTopK(Integer topK) {
+        if (topK == null) {
+            return DEFAULT_SEARCH_TOP_K;
+        }
+        return Math.max(1, Math.min(MAX_SEARCH_TOP_K, topK));
+    }
+
+    /**
+     * 上传文档:预检同名与来源格式 → Storage 上传(透传 JWT)→ 落 pending 元数据行(含 chunk 参数)
+     * → 提交异步解析。
      *
      * <p>字节由 multipart 直接载入(上限 {@code KB_MAX_UPLOAD_MB}),管线消费后即释放。
+     * 来源只接受文件与图片:扩展名必须在 {@link DocumentParser#isSupported} 白名单内
+     * (纯文本/图片/Tika 族),白名单外 400 拒绝——知识库不支持在线文档与其他数据来源。
      */
     @Transactional
-    public KbDocumentDto uploadDocument(AuthContext auth, UUID kbId, UUID folderId, MultipartFile file) {
+    public KbDocumentDto uploadDocument(AuthContext auth, UUID kbId, UUID folderId, MultipartFile file,
+                                        Integer chunkMaxSize, Integer chunkOverlap, String chunkSeparator) {
         KnowledgeBaseDto kb = repository.findKb(kbId)
             .orElseThrow(() -> new NotFoundException("知识库不存在: " + kbId));
         checkAppMemberAccess(auth, kb.applicationId());
@@ -273,6 +666,10 @@ public class KnowledgeService {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("上传文件为空: " + name);
         }
+        if (!DocumentParser.isSupported(name)) {
+            throw new IllegalArgumentException(
+                "不支持的文档格式: " + name + "(仅支持文本/图片/pdf/office 等文件与图片上传)");
+        }
         if (repository.documentNameExists(kbId, folderId, name)) {
             throw new IllegalArgumentException("同级目录下已存在同名文档: " + name);
         }
@@ -282,6 +679,8 @@ public class KnowledgeService {
         } catch (java.io.IOException e) {
             throw new IllegalStateException("读取上传文件失败: " + name, e);
         }
+        ChunkSplitter.ChunkParams chunkParams =
+            ChunkSplitter.ChunkParams.of(chunkMaxSize, chunkOverlap, chunkSeparator, properties);
         String contentType = file.getContentType() == null || file.getContentType().isBlank()
             ? "application/octet-stream" : file.getContentType();
         UUID docId = UUID.randomUUID();
@@ -291,13 +690,46 @@ public class KnowledgeService {
         String storagePath = kb.applicationId() + "/" + docId + "/document" + storageExtension(name);
         KbDocumentRecord doc = new KbDocumentRecord(docId, kbId, folderId, name, contentType,
             content.length, storagePath, null, KbDocumentDto.STATUS_PENDING, null,
+            chunkParams.maxSize(), chunkParams.overlap(), chunkParams.separator(),
             auth.authSubject(), null, null);
         storageClient.upload(kb.storageBucket(), storagePath, content, contentType);
         KbDocumentRecord inserted = repository.insertDocument(doc);
-        parsePipeline.submit(docId, name, content);
+        // 入队等事务提交后再做:元数据行未提交时 pipeline 的 ready 回写会被同一行的
+        // insert 锁阻塞(不至死锁,但没必要),afterCommit 保证管线看到的行一定已存在
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                parsePipeline.submit(inserted, content);
+            }
+        });
         auditService.record("KB_DOCUMENT_UPLOAD", "kb_document", null, auth.platformUserId(),
             Map.of("kbId", kbId, "docId", docId, "name", name, "sizeBytes", content.length));
         return toDto(inserted, null, repository.displayNamesByAuthSubjects(Set.of(auth.authSubject())));
+    }
+
+    /**
+     * 重新解析:从 Storage 回读原文重走完整管线(抽取 → chunk → embedding → 覆盖 kb_chunks)。
+     * 解析中(pending)拒绝;chunk 参数可选,缺省沿用文档当前值;旧 chunk 在解析完成时整篇覆盖。
+     */
+    public KbDocumentDto reparseDocument(AuthContext auth, UUID kbId, UUID docId,
+                                         Integer chunkMaxSize, Integer chunkOverlap, String chunkSeparator) {
+        KnowledgeBaseDto kb = repository.findKb(kbId)
+            .orElseThrow(() -> new NotFoundException("知识库不存在: " + kbId));
+        checkAppMemberAccess(auth, kb.applicationId());
+        KbDocumentRecord doc = repository.findDocument(kbId, docId)
+            .orElseThrow(() -> new NotFoundException("文档不存在: " + docId));
+        if (KbDocumentDto.STATUS_PENDING.equals(doc.parseStatus())) {
+            throw new IllegalStateException("文档正在解析中,请等待完成后再重新解析");
+        }
+        ChunkSplitter.ChunkParams chunkParams =
+            ChunkSplitter.ChunkParams.of(chunkMaxSize, chunkOverlap, chunkSeparator, properties);
+        byte[] content = storageClient.download(kb.storageBucket(), doc.storagePath());
+        repository.resetParsing(docId, chunkParams);
+        KbDocumentRecord reset = repository.findDocument(kbId, docId).orElse(doc);
+        parsePipeline.submit(reset, content);
+        auditService.record("KB_DOCUMENT_REPARSE", "kb_document", null, auth.platformUserId(),
+            Map.of("kbId", kbId, "docId", docId, "name", doc.name()));
+        return toDto(reset, null, repository.displayNamesByAuthSubjects(Set.of(doc.uploadedBy())));
     }
 
     /**
@@ -462,6 +894,7 @@ public class KnowledgeService {
     private static KbDocumentDto toDto(KbDocumentRecord doc, String kw, Map<String, String> uploaderNames) {
         return new KbDocumentDto(doc.id(), doc.kbId(), doc.folderId(), doc.name(), doc.contentType(),
             doc.sizeBytes(), doc.parseStatus(), doc.parseError(), excerpt(doc.textContent(), kw),
+            doc.chunkMaxSize(), doc.chunkOverlap(), doc.chunkSeparator(),
             doc.uploadedBy(), uploaderNames.get(doc.uploadedBy()), doc.createdAt(), doc.updatedAt());
     }
 

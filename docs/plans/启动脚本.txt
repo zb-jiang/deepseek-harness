@@ -23,6 +23,15 @@ $env:SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmF
 $env:NEWAPI_BASE_URL="http://127.0.0.1:3000"
 $env:NEWAPI_SERVICE_TOKEN = "sk-m5f2Nu9vlSQfIgc5YBaQ06V8YPcDzmDks1jYbExj58Bh3RB0"
 $env:DSH_SERVICE_KEY = "demo-webconsole-service-key"   #知识库集成：放行 /api/backend/kb/** 只读端点；须与flowable、backend profile一致
+$env:KB_EMBEDDING_API_URL="https://api.siliconflow.cn/v1"
+$env:KB_EMBEDDING_API_KEY="sk-123456"
+$env:KB_EMBEDDING_MODEL="Qwen/Qwen3-Embedding-4B"
+$env:KB_EMBEDDING_DIMENSIONS="2560"
+$env:KB_EMBEDDING_MAX_DISTANCE="0.7"
+$env:KB_RERANK_API_URL="https://api.siliconflow.cn/v1"
+$env:KB_RERANK_API_KEY="sk-123456"
+$env:KB_RERANK_MODEL="Qwen/Qwen3-Reranker-8B"
+$env:KB_RERANK_MIN_SCORE="0.1"
 cd d:\works\deepseek-harness\apps\web-console\backend
 mvn clean package -DskipTests
 D:\Java21\bin\java.exe -jar .\target\dsh-web-console.jar

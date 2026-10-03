@@ -18,6 +18,9 @@ import java.util.UUID;
  * @param parseStatus 解析状态:pending / ready / failed
  * @param parseError  解析失败原因(仅 failed 时非空)
  * @param textExcerpt 抽取文本摘要(见上;ready 且无文本时为空)
+ * @param chunkMaxSize   单 chunk 最大字符数(重新解析对话框预填)
+ * @param chunkOverlap   相邻 chunk 重叠字符数
+ * @param chunkSeparator 优先切分的分隔符
  * @param uploadedBy   上传者(Supabase Auth user.id,即 JWT sub)
  * @param uploaderName 上传者显示名(platform_users.display_name;用户记录缺失时为 null)
  * @param createdAt    上传时间
@@ -33,6 +36,9 @@ public record KbDocumentDto(
     String parseStatus,
     String parseError,
     String textExcerpt,
+    int chunkMaxSize,
+    int chunkOverlap,
+    String chunkSeparator,
     String uploadedBy,
     String uploaderName,
     OffsetDateTime createdAt,

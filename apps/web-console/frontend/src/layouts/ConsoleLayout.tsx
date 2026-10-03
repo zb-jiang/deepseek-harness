@@ -2,6 +2,7 @@ import {
   ApartmentOutlined,
   AuditOutlined,
   BarChartOutlined,
+  BookOutlined,
   ClockCircleOutlined,
   ClusterOutlined,
   HomeOutlined,
@@ -35,6 +36,8 @@ function buildMenu(roles: string[]): MenuItem[] {
   const items: MenuItem[] = [
     { key: '/', icon: <HomeOutlined />, label: '首页' },
     { key: '/org-units', icon: <ClusterOutlined />, label: '部门管理' },
+    // 知识库检索调试:全员可见,检索内容访问由后端成员校验收口
+    { key: '/knowledge', icon: <BookOutlined />, label: '知识库' },
   ]
   if (isSys) {
     items.push({ key: '/users', icon: <TeamOutlined />, label: '用户管理' })

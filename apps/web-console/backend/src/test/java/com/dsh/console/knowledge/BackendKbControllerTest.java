@@ -107,4 +107,14 @@ class BackendKbControllerTest {
         verify(knowledgeService).listFoldersForService(kbId);
         verify(knowledgeService).listDocumentsForService(kbId, null, false, null, null);
     }
+
+    @Test
+    void searchDelegatesToServiceVariant() {
+        UUID kbId = UUID.randomUUID();
+        when(knowledgeService.searchChunksForService(kbId, "报销标准", null, null)).thenReturn(List.of());
+
+        controller.search(kbId, "报销标准", null, null);
+
+        verify(knowledgeService).searchChunksForService(kbId, "报销标准", null, null);
+    }
 }

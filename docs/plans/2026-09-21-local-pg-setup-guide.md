@@ -4,7 +4,7 @@
 
 1. 下载 PostgreSQL 17 或更高版本的 Windows 安装包:<https://www.postgresql.org/download/windows/>(EDB 安装器)
 2. 运行安装器,组件保持默认;安装过程中为超级用户 `postgres` 设置密码并记住(后续填入 `SUPABASE_DB_PASSWORD`);端口保持默认 `5432`
-3. 验证 psql 可用:安装器默认不把 psql 加入 PATH,用开始菜单的 **SQL Shell (psql)**,或把安装目录的 `bin` 子目录(如 `C:\Program Files\PostgreSQL\17\bin`)加入 PATH 后打开新终端执行:
+3. 验证 psql 可用:安装器默认不把 psql 加入 PATH,用开始菜单的 **SQL Shell (psql)**,或把安装目录的 `bin` 子目录(如 `D:\Program Files\PostgreSQL\18\bin`)加入 PATH 后打开新终端执行:
 
 ```powershell
 psql -U postgres -c "SELECT version();"
@@ -330,6 +330,132 @@ create unique index if not exists uk_kb_documents_sibling
 create extension if not exists pg_trgm;
 create index if not exists idx_kb_documents_trgm on public.kb_documents
   using gin ((name) gin_trgm_ops, (text_content) gin_trgm_ops);
+```
+
+### 3.3.1 全文检索与向量检索准备(pg_jieba + pgvector)
+
+§3.3 只有 pg_trgm 关键字检索(子串命中 + 字符相似度排序),搜不到语义相关但字面不同的内容;本节为后续「全文检索(中文分词)+ 向量语义检索」打好数据库侧地基:安装两个扩展、预建 tsvector 生成列与向量分块表。应用侧的分块写入、embedding 调用、混合排序在检索功能落地时另行实现,本节只做一次性环境准备,可现在执行,执行后对现有功能零影响。与 §3 相同,以下 SQL 均为手工执行,无 migration 文件。
+
+前置条件:
+
+- PostgreSQL 18,安装在 `D:\Program Files\PostgreSQL\18`(EDB 安装器,§1 已装;版本或盘符不同时,按下文路径样式替换)
+- Visual Studio 2022 Build Tools:官网下载,勾选「使用 C++ 的桌面开发」工作负载与「适用于 Windows 的 C++ CMake 工具」组件(两个扩展的编译器与 CMake)
+- Git(克隆源码;pg_jieba 的分词词典 cppjieba 经 git 子模块拉取,必须 `--recursive`)
+- 扩展安装会写进 PostgreSQL 安装目录(如 `D:\Program Files\PostgreSQL\18`),以下编译安装命令一律在**管理员**终端执行
+
+#### 第 1 步 安装 pg_jieba(中文分词)
+
+PostgreSQL 内置分词器只按空格切词,整段中文会变成一个词元,全文检索对中文基本不可用;pg_jieba 提供名为 `jiebacfg` 的分词配置,把中文按词典切成词,是 Windows 上最容易编译的中文分词扩展(zhparser 依赖 SCWS 库,Windows 编译麻烦,不推荐)。管理员 PowerShell 执行:
+
+```powershell
+git clone --recursive https://github.com/jaiminpan/pg_jieba.git D:\pg-build\pg_jieba
+cd D:\pg-build\pg_jieba
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPostgreSQL_ROOT="D:\Program Files\PostgreSQL\18" -DPG_CONFIG_EXECUTABLE="D:\Program Files\PostgreSQL\18\bin\pg_config.exe"
+
+# PG 服务端头文件引用少量 POSIX 头(netinet/in.h 等),Windows 没有这些文件,官方构建用
+# include\server\port\win32 与 win32_msvc 下的垫片头文件顶替;EDB 安装包已装好垫片,但扩展
+# 编译不会自动搜索它们,须用 cl 的 CL 环境变量追加 /I 搜索路径(经 msbuild 编译时,INCLUDE
+# 环境变量会被工程体系整体覆盖,不生效;CL 变量由 cl 原样拼进命令行,不受影响)。
+# 不加则编译报「无法打开包括文件: netinet/in.h」(路径版本号按实际安装调整)。
+# /std:c++20 必须带:jieba_token.h 用 C++20 指定初始化器,MSVC 默认 C++14 报 C7555;
+# 编译 .c 文件时该选项会报「忽略未知选项」警告,无害
+$env:CL = '/I"D:\Program Files\PostgreSQL\18\include\server\port\win32" /I"D:\Program Files\PostgreSQL\18\include\server\port\win32_msvc" /std:c++20'
+
+cmake --build build --config Release
+cmake --install build
+```
+
+- 路径按实际安装盘符与版本调整;`cmake --install` 把 DLL 与 SQL 控制文件拷进 PostgreSQL 的 lib/share 目录,Program Files 下需要管理员权限
+- 源码必须 `git clone --recursive` 获取(zip 压缩包不带子模块,libjieba 为空目录,编译报「无法打开包括文件: cppjieba/Jieba.hpp」);若已中招,在源码目录补执行 `git clone --recursive https://github.com/yanyiwu/cppjieba.git libjieba` 即可,无需重新 clone 整个 pg_jieba
+- 上游 CMakeLists.txt 在 MSVC 下缺链接配置,编译全过后链接期报 `LNK2019: 无法解析的外部符号`(palloc/errstart/errmsg 等 20 余个 PG 服务端符号):在 CMakeLists.txt 的 `if(WIN32 AND MSVC)` 块(`PREFIX "lib"` 所在块)末尾补 `target_link_libraries("${PG_JIEBA_LIBRARY_NAME}" "${PostgreSQL_LIBRARY_DIRS}/postgres.lib")`,保存后重新 `cmake --build` 即可(CMake 检测到 CMakeLists 变化会自动重新生成工程)。Windows 扩展 DLL 必须链接 postgres 导入库才能解析服务端符号;Linux 上这些符号由 postgres 进程加载时提供,链接反而失败,故该补丁仅限 Windows
+- `create extension pg_jieba` 报 `58P01 无法访问文件 "pg_jieba"`:control 与 SQL 已装好,但 DLL 因 CMakeLists 的 `PREFIX "lib"` 装成了 `libpg_jieba.dll`,而扩展按 `module_pathname = '$libdir/pg_jieba'` 找 `pg_jieba.dll`,加载器不会自动补 lib 前缀——在 `lib` 目录补 `copy libpg_jieba.dll pg_jieba.dll` 后重跑 create extension 即可
+- 若 cmake 阶段报找不到 PostgreSQL,检查安装时是否勾选了 Command Line Tools;重装扩展的新 DLL 覆盖旧 DLL 前需先停止 PostgreSQL 服务(Windows 锁定已加载的 DLL),首次安装无此问题
+
+#### 第 2 步 安装 pgvector(向量类型)
+
+pgvector 提供 vector 类型、距离运算符与 HNSW 近似最近邻索引,是 PG 向量检索的事实标准;EDB 安装器不带它,按官方 Windows 步骤用 MSVC 编译安装。编译必须在 **x64** MSVC 环境下进行:开始菜单搜索打开「x64 Native Tools Command Prompt for VS 2022」(**管理员**身份,该终端已自动加载 x64 编译环境),执行:
+
+```bat
+git clone https://github.com/pgvector/pgvector.git D:\works\pgvector
+cd /d D:\works\pgvector
+git checkout v0.8.7
+set "PGROOT=D:\Program Files\PostgreSQL\18"
+nmake /F Makefile.win clean
+nmake /F Makefile.win
+nmake /F Makefile.win install
+```
+
+- checkout 的 tag 以 GitHub Releases 页的最新 release 为准(示例 v0.8.7 仅为时点示意);**PG17/18 必须用 v0.8.0 之后发布的版本**——v0.8.0 及更早因上游 API 变更明确不支持 PG17+,在 PG18 上无法使用
+
+#### 第 3 步 创建扩展并验证
+
+用 psql 以超级用户连接 postgres 库(扩展安装需要超级用户权限),执行:
+
+```sql
+create extension if not exists pg_jieba;
+create extension if not exists vector;
+
+-- 验证分词:应把「员工差旅费用报销流程」切成多个词元,而不是一整段
+select to_tsvector('jiebacfg', '员工差旅费用报销流程与标准');
+
+-- 验证向量类型:应输出 [1,2,3]
+select '[1,2,3]'::vector(3);
+```
+
+#### 第 4 步 预建全文检索列与索引
+
+tsvector 生成列在行写入时自动分词,标题命中权重 A、正文权重 B,检索时标题命中的文档排前;生成列由数据库自动维护,应用侧只需构造 tsquery 查询。执行前确认第 3 步的 pg_jieba 已创建,否则报「text search configuration "jiebacfg" does not exist」。加列会重算 kb_documents 已有行,当前量级下秒级完成:
+
+```sql
+alter table public.kb_documents
+  add column if not exists fts tsvector
+  generated always as (
+    setweight(to_tsvector('jiebacfg', coalesce(name, '')), 'A') ||
+    setweight(to_tsvector('jiebacfg', coalesce(text_content, '')), 'B')
+  ) stored;
+create index if not exists idx_kb_documents_fts on public.kb_documents using gin (fts);
+```
+
+#### 第 5 步 预建向量分块表与 HNSW 索引
+
+向量检索以「块」为单位:解析管线把 text_content 切成若干 chunk,每块调 embedding 模型转成定长向量存入 kb_chunks。**维度必须与所选 embedding 模型一致**(Qwen3-Embedding-4B 原生 2560 维;请求体 `dimensions` 参数钉死,应用配置 `KB_EMBEDDING_DIMENSIONS=2560` 与本节保持同步),换模型时同步替换 `halfvec(2560)`。列类型用 halfvec(fp16)而非 vector:同样维度下内存减半,fp16 精度损失对余弦检索可忽略。2560 维在 HNSW 索引上限内(`vector` 索引上限 2000 维、`halfvec` 4000 维),建近似索引加速余弦检索;m=16、ef_construction=64 与维度无关,为标准取值:
+
+```sql
+create table if not exists public.kb_chunks (
+  id          uuid primary key,     -- chunk id(web-console 后端生成)
+  doc_id      uuid not null references public.kb_documents(id) on delete cascade,
+              -- 所属文档;文档删除时级联清块
+  kb_id       uuid not null references public.knowledge_bases(id) on delete cascade,
+              -- 冗余知识库 id:按知识库过滤向量时无需 join
+  chunk_index integer not null,      -- 块在文档内的序号,从 0 递增
+  chunk_text  text not null,         -- 块文本(引用展示与重排用)
+  embedding   halfvec(2560) not null, -- 维度必须与 embedding 模型一致(见上)
+  created_at  timestamptz not null default now(),
+  unique (doc_id, chunk_index)
+);
+create index if not exists idx_kb_chunks_doc on public.kb_chunks (doc_id, chunk_index);
+-- HNSW 近似索引(2560 维在 halfvec 4000 维上限内;vector 类型上限 2000 维,4096 维
+-- 模型建索引会报「column cannot have more than 4000 dimensions for hnsw index」):
+create index if not exists idx_kb_chunks_hnsw on public.kb_chunks
+  using hnsw (embedding halfvec_cosine_ops) with (m = 16, ef_construction = 64);
+-- 检索 SQL(应用侧同写法,按 kb_id 过滤后取余弦距离最近,自动走 HNSW 索引):
+-- select chunk_text from public.kb_chunks
+--   where kb_id = '<kb id>'
+--   order by embedding <=> '[...]'::halfvec(2560)
+--   limit 5;
+```
+
+执行完本节,数据库侧三路检索能力齐备:pg_trgm 关键字(§3.3)+ jiebacfg 全文 + pgvector 语义。应用侧混合检索已落地:web-console 的 `GET /api/kb/{kbId}/search`(员工端)与 `GET /api/backend/kb/{kbId}/search`(服务密钥端)把三路候选按 RRF(k=60)融合为文档级命中(同文档只出现一条,snippet 取最优命中摘录),员工端 kb_search 工具即消费该端点;算法与契约见 [2026-10-02-kb-hybrid-search-design.md](./2026-10-02-kb-hybrid-search-design.md)。
+
+#### 第 6 步 kb_documents 加 chunk 参数列
+
+文档解析管线(web-console)拆 chunk 时使用,参数随上传/重新解析请求写入行内,重新解析时预填:
+
+```sql
+alter table public.kb_documents
+  add column if not exists chunk_max_size integer not null default 1000,   -- 单 chunk 最大字符数
+  add column if not exists chunk_overlap integer not null default 150,     -- 相邻 chunk 重叠字符数
+  add column if not exists chunk_separator text not null default E'\n\n';  -- 优先切分的分隔符
 ```
 
 ### 3.4 DSH backend profile 注册表
