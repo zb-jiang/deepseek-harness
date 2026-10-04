@@ -33,8 +33,10 @@ import css from './FilesBody.module.css'
 /** The body's composed props: the tab it draws, its store, its face, and its copy. */
 export type FilesBodyProps =
   & PropsRuntime<'sidebar.right.pane.tab'>
-  & PropsRenderSlots<'sidebar.files.entry.action'>
-  & PropsRenderSlots<'sidebar.right.tab.files.actions'>
+  & PropsRenderSlots<
+    'sidebar.files.entry.action'
+    | 'sidebar.right.tab.files.actions'
+  >
   & PropsStore<ReturnType<typeof createFilesStore>>
   & FilesInjected
   & PropsLocale<'sidebarFiles'>
