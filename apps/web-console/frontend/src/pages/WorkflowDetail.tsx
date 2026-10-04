@@ -12,7 +12,6 @@ import {
   Descriptions,
   Form,
   Input,
-  Modal,
   Popconfirm,
   Space,
   Tabs,
@@ -35,6 +34,7 @@ import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
 import { usersApi } from '../api/users'
 import { membershipsApi } from '../api/memberships'
 import BpmnModeler from '../bpmn/BpmnModeler'
+import { SubmitModal } from '../components/SubmitModal'
 import {
   setDshRoleOptions,
   setDshSkillOptions,
@@ -127,6 +127,9 @@ export default function WorkflowDetailPage() {
   const [wf, setWf] = useState<WorkflowDefinitionDto | null>(null)
   const [app, setApp] = useState<ApplicationDto | null>(null)
   const [editMetaOpen, setEditMetaOpen] = useState(false)
+  const [metaSaving, setMetaSaving] = useState(false)
+  // 发布/停用/归档共用:操作进行中禁用对应触发按钮并转圈
+  const [actionBusy, setActionBusy] = useState(false)
   const [metaForm] = Form.useForm<UpdateWorkflowMetaRequest>()
 
   const [bpmnXml, setBpmnXml] = useState('')
@@ -221,6 +224,7 @@ export default function WorkflowDetailPage() {
   const submitEditMeta = async () => {
     if (!wf) return
     const values = await metaForm.validateFields()
+    setMetaSaving(true)
     try {
       const updated = await workflowsApi.updateMeta(wf.id, values)
       setWf(updated)
@@ -228,6 +232,8 @@ export default function WorkflowDetailPage() {
       setEditMetaOpen(false)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
+    } finally {
+      setMetaSaving(false)
     }
   }
 
@@ -269,34 +275,43 @@ export default function WorkflowDetailPage() {
 
   const handlePublish = async () => {
     if (!wf) return
+    setActionBusy(true)
     try {
       const result = await workflowsApi.publish(wf.id)
       message.success(`已发布 (procdef=${result.procdefId})`)
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '发布失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
   const handleDisable = async () => {
     if (!wf) return
+    setActionBusy(true)
     try {
       const updated = await workflowsApi.disable(wf.id)
       setWf(updated)
       message.success('已停用')
     } catch (e) {
       message.error(e instanceof Error ? e.message : '停用失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
   const handleArchive = async () => {
     if (!wf) return
+    setActionBusy(true)
     try {
       await workflowsApi.archive(wf.id)
       message.success('已归档')
       navigate('/workflows')
     } catch (e) {
       message.error(e instanceof Error ? e.message : '归档失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
@@ -388,12 +403,12 @@ export default function WorkflowDetailPage() {
             description="发布后将创建新的 Flowable deployment,旧版本被新版本覆盖"
             onConfirm={handlePublish}
           >
-            <Button type="primary">发布</Button>
+            <Button type="primary" loading={actionBusy} disabled={actionBusy}>发布</Button>
           </Popconfirm>
         )}
         {canDisable && (
           <Popconfirm title="确认停用?" onConfirm={handleDisable}>
-            <Button danger>停用</Button>
+            <Button danger loading={actionBusy} disabled={actionBusy}>停用</Button>
           </Popconfirm>
         )}
         {canStart && (
@@ -407,7 +422,7 @@ export default function WorkflowDetailPage() {
         )}
         {canArchive && (
           <Popconfirm title="确认归档?此操作不可撤销" onConfirm={handleArchive}>
-            <Button danger>归档</Button>
+            <Button danger loading={actionBusy} disabled={actionBusy}>归档</Button>
           </Popconfirm>
         )}
       </Space>
@@ -480,12 +495,13 @@ export default function WorkflowDetailPage() {
         ]}
       />
 
-      <Modal
+      <SubmitModal
         title="编辑流程 Meta"
         open={editMetaOpen}
         onCancel={() => setEditMetaOpen(false)}
         onOk={submitEditMeta}
         destroyOnHidden
+        submitting={metaSaving}
       >
         <Form form={metaForm} layout="vertical">
           <Form.Item
@@ -502,7 +518,7 @@ export default function WorkflowDetailPage() {
             修改名称/描述仅影响治理元数据,不会同步已发布到 Flowable 的旧版本。
           </Typography.Paragraph>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

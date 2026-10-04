@@ -6,7 +6,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -43,6 +42,7 @@ import {
   type KnowledgeBaseDto,
   kbApi,
 } from '../api/kb'
+import { SubmitModal } from '../components/SubmitModal'
 
 const PARSE_STATUS_META: Record<string, { color: string; label: string; icon: React.ReactNode }> = {
   pending: { color: 'processing', label: '解析中', icon: <FileSyncOutlined /> },
@@ -114,6 +114,8 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
   const [renameFolderForm] = Form.useForm<{ name: string }>()
   const [moveFolderTarget, setMoveFolderTarget] = useState<KbFolderDto | null>(null)
   const [moveFolderParent, setMoveFolderParent] = useState<string | undefined>(undefined)
+  // 新建/重命名/移动三个文件夹弹窗互斥打开,共用提交中状态
+  const [folderSaving, setFolderSaving] = useState(false)
 
   /** 上传对话框(多文件 + chunk 参数;确认后逐个提交,后端串行入队解析)。 */
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -123,6 +125,7 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
   /** 重新解析对话框(预填文档当前 chunk 参数,可修改后重跑全管线)。 */
   const [reparseTarget, setReparseTarget] = useState<KbDocumentDto | null>(null)
   const [reparseForm] = Form.useForm<ChunkParams>()
+  const [reparsing, setReparsing] = useState(false)
 
   const kbId = kb?.id ?? null
 
@@ -338,6 +341,56 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
     },
   }
 
+  // ---------- 文件夹弹窗提交(新建/重命名/移动互斥打开,共用 folderSaving) ----------
+
+  const submitCreateFolder = async () => {
+    if (!kbId) return
+    const { name } = await createFolderForm.validateFields()
+    setFolderSaving(true)
+    try {
+      await kbApi.createFolder(kbId, { name, ...(currentFolderId ? { parentId: currentFolderId } : {}) })
+      setCreateFolderOpen(false)
+      await loadFolders(kbId)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '创建失败')
+    } finally {
+      setFolderSaving(false)
+    }
+  }
+
+  const submitRenameFolder = async () => {
+    if (!kbId || !renameFolderTarget) return
+    const { name } = await renameFolderForm.validateFields()
+    setFolderSaving(true)
+    try {
+      await kbApi.updateFolder(kbId, renameFolderTarget.id, { name })
+      setRenameFolderTarget(null)
+      await loadFolders(kbId)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '重命名失败')
+    } finally {
+      setFolderSaving(false)
+    }
+  }
+
+  const submitMoveFolder = async () => {
+    if (!kbId || !moveFolderTarget) return
+    if (!moveFolderParent) {
+      message.warning('请选择目标父文件夹')
+      return
+    }
+    setFolderSaving(true)
+    try {
+      await kbApi.updateFolder(kbId, moveFolderTarget.id, { parentId: moveFolderParent })
+      setMoveFolderTarget(null)
+      await loadFolders(kbId)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '移动失败')
+    } finally {
+      setFolderSaving(false)
+    }
+  }
+
   /** 确认上传:逐个提交(后端各自入队,串行解析),单个失败不打断后续。 */
   const handleUploadSubmit = async () => {
     if (!kbId) return
@@ -386,6 +439,7 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
   const handleReparseSubmit = async () => {
     if (!kbId || !reparseTarget) return
     const params = await reparseForm.validateFields()
+    setReparsing(true)
     try {
       await kbApi.reparse(kbId, reparseTarget.id, params)
       message.success(`「${reparseTarget.name}」已重新入队解析`)
@@ -393,6 +447,8 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
       await loadDocs(kbId, currentFolderId, kw, recursive, parseStatusFilter)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '重新解析失败')
+    } finally {
+      setReparsing(false)
     }
   }
 
@@ -672,21 +728,12 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
         }
       `}</style>
 
-      <Modal
+      <SubmitModal
         title="新建文件夹"
         open={createFolderOpen}
         onCancel={() => setCreateFolderOpen(false)}
-        onOk={async () => {
-          const { name } = await createFolderForm.validateFields()
-          if (!kbId) return
-          try {
-            await kbApi.createFolder(kbId, { name, ...(currentFolderId ? { parentId: currentFolderId } : {}) })
-            setCreateFolderOpen(false)
-            await loadFolders(kbId)
-          } catch (e) {
-            message.error(e instanceof Error ? e.message : '创建失败')
-          }
-        }}
+        onOk={submitCreateFolder}
+        submitting={folderSaving}
         destroyOnClose
       >
         <Form form={createFolderForm} layout="vertical">
@@ -704,23 +751,14 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
             <Input placeholder="不能包含 '/',同级不能重名" />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
 
-      <Modal
+      <SubmitModal
         title={`重命名「${renameFolderTarget?.name ?? ''}」`}
         open={renameFolderTarget !== null}
         onCancel={() => setRenameFolderTarget(null)}
-        onOk={async () => {
-          const { name } = await renameFolderForm.validateFields()
-          if (!kbId || !renameFolderTarget) return
-          try {
-            await kbApi.updateFolder(kbId, renameFolderTarget.id, { name })
-            setRenameFolderTarget(null)
-            await loadFolders(kbId)
-          } catch (e) {
-            message.error(e instanceof Error ? e.message : '重命名失败')
-          }
-        }}
+        onOk={submitRenameFolder}
+        submitting={folderSaving}
         destroyOnClose
       >
         <Form form={renameFolderForm} layout="vertical">
@@ -735,26 +773,14 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
             <Input />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
 
-      <Modal
+      <SubmitModal
         title={`移动「${moveFolderTarget?.name ?? ''}」`}
         open={moveFolderTarget !== null}
         onCancel={() => setMoveFolderTarget(null)}
-        onOk={async () => {
-          if (!kbId || !moveFolderTarget) return
-          if (!moveFolderParent) {
-            message.warning('请选择目标父文件夹')
-            return
-          }
-          try {
-            await kbApi.updateFolder(kbId, moveFolderTarget.id, { parentId: moveFolderParent })
-            setMoveFolderTarget(null)
-            await loadFolders(kbId)
-          } catch (e) {
-            message.error(e instanceof Error ? e.message : '移动失败')
-          }
-        }}
+        onOk={submitMoveFolder}
+        submitting={folderSaving}
         destroyOnClose
       >
         <Select
@@ -766,15 +792,16 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
             .filter(f => f.id !== moveFolderTarget?.id)
             .map(f => ({ value: f.id, label: f.path }))}
         />
-      </Modal>
+      </SubmitModal>
 
-      <Modal
+      <SubmitModal
         title={`上传文档到「${currentFolderName}」`}
         open={uploadOpen}
         onCancel={() => !uploading && setUploadOpen(false)}
         onOk={() => void handleUploadSubmit()}
-        confirmLoading={uploading}
         okText={`上传 ${uploadFileList.length > 0 ? `(${uploadFileList.length})` : ''}`}
+        submitting={uploading}
+        submittingTip={`正在上传 ${uploadFileList.length > 0 ? uploadFileList.length : ''} 个文档…`}
         destroyOnClose
       >
         <Form form={uploadForm} layout="vertical" initialValues={{ chunkMaxSize: 1000, chunkOverlap: 150, chunkSeparator: '\n\n' }}>
@@ -816,13 +843,14 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
             </Form.Item>
           </Space>
         </Form>
-      </Modal>
+      </SubmitModal>
 
-      <Modal
+      <SubmitModal
         title={`重新解析「${reparseTarget?.name ?? ''}」`}
         open={reparseTarget !== null}
         onCancel={() => setReparseTarget(null)}
         onOk={() => void handleReparseSubmit()}
+        submitting={reparsing}
         destroyOnClose
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
@@ -857,7 +885,7 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
             </Form.Item>
           </Space>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

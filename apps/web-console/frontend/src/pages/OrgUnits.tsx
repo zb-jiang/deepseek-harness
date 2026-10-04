@@ -1,11 +1,12 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons'
-import { App, Button, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd'
+import { App, Button, Drawer, Form, Input, InputNumber, Popconfirm, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { PLATFORM_ROLE } from '../api/types'
 import { type OrgUnitMemberDto, type OrgUnitTreeNode, orgUnitsApi, type SaveOrgUnitRequest } from '../api/org-units'
 import { usersApi, type UserDto } from '../api/users'
+import { SubmitModal } from '../components/SubmitModal'
 
 /** 表单值(新增/编辑共用) */
 interface OrgUnitFormValues {
@@ -51,6 +52,7 @@ export default function OrgUnitsPage() {
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserDto[]>([])
   const [edit, setEdit] = useState<EditState | null>(null)
+  const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<OrgUnitFormValues>()
   // 成员面板(部门维度维护 org_unit_members)
   const [memberUnit, setMemberUnit] = useState<OrgUnitTreeNode | null>(null)
@@ -152,6 +154,7 @@ export default function OrgUnitsPage() {
       headUserId: values.headUserId ?? null,
       sortOrder: values.sortOrder ?? 0,
     }
+    setSaving(true)
     try {
       if (edit.orgUnitId) {
         await orgUnitsApi.update(edit.orgUnitId, body)
@@ -164,6 +167,8 @@ export default function OrgUnitsPage() {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -271,12 +276,13 @@ export default function OrgUnitsPage() {
         pagination={false}
         expandable={{ defaultExpandAllRows: true }}
       />
-      <Modal
+      <SubmitModal
         title={edit?.orgUnitId ? `编辑部门 ${edit.values.name}` : '新增部门'}
         open={!!edit}
         onCancel={() => setEdit(null)}
         onOk={submit}
         destroyOnClose
+        submitting={saving}
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -311,7 +317,7 @@ export default function OrgUnitsPage() {
             <InputNumber style={{ width: '100%' }} min={0} precision={0} />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
       <Drawer
         title={memberUnit ? `部门成员 - ${memberUnit.name}(${members.length} 人)` : '部门成员'}
         width={560}

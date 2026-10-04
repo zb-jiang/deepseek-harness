@@ -1,5 +1,6 @@
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { App, Button, Modal, Popconfirm, Space, Tag } from 'antd'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { type WorkflowDefinitionDto, workflowsApi } from '../api/workflows'
 
@@ -28,8 +29,11 @@ export function WorkflowStatusTag({ status }: { status: string }) {
 export default function WorkflowRowActions({ wf, onChanged }: { wf: WorkflowDefinitionDto; onChanged: () => void }) {
   const { message } = App.useApp()
   const navigate = useNavigate()
+  // 校验/发布/停用/归档进行中:对应按钮转圈并禁用,防止重复触发
+  const [actionBusy, setActionBusy] = useState(false)
 
   const handleValidate = async () => {
+    setActionBusy(true)
     try {
       const result = await workflowsApi.validate(wf.id)
       if (result.valid) {
@@ -48,36 +52,47 @@ export default function WorkflowRowActions({ wf, onChanged }: { wf: WorkflowDefi
       }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '校验失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
   const handlePublish = async () => {
+    setActionBusy(true)
     try {
       const result = await workflowsApi.publish(wf.id)
       message.success(`已发布 (deployment=${result.deploymentId}, procdef=${result.procdefId})`)
       onChanged()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '发布失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
   const handleDisable = async () => {
+    setActionBusy(true)
     try {
       await workflowsApi.disable(wf.id)
       message.success(`已停用 ${wf.name}`)
       onChanged()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '停用失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
   const handleArchive = async () => {
+    setActionBusy(true)
     try {
       await workflowsApi.archive(wf.id)
       message.success(`已归档 ${wf.name}`)
       onChanged()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '归档失败')
+    } finally {
+      setActionBusy(false)
     }
   }
 
@@ -87,13 +102,13 @@ export default function WorkflowRowActions({ wf, onChanged }: { wf: WorkflowDefi
         编辑
       </Button>
       {wf.status === 'draft' && (
-        <Button size="small" type="link" onClick={handleValidate}>
+        <Button size="small" type="link" loading={actionBusy} disabled={actionBusy} onClick={handleValidate}>
           校验
         </Button>
       )}
       {(wf.status === 'draft' || wf.status === 'disabled') && (
         <Popconfirm title={`发布 ${wf.name}?`} onConfirm={handlePublish}>
-          <Button size="small" type="link">发布</Button>
+          <Button size="small" type="link" loading={actionBusy} disabled={actionBusy}>发布</Button>
         </Popconfirm>
       )}
       {wf.status === 'published' && (
@@ -107,13 +122,13 @@ export default function WorkflowRowActions({ wf, onChanged }: { wf: WorkflowDefi
             发起
           </Button>
           <Popconfirm title={`停用 ${wf.name}?`} onConfirm={handleDisable}>
-            <Button size="small" type="link" danger>停用</Button>
+            <Button size="small" type="link" danger loading={actionBusy} disabled={actionBusy}>停用</Button>
           </Popconfirm>
         </>
       )}
       {wf.status !== 'archived' && (
         <Popconfirm title={`归档 ${wf.name}?此操作不可撤销`} onConfirm={handleArchive}>
-          <Button size="small" type="link" danger>归档</Button>
+          <Button size="small" type="link" danger loading={actionBusy} disabled={actionBusy}>归档</Button>
         </Popconfirm>
       )}
     </Space>

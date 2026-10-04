@@ -1,5 +1,5 @@
 import { ApartmentOutlined, PlusOutlined } from '@ant-design/icons'
-import { App, Button, Form, Input, Modal, Select, Space, Table, Tag, Typography, Upload } from 'antd'
+import { App, Button, Form, Input, Select, Space, Table, Tag, Typography, Upload } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { UploadFile, UploadProps } from 'antd/es/upload'
 import dayjs from 'dayjs'
@@ -13,6 +13,7 @@ import {
 import { usersApi, type UserDto } from '../api/users'
 import { PLATFORM_ROLE } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { SubmitModal } from '../components/SubmitModal'
 
 const STATUS_COLOR: Record<string, string> = {
   active: 'green',
@@ -47,6 +48,7 @@ export default function AppsPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
   const [users, setUsers] = useState<UserDto[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [createForm] = Form.useForm<CreateApplicationRequest>()
   const [iconFileList, setIconFileList] = useState<UploadFile[]>([])
 
@@ -112,6 +114,7 @@ export default function AppsPage() {
 
   const submitCreate = async () => {
     const values = await createForm.validateFields()
+    setCreating(true)
     try {
       const created = await appsApi.create(values)
       message.success(`已创建应用 ${created.name}`)
@@ -121,6 +124,8 @@ export default function AppsPage() {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '创建失败')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -227,13 +232,14 @@ export default function AppsPage() {
         loading={loading}
         pagination={{ pageSize: 20 }}
       />
-      <Modal
+      <SubmitModal
         title="新建应用"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={submitCreate}
         destroyOnClose
         width={520}
+        submitting={creating}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item
@@ -295,7 +301,7 @@ export default function AppsPage() {
             应用创建后立即处于活跃状态,可直接创建流程定义与角色。
           </Typography.Paragraph>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

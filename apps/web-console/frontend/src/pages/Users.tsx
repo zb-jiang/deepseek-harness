@@ -1,11 +1,12 @@
 import { CheckCircleOutlined, EditOutlined, LockOutlined, StopOutlined, TeamOutlined } from '@ant-design/icons'
-import { App, Button, Form, Modal, Popconfirm, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd'
+import { App, Button, Form, Popconfirm, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
 import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
 import { PLATFORM_ROLE } from '../api/types'
 import { type UpdateUserRequest, usersApi, type UserDto } from '../api/users'
+import { SubmitModal } from '../components/SubmitModal'
 
 const STATUS_COLOR: Record<string, string> = {
   pending_approval: 'default',
@@ -42,6 +43,8 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
   const [editTarget, setEditTarget] = useState<UserDto | null>(null)
+  // 编辑角色/分配部门两个弹窗互斥打开,共用提交中状态
+  const [userSaving, setUserSaving] = useState(false)
   const [editForm] = Form.useForm<UpdateUserRequest>()
   const [orgTree, setOrgTree] = useState<OrgUnitTreeNode[]>([])
   const [orgTarget, setOrgTarget] = useState<UserDto | null>(null)
@@ -130,6 +133,7 @@ export default function UsersPage() {
   const submitAssignOrg = async () => {
     if (!orgTarget) return
     const values = await orgForm.validateFields()
+    setUserSaving(true)
     try {
       await usersApi.assignOrgUnits(orgTarget.id, values.orgUnitIds ?? [])
       message.success(`已更新 ${orgTarget.loginName} 的所属部门`)
@@ -137,6 +141,8 @@ export default function UsersPage() {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '分配部门失败')
+    } finally {
+      setUserSaving(false)
     }
   }
 
@@ -144,6 +150,7 @@ export default function UsersPage() {
     if (!editTarget) return
     const values = await editForm.validateFields()
     const body = { platformRoles: ensureNormalUser(values.platformRoles ?? []) }
+    setUserSaving(true)
     try {
       await usersApi.updateRoles(editTarget.id, body)
       message.success(`已更新 ${editTarget.loginName} 的角色`)
@@ -151,6 +158,8 @@ export default function UsersPage() {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
+    } finally {
+      setUserSaving(false)
     }
   }
 
@@ -272,12 +281,13 @@ export default function UsersPage() {
         loading={loading}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
-      <Modal
+      <SubmitModal
         title={editTarget ? `编辑 ${editTarget.loginName} 的角色` : '编辑角色'}
         open={!!editTarget}
         onCancel={() => setEditTarget(null)}
         onOk={submitEdit}
         destroyOnClose
+        submitting={userSaving}
       >
         <Form form={editForm} layout="vertical">
           <Form.Item
@@ -309,13 +319,14 @@ export default function UsersPage() {
             系统管理员可访问所有应用;应用管理员只能访问自己所属应用。
           </Typography.Paragraph>
         </Form>
-      </Modal>
-      <Modal
+      </SubmitModal>
+      <SubmitModal
         title={orgTarget ? `分配 ${orgTarget.loginName} 的所属部门` : '分配所属部门'}
         open={!!orgTarget}
         onCancel={() => setOrgTarget(null)}
         onOk={submitAssignOrg}
         destroyOnClose
+        submitting={userSaving}
       >
         <Form form={orgForm} layout="vertical">
           <Form.Item
@@ -337,7 +348,7 @@ export default function UsersPage() {
             提交即全量覆盖;部门的负责人不能被移出该部门,需先更换负责人。
           </Typography.Paragraph>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

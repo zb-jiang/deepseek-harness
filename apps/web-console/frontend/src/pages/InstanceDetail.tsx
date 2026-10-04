@@ -8,7 +8,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -36,6 +35,7 @@ import { PLATFORM_ROLE } from '../api/types'
 import { workflowsApi, type WorkflowDefinitionDto } from '../api/workflows'
 import { useAuth } from '../auth/AuthContext'
 import BpmnHistoryViewer from '../bpmn/BpmnHistoryViewer'
+import { SubmitModal } from '../components/SubmitModal'
 
 /** 历史活动类型 → 中文名(路径图时间线展示用;未映射的类型原样显示)。 */
 const ACTIVITY_TYPE_TEXT: Record<string, string> = {
@@ -419,6 +419,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [loading, setLoading] = useState(false)
   const [terminateOpen, setTerminateOpen] = useState(false)
+  const [terminating, setTerminating] = useState(false)
   const [terminateForm] = Form.useForm<{ reason?: string }>()
   const [completeTarget, setCompleteTarget] = useState<TaskDto | null>(null)
   // 强制完成弹窗的变量映射行;声明清单按实例缓存(null=未加载)
@@ -511,6 +512,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
   const submitTerminate = async () => {
     if (!inst) return
     const values = await terminateForm.validateFields()
+    setTerminating(true)
     try {
       await instancesApi.terminate(inst.id, values.reason || undefined)
       message.success('已终止实例')
@@ -518,6 +520,8 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '终止失败')
+    } finally {
+      setTerminating(false)
     }
   }
 
@@ -909,11 +913,12 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
         tableLayout="fixed"
       />
 
-      <Modal
+      <SubmitModal
         title="终止实例"
         open={terminateOpen}
         onCancel={() => setTerminateOpen(false)}
         onOk={submitTerminate}
+        submitting={terminating}
         destroyOnClose
       >
         <Form form={terminateForm} layout="vertical">
@@ -921,15 +926,15 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
             <Input.TextArea rows={3} placeholder="可空" />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
 
-      <Modal
+      <SubmitModal
         title={completeTarget ? `完成任务: ${completeTarget.name ?? completeTarget.id}` : '完成任务'}
         open={!!completeTarget}
         width={680}
         onCancel={() => setCompleteTarget(null)}
         onOk={submitComplete}
-        confirmLoading={completing}
+        submitting={completing}
         destroyOnClose
       >
         {completeVars.map(row => (
@@ -974,7 +979,7 @@ function InstanceDetailView({ instanceId }: { instanceId: string }) {
           管理员强制完成：不经过员工端 AI 对话与输出映射校验，直接调用引擎 complete 任务。
           仅用于端到端联调或管理员干预，正式办理请通过 DSH 员工端「我的待办」提交。
         </Typography.Paragraph>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

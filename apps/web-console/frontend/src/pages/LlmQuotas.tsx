@@ -1,5 +1,5 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { App, Button, Card, DatePicker, Form, InputNumber, Modal, Radio, Select, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { App, Button, Card, DatePicker, Form, InputNumber, Radio, Select, Space, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
@@ -16,6 +16,7 @@ import {
 } from '../api/llm'
 import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
 import { usersApi, type UserDto } from '../api/users'
+import { SubmitModal } from '../components/SubmitModal'
 
 const SUBJECT_TYPE_OPTIONS = [
   { label: '用户', value: 'user' },
@@ -67,10 +68,12 @@ export default function LlmQuotasPage() {
   const [loading, setLoading] = useState(false)
   const [grantTarget, setGrantTarget] = useState<QuotaGrantDto | null>(null)
   const [grantModalOpen, setGrantModalOpen] = useState(false)
+  const [grantSaving, setGrantSaving] = useState(false)
   const [grantForm] = Form.useForm<GrantFormValues>()
   const grantSubjectType = Form.useWatch('subjectType', grantForm)
   const [routeTarget, setRouteTarget] = useState<UserModelRouteDto | null>(null)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
+  const [routeSaving, setRouteSaving] = useState(false)
   const [routeForm] = Form.useForm<RouteFormValues>()
   const routeModelId = Form.useWatch('modelId', routeForm)
 
@@ -157,6 +160,7 @@ export default function LlmQuotasPage() {
   const submitGrant = async () => {
     const values = await grantForm.validateFields()
     const [from, to] = values.range ?? [null, null]
+    setGrantSaving(true)
     try {
       if (grantTarget) {
         const body: UpdateGrantRequest = {
@@ -182,6 +186,8 @@ export default function LlmQuotasPage() {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存额度授权失败')
+    } finally {
+      setGrantSaving(false)
     }
   }
 
@@ -279,6 +285,7 @@ export default function LlmQuotasPage() {
       sourceType: item.sourceType,
       sourceId: item.sourceId,
     }))
+    setRouteSaving(true)
     try {
       if (routeTarget) {
         const body: UpdateRouteRequest = {
@@ -301,6 +308,8 @@ export default function LlmQuotasPage() {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存用户路由失败')
+    } finally {
+      setRouteSaving(false)
     }
   }
 
@@ -423,11 +432,12 @@ export default function LlmQuotasPage() {
           },
         ]}
       />
-      <Modal
+      <SubmitModal
         title={grantTarget ? `编辑额度授权(${grantTarget.subjectName} / ${grantTarget.modelDisplayName})` : '新建额度授权'}
         open={grantModalOpen}
         onCancel={() => setGrantModalOpen(false)}
         onOk={submitGrant}
+        submitting={grantSaving}
         destroyOnClose
       >
         <Form form={grantForm} layout="vertical">
@@ -486,12 +496,13 @@ export default function LlmQuotasPage() {
             </Typography.Paragraph>
           )}
         </Form>
-      </Modal>
-      <Modal
+      </SubmitModal>
+      <SubmitModal
         title={routeTarget ? `编辑路由(${routeTarget.userDisplayName} / ${routeTarget.modelDisplayName})` : '新建用户路由'}
         open={routeModalOpen}
         onCancel={() => setRouteModalOpen(false)}
         onOk={submitRoute}
+        submitting={routeSaving}
         destroyOnClose
         width={640}
       >
@@ -620,7 +631,7 @@ export default function LlmQuotasPage() {
             )}
           </Form.List>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

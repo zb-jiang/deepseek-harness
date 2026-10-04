@@ -1,5 +1,5 @@
 import { PlusOutlined } from '@ant-design/icons'
-import { App, Button, Form, Input, Modal, Space, Table, Typography } from 'antd'
+import { App, Button, Form, Input, Space, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
@@ -9,6 +9,7 @@ import {
   type WorkflowDefinitionDto,
   workflowsApi,
 } from '../api/workflows'
+import { SubmitModal } from '../components/SubmitModal'
 import WorkflowRowActions, { WorkflowStatusTag } from './WorkflowRowActions'
 
 /**
@@ -20,6 +21,7 @@ export default function AppWorkflowsTab({ appId }: { appId: string }) {
   const [data, setData] = useState<WorkflowDefinitionDto[]>([])
   const [loading, setLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [createForm] = Form.useForm<Omit<CreateWorkflowRequest, 'appId'>>()
 
   const load = useCallback(async () => {
@@ -41,6 +43,7 @@ export default function AppWorkflowsTab({ appId }: { appId: string }) {
 
   const submitCreate = async () => {
     const values = await createForm.validateFields()
+    setCreating(true)
     try {
       const created = await workflowsApi.create({ appId, ...values })
       message.success(`已创建流程 ${created.name}`)
@@ -49,6 +52,8 @@ export default function AppWorkflowsTab({ appId }: { appId: string }) {
       navigate(`/workflows/${created.id}`)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '创建失败')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -111,13 +116,14 @@ export default function AppWorkflowsTab({ appId }: { appId: string }) {
         loading={loading}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
-      <Modal
+      <SubmitModal
         title="新建流程定义"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={submitCreate}
         destroyOnClose
         width={520}
+        submitting={creating}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item
@@ -134,7 +140,7 @@ export default function AppWorkflowsTab({ appId }: { appId: string }) {
             创建后流程处于 draft 状态;在编辑页保存 BPMN XML、通过校验后可发布(spec §6.2)。
           </Typography.Paragraph>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

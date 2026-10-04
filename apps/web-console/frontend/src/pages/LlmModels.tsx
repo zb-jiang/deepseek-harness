@@ -7,7 +7,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -26,6 +25,7 @@ import {
   llmApi,
   type UpdateModelRequest,
 } from '../api/llm'
+import { SubmitModal } from '../components/SubmitModal'
 
 /** 企业模型表单值(新增/编辑共用);后三个键写入 modelParams,仅存有值时提交 */
 interface ModelFormValues {
@@ -327,12 +327,12 @@ export default function LlmModelsPage() {
           pagination={{ pageSize: 20, showSizeChanger: true }}
         />
       </Card>
-      <Modal
+      <SubmitModal
         title={modelTarget ? `编辑模型 ${modelTarget.displayName}` : '新建模型'}
         open={modelModalOpen}
         onCancel={() => setModelModalOpen(false)}
         onOk={submitModel}
-        confirmLoading={submitting}
+        submitting={submitting}
         destroyOnClose
       >
         <Form form={modelForm} layout="vertical">
@@ -390,7 +390,7 @@ export default function LlmModelsPage() {
             <Switch />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }

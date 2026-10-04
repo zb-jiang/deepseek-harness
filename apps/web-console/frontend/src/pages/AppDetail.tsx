@@ -5,7 +5,6 @@ import {
   Descriptions,
   Form,
   Input,
-  Modal,
   Select,
   Space,
   Table,
@@ -37,6 +36,7 @@ import {
   type UpdateAppRoleRequest,
 } from '../api/roles'
 import { usersApi, type UserDto } from '../api/users'
+import { SubmitModal } from '../components/SubmitModal'
 import AppWorkflowsTab from './AppWorkflowsTab'
 import KnowledgeTab from './KnowledgeTab'
 
@@ -64,6 +64,7 @@ export default function AppDetailPage() {
   const [users, setUsers] = useState<UserDto[]>([])
   const [, setLoading] = useState(false)
   const [editAppOpen, setEditAppOpen] = useState(false)
+  const [editAppSaving, setEditAppSaving] = useState(false)
   const [editAppForm] = Form.useForm<UpdateApplicationRequest>()
   const [iconFileList, setIconFileList] = useState<UploadFile[]>([])
 
@@ -97,6 +98,7 @@ export default function AppDetailPage() {
   const submitEditApp = async () => {
     if (!app) return
     const values = await editAppForm.validateFields()
+    setEditAppSaving(true)
     try {
       const updated = await appsApi.update(app.id, {
         name: values.name,
@@ -109,6 +111,8 @@ export default function AppDetailPage() {
       setApp(updated)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
+    } finally {
+      setEditAppSaving(false)
     }
   }
 
@@ -228,12 +232,13 @@ export default function AppDetailPage() {
         ]}
       />
 
-      <Modal
+      <SubmitModal
         title="编辑应用"
         open={editAppOpen}
         onCancel={() => setEditAppOpen(false)}
         onOk={submitEditApp}
         destroyOnClose
+        submitting={editAppSaving}
       >
         <Form form={editAppForm} layout="vertical">
           <Form.Item name="name" label="应用名" rules={[{ required: true, message: '请输入应用名' }]}>
@@ -267,7 +272,7 @@ export default function AppDetailPage() {
             点击图片即可重新上传替换;不允许删除图标。
           </Typography.Paragraph>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }
@@ -278,6 +283,7 @@ function RolesTab({ appId }: { appId: string }) {
   const [data, setData] = useState<AppRoleDto[]>([])
   const [loading, setLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [roleSaving, setRoleSaving] = useState(false)
   const [createForm] = Form.useForm<CreateAppRoleRequest>()
   const [editTarget, setEditTarget] = useState<AppRoleDto | null>(null)
   const [editForm] = Form.useForm<UpdateAppRoleRequest>()
@@ -300,6 +306,7 @@ function RolesTab({ appId }: { appId: string }) {
 
   const submitCreate = async () => {
     const values = await createForm.validateFields()
+    setRoleSaving(true)
     try {
       await rolesApi.create(appId, {
         name: values.name,
@@ -312,12 +319,15 @@ function RolesTab({ appId }: { appId: string }) {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '创建失败')
+    } finally {
+      setRoleSaving(false)
     }
   }
 
   const submitEdit = async () => {
     if (!editTarget) return
     const values = await editForm.validateFields()
+    setRoleSaving(true)
     try {
       await rolesApi.update(appId, editTarget.id, {
         name: values.name,
@@ -329,6 +339,8 @@ function RolesTab({ appId }: { appId: string }) {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
+    } finally {
+      setRoleSaving(false)
     }
   }
 
@@ -455,12 +467,13 @@ function RolesTab({ appId }: { appId: string }) {
         loading={loading}
         pagination={{ pageSize: 20 }}
       />
-      <Modal
+      <SubmitModal
         title="新建角色"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={submitCreate}
         destroyOnClose
+        submitting={roleSaving}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="name" label="角色名" rules={[{ required: true, message: '请输入角色名' }]}>
@@ -480,13 +493,14 @@ function RolesTab({ appId }: { appId: string }) {
             父角色可选且必须属于同一应用;上级角色继承下级角色权限。
           </Typography.Paragraph>
         </Form>
-      </Modal>
-      <Modal
+      </SubmitModal>
+      <SubmitModal
         title={editTarget ? `编辑 ${editTarget.name}` : '编辑角色'}
         open={!!editTarget}
         onCancel={() => setEditTarget(null)}
         onOk={submitEdit}
         destroyOnClose
+        submitting={roleSaving}
       >
         <Form form={editForm} layout="vertical">
           <Form.Item name="name" label="角色名" rules={[{ required: true, message: '请输入角色名' }]}>
@@ -503,7 +517,7 @@ function RolesTab({ appId }: { appId: string }) {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }
@@ -516,6 +530,7 @@ function MembershipsTab({ appId }: { appId: string }) {
   const [users, setUsers] = useState<UserDto[]>([])
   const [loading, setLoading] = useState(false)
   const [upsertOpen, setUpsertOpen] = useState(false)
+  const [memSaving, setMemSaving] = useState(false)
   const [upsertForm] = Form.useForm<UpsertMembershipRequest>()
   const [editTarget, setEditTarget] = useState<AppMembershipDto | null>(null)
   const [editForm] = Form.useForm<UpsertMembershipRequest>()
@@ -562,6 +577,7 @@ function MembershipsTab({ appId }: { appId: string }) {
 
   const submitUpsert = async () => {
     const values = await upsertForm.validateFields()
+    setMemSaving(true)
     try {
       await membershipsApi.upsert(appId, values)
       message.success('已保存成员')
@@ -570,12 +586,15 @@ function MembershipsTab({ appId }: { appId: string }) {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setMemSaving(false)
     }
   }
 
   const submitEdit = async () => {
     if (!editTarget) return
     const values = await editForm.validateFields()
+    setMemSaving(true)
     try {
       await membershipsApi.upsert(appId, { userId: editTarget.userId, roleIds: values.roleIds })
       message.success('已更新成员角色')
@@ -583,6 +602,8 @@ function MembershipsTab({ appId }: { appId: string }) {
       void load()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '更新失败')
+    } finally {
+      setMemSaving(false)
     }
   }
 
@@ -701,12 +722,13 @@ function MembershipsTab({ appId }: { appId: string }) {
         loading={loading}
         pagination={{ pageSize: 20 }}
       />
-      <Modal
+      <SubmitModal
         title="添加成员"
         open={upsertOpen}
         onCancel={() => setUpsertOpen(false)}
         onOk={submitUpsert}
         destroyOnClose
+        submitting={memSaving}
       >
         <Form form={upsertForm} layout="vertical">
           <Form.Item name="userId" label="用户" rules={[{ required: true, message: '请选择用户' }]}>
@@ -716,13 +738,14 @@ function MembershipsTab({ appId }: { appId: string }) {
             <Select mode="multiple" options={roleOptions} placeholder="选择角色" />
           </Form.Item>
         </Form>
-      </Modal>
-      <Modal
+      </SubmitModal>
+      <SubmitModal
         title="编辑成员角色"
         open={!!editTarget}
         onCancel={() => setEditTarget(null)}
         onOk={submitEdit}
         destroyOnClose
+        submitting={memSaving}
       >
         <Form form={editForm} layout="vertical">
           <Form.Item name="userId" label="用户">
@@ -732,7 +755,7 @@ function MembershipsTab({ appId }: { appId: string }) {
             <Select mode="multiple" options={roleOptions} />
           </Form.Item>
         </Form>
-      </Modal>
+      </SubmitModal>
     </div>
   )
 }
