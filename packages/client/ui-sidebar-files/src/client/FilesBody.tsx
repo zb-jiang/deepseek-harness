@@ -8,7 +8,7 @@
  * anything else is shown but refuses to open. A file row also offers the
  * `sidebar.files.entry.action` slot — occupants render trailing controls on the
  * row without touching its open behavior. The header uses the shared
- * PathLabel for the root, followed by reload for the expanded directories.
+ * PathLabel for the root, followed by reload and workspace directory actions.
  */
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
@@ -34,6 +34,7 @@ import css from './FilesBody.module.css'
 export type FilesBodyProps =
   & PropsRuntime<'sidebar.right.pane.tab'>
   & PropsRenderSlots<'sidebar.files.entry.action'>
+  & PropsRenderSlots<'sidebar.right.tab.files.actions'>
   & PropsStore<ReturnType<typeof createFilesStore>>
   & FilesInjected
   & PropsLocale<'sidebarFiles'>
@@ -143,7 +144,8 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, renderSlot, t,
+  useTabInfo, sessionId, useSessions, useStore, actions,
+  start, refresh, setAutoRefresh, toggle, t, renderSlot,
 }: FilesBodyProps): ReactNode {
   const { tab } = useTabInfo()
   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
@@ -219,6 +221,9 @@ export function FilesBody({
             <IconRefreshOutlineRegular />
           </button>
         </Tooltip>
+        {renderSlot('sidebar.right.tab.files.actions', {
+          absolutePath: state.root,
+        })}
       </div>
       <div
         ref={bodyRef}

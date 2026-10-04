@@ -104,8 +104,11 @@ describe('ui-sidebar-files apply', () => {
     ])
     expect(registered[0]?.store).toBeDefined()
     expect(typeof registered[0]?.inject).toBe('function')
-    // The body owns the per-file-row action slot's dispatch.
-    expect(registered[0]?.children).toEqual({ 'sidebar.files.entry.action': { kind: 'list', scope: 'session' } })
+    // The body owns the per-file-row action slot's dispatch and the header actions slot.
+    expect(registered[0]?.children).toEqual({
+      'sidebar.files.entry.action': { kind: 'list', scope: 'session' },
+      'sidebar.right.tab.files.actions': { kind: 'list', scope: 'session' },
+    })
     expect(registered[1]?.children).toBeUndefined()
   })
 

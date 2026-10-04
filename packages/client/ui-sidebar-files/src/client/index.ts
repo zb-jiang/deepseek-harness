@@ -29,6 +29,20 @@ export type { DirLevel, FilesState, FilesTabState, LevelState } from './store.ts
 export type { FilesInjected, ListWorkspaceDirectory, WorkspaceFilesListRemote } from './face.ts'
 export type { FilesBodyProps } from './FilesBody.tsx'
 
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** Workspace directory actions after the file tree's reload control. */
+    'sidebar.right.tab.files.actions': {
+      kind: 'list'
+      scope: 'session'
+      owner: {
+        /** Absolute directory path displayed by the file tree. */
+        readonly absolutePath: string
+      }
+    }
+  }
+}
+
 /** This package's copy namespace. */
 const NS = 'sidebarFiles'
 
@@ -77,7 +91,10 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       store,
       inject,
-      children: { 'sidebar.files.entry.action': { kind: 'list', scope: 'session' } },
+      children: {
+        'sidebar.files.entry.action': { kind: 'list', scope: 'session' },
+        'sidebar.right.tab.files.actions': { kind: 'list', scope: 'session' },
+      },
     },
     FilesBody,
   )), 'ui-sidebar-files: files tab body')

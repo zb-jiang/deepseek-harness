@@ -103,8 +103,10 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
     useStore: hookOf(instance),
     actions: instance.actions,
     ...face,
-    renderSlot: (key: string, owner: { path: string; name: string }) => {
-      actions.push({ key, path: owner.path, name: owner.name })
+    renderSlot: (key: string, owner: { path?: string; name?: string }) => {
+      // Header actions dispatch under a different key with a different owner; only the
+      // per-row seat is what these specs record.
+      if (key === 'sidebar.files.entry.action') actions.push({ key, path: owner.path ?? '', name: owner.name ?? '' })
       return null
     },
     t: makeTranslate(zh),
