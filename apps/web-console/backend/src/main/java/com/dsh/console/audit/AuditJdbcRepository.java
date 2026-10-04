@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -57,15 +58,29 @@ public class AuditJdbcRepository {
     }
 
     /**
-     * 分页查审计事件(按时间倒序,可按 event_type 与 operator_id 过滤)。
+     * 分页查审计事件(按时间倒序,可按 event_type / operator_id / targetType / 时间段过滤)。
+     *
+     * <p>targetType 冗余写在 details JSONB 里(表无 target_type 列),按 JSONB 文本取值过滤;
+     * 时间段 from 含下界,to 为排他上界(调用方传「结束日次日 0 点」)。
      */
-    public List<AuditEventDto> list(String eventTypeFilter, UUID operatorIdFilter, int offset, int limit) {
+    public List<AuditEventDto> list(String eventTypeFilter, UUID operatorIdFilter,
+                                    String targetTypeFilter, OffsetDateTime from, OffsetDateTime to,
+                                    int offset, int limit) {
         StringBuilder sql = new StringBuilder(SELECT_BASE).append(" WHERE 1=1");
         if (eventTypeFilter != null && !eventTypeFilter.isBlank()) {
             sql.append(" AND ae.event_type = :eventType");
         }
         if (operatorIdFilter != null) {
             sql.append(" AND ae.operator_id = :operatorId");
+        }
+        if (targetTypeFilter != null && !targetTypeFilter.isBlank()) {
+            sql.append(" AND ae.details->>'targetType' = :targetType");
+        }
+        if (from != null) {
+            sql.append(" AND ae.created_at >= :from");
+        }
+        if (to != null) {
+            sql.append(" AND ae.created_at < :to");
         }
         sql.append(" ORDER BY ae.created_at DESC LIMIT :limit OFFSET :offset");
 
@@ -77,6 +92,15 @@ public class AuditJdbcRepository {
         }
         if (operatorIdFilter != null) {
             stmt = stmt.param("operatorId", operatorIdFilter);
+        }
+        if (targetTypeFilter != null && !targetTypeFilter.isBlank()) {
+            stmt = stmt.param("targetType", targetTypeFilter);
+        }
+        if (from != null) {
+            stmt = stmt.param("from", from);
+        }
+        if (to != null) {
+            stmt = stmt.param("to", to);
         }
         return stmt.query(new AuditRowMapper(objectMapper)).list();
     }

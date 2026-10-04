@@ -1,6 +1,7 @@
 package com.dsh.console.audit;
 
 import com.dsh.console.audit.dto.AuditEventDto;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -46,10 +47,13 @@ public class AuditService {
     }
 
     /**
-     * 列审计事件(可按 event_type 与 operator_id 过滤)。
+     * 列审计事件(可按 event_type / operator_id / targetType / 时间段过滤;
+     * from 含下界,to 为排他上界)。
      */
-    public List<AuditEventDto> list(String eventTypeFilter, UUID operatorIdFilter, int offset, int limit) {
-        return auditRepository.list(eventTypeFilter, operatorIdFilter, offset, limit);
+    public List<AuditEventDto> list(String eventTypeFilter, UUID operatorIdFilter,
+                                    String targetTypeFilter, OffsetDateTime from, OffsetDateTime to,
+                                    int offset, int limit) {
+        return auditRepository.list(eventTypeFilter, operatorIdFilter, targetTypeFilter, from, to, offset, limit);
     }
 
     /**

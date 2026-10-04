@@ -44,7 +44,7 @@ const MENU_GUIDES: readonly { icon: ReactNode; label: string; desc: string; role
   },
   {
     icon: <BookOutlined />,
-    label: '知识库',
+    label: '知识库搜索',
     desc: '检索应用知识库中的文档,直观查看向量、关键词、全文三路召回与重排打分的全过程;文档在应用详情的知识库页签上传维护。',
     role: 'all',
   },
