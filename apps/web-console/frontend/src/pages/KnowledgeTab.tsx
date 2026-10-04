@@ -21,6 +21,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import type { DataNode } from 'antd/es/tree'
 import type { UploadFile, UploadProps } from 'antd'
+import type { RcFile } from 'antd/es/upload'
 import {
   FileDoneOutlined,
   FileSyncOutlined,
@@ -64,11 +65,6 @@ const SEPARATOR_PRESETS = [
   { value: '；', label: '分号' },
   { value: ' ', label: '空格' },
 ]
-
-/** 分隔符展示名(预设值给可读名,其余原样)。 */
-function displaySeparator(separator: string): string {
-  return SEPARATOR_PRESETS.find(p => p.value === separator)?.label ?? JSON.stringify(separator)
-}
 
 function isSupportedFile(name: string): boolean {
   const dot = name.lastIndexOf('.')
@@ -347,7 +343,7 @@ export default function KnowledgeTab({ appId }: { appId: string }) {
     if (!kbId) return
     const files = uploadFileList
       .map(f => f.originFileObj)
-      .filter((f): f is File => f instanceof File)
+      .filter((f): f is RcFile => f instanceof File)
     if (files.length === 0) {
       message.warning('请先选择文件')
       return

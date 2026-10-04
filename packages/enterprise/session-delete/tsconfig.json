@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../../host/webserver" },
+    { "path": "../../session/session-persistence" },
+    { "path": "../../session/session-persistence-jsonl" },
+    { "path": "../../workspace/workspace" }
+  ]
+}

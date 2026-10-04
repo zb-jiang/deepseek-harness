@@ -18,7 +18,6 @@ import {
   Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -28,11 +27,14 @@ import {
   type UpdateModelRequest,
 } from '../api/llm'
 
-/** 企业模型表单值(新增/编辑共用) */
+/** 企业模型表单值(新增/编辑共用);后三个键写入 modelParams,仅存有值时提交 */
 interface ModelFormValues {
   displayName: string
   gatewayModelName: string
   reservationTokens?: number
+  contextWindow?: number
+  maxTokens?: number
+  reasoning?: boolean
 }
 
 export default function LlmModelsPage() {

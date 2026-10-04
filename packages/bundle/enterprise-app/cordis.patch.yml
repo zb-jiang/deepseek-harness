@@ -91,5 +91,10 @@
         webConsoleBaseUrl: !!js process.env.WEB_CONSOLE_URL ?? 'http://127.0.0.1:8080'
         catalogRefreshMs: !!js Number(process.env.LLM_CATALOG_REFRESH_MS ?? 600000)
 
+    # 已归档会话删除端点：POST /api/enterprise/sessions/delete（仅归档会话，
+    # 先删工件目录再清 Workspace 记账，任一后续失败可重试收敛）。
+    - id: session-delete
+      name: '@deepseek-ai/dsh-session-delete'
+
     - id: ui-enterprise
       name: '@deepseek-ai/dsh-client-ui-enterprise'

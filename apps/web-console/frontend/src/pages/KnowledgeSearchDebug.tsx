@@ -793,8 +793,9 @@ function RerankDetail({ row, index, trace }: {
   index: number
   trace: KbSearchTraceDto
 }) {
-  const degraded = row.rerankScore === null
-  const filtered = !degraded && row.rerankScore < trace.rerankMinScore
+  const rerankScore = row.rerankScore
+  const degraded = rerankScore === null
+  const filtered = rerankScore !== null && rerankScore < trace.rerankMinScore
   return (
     <>
       <DocHeader docName={row.docName} docId={row.docId} />
@@ -815,7 +816,7 @@ function RerankDetail({ row, index, trace }: {
         ) : (
           <div className="kb-debug-drawer-value">
             <span className="kb-debug-drawer-mono" style={{ fontSize: 16, color: '#7c3aed', fontWeight: 700 }}>
-              {fmt(row.rerankScore)}
+              {fmt(rerankScore)}
             </span>{' '}
             {filtered && (
               <Tag color="default" style={{ marginInlineEnd: 0 }}>

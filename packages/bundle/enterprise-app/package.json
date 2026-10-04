@@ -50,6 +50,7 @@
     "@deepseek-ai/dsh-kb-context": "workspace:^",
     "@deepseek-ai/dsh-process-start": "workspace:^",
     "@deepseek-ai/dsh-llm-access": "workspace:^",
+    "@deepseek-ai/dsh-session-delete": "workspace:^",
     "@deepseek-ai/dsh-client-ui-enterprise": "workspace:^"
   },
   "peerDependencies": {

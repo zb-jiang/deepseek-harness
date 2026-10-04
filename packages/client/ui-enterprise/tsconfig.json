@@ -13,6 +13,7 @@
     { "path": "../ui-primitives" },
     { "path": "../store" },
     { "path": "../ui-renderer" },
+    { "path": "../ui-workspace" },
     { "path": "../ui-session" },
     { "path": "../ui-layout" },
     { "path": "../ui-conversation/tsconfig.client.json" },

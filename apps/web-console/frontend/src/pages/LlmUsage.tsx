@@ -31,8 +31,8 @@ const LEDGER_STATUS: Record<string, { text: string; color: string }> = {
 /** 状态筛选的「全部」哨兵值:请求后端时归一为 undefined(不过滤) */
 const STATUS_ALL = 'ALL'
 
-/** 时间段快捷项:RangePicker presets;清空区间 = 全部时间 */
-const RANGE_PRESETS = [
+/** 时间段快捷项:RangePicker presets;清空区间 = 全部时间(value 显式标为二元组,否则返回值推断为 Dayjs[] 不满足 presets) */
+const RANGE_PRESETS: { label: string; value: () => [Dayjs, Dayjs] }[] = [
   { label: '今天', value: () => [dayjs().startOf('day'), dayjs()] },
   { label: '本周', value: () => [dayjs().startOf('week'), dayjs()] },
   { label: '本月', value: () => [dayjs().startOf('month'), dayjs()] },

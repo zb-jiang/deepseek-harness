@@ -6,11 +6,12 @@ $env:SUPABASE_URL="https://tmommaaeuqnhanbtqmti.supabase.co"
 $env:SOR_SERVICE_KEY = "demo-service-key"   #报销流程的service task需要通过服务密钥和expense SOR后端交互
 $env:DSH_SERVICE_KEY = "demo-webconsole-service-key"   #知识库集成：backend task提交前按流程定义解析所属工程知识库；须与web-console、backend profile一致
 cd d:\works\deepseek-harness\apps\flowable-engine
-mvn.cmd spring-boot:run "-Dspring-boot.run.profiles=dev"
+mvn clean package -DskipTests
+java -jar .\target\dsh-flowable-engine-0.1.0-SNAPSHOT.jar --server.port=8090
 
 ---------------------------------------------------------------------------------------------------------------
 
-启动web console 后端
+启动web console
 $env:SUPABASE_DB_HOST="localhost"
 $env:SUPABASE_DB_USER="postgres"
 $env:SUPABASE_DB_PASSWORD="passw0rd"
@@ -32,27 +33,33 @@ $env:KB_RERANK_API_URL="https://api.siliconflow.cn/v1"
 $env:KB_RERANK_API_KEY="sk-123456"
 $env:KB_RERANK_MODEL="Qwen/Qwen3-Reranker-8B"
 $env:KB_RERANK_MIN_SCORE="0.1"
+cd d:\works\deepseek-harness\apps\web-console\frontend
+npm run build
 cd d:\works\deepseek-harness\apps\web-console\backend
 mvn clean package -DskipTests
-D:\Java21\bin\java.exe -jar .\target\dsh-web-console.jar
-
-启动web console 前端
-cd d:\works\deepseek-harness\apps\web-console\frontend
-npm run dev
+D:\Java21\bin\java.exe -jar .\target\dsh-web-console.jar --server.port=8080
 
 ---------------------------------------------------------------------------------------------------------------------
 
-启动skillhub后端
-$env:STORAGE_BASE_PATH = "D:\works\enterprise-skillhub\skillhub-storage"
-$env:BOOTSTRAP_ADMIN_PASSWORD = "passw0rd"
-cd D:\works\enterprise-skillhub\server
-java -jar skillhub-app\target\skillhub-app-0.1.0.jar --spring.profiles.active=local --server.port=8095
-
----------------------------------------------------------------------------------------------------------------------
-
-启动skillhub前端
+启动skillhub
 cd D:\works\enterprise-skillhub\web
-pnpm exec vite --host 127.0.0.1 --port 5174
+pnpm install
+pnpm build
+cd D:\works\enterprise-skillhub\server
+mvn clean package -DskipTests
+$env:STORAGE_BASE_PATH="D:\works\enterprise-skillhub\skillhub-storage"
+$env:SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/skillhub"
+$env:SPRING_DATASOURCE_USERNAME="skillhub"
+$env:SPRING_DATASOURCE_PASSWORD="skillhub_dev"
+$env:BOOTSTRAP_ADMIN_ENABLED="true"
+$env:BOOTSTRAP_ADMIN_PASSWORD="passw0rd"
+$env:SKILLHUB_AUTH_MOCK_ENABLED="true"
+$env:SKILLHUB_BUILTIN_SKILLS_ENABLED="false"
+$env:SKILLHUB_SECURITY_SCANNER_ENABLED="false"
+$env:SKILLHUB_SECURITY_SCANNER_REQUIRED_FOR_PUBLISH="false"
+$env:SKILLHUB_SUITE_REVIEW_WRITES_ENABLED="true"
+$env:SKILLHUB_DOWNLOAD_ANON_COOKIE_SECRET="local-dev-download-secret-32-bytes"
+java -jar skillhub-app\target\skillhub-app-0.1.0.jar --server.port=8095
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -165,5 +172,3 @@ pnpm dsh --profile enterprise
 
 # 5. 只推 feat 到你的 fork
 git push origin feat/enterprise-platform
-
---------------------------------------------------------------------------------------------------------------------

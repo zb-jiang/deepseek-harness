@@ -137,8 +137,9 @@ export default function LlmQuotasPage() {
       subjectId: undefined,
       modelId: undefined,
       monthlyLimitTokens: 1_000_000,
-      range: null,
     })
+    // setFieldsValue 的 RecursivePartial 把 range 元组降级为纯数组,null 赋不进去;用 any 形参的 setFieldValue 清空
+    grantForm.setFieldValue('range', null)
   }
 
   const openGrantEdit = (grant: QuotaGrantDto) => {
@@ -149,8 +150,8 @@ export default function LlmQuotasPage() {
       subjectId: grant.subjectId,
       modelId: grant.modelId,
       monthlyLimitTokens: grant.monthlyLimitTokens,
-      range: null,
     })
+    grantForm.setFieldValue('range', null)
   }
 
   const submitGrant = async () => {

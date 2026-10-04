@@ -47,6 +47,13 @@ import { KbChipsDock } from './KbChipsDock.tsx'
 import { KbPickerButton } from './KbPickerButton.tsx'
 import { KbUploadAction } from './KbUploadAction.tsx'
 import type { KbUploadInjected } from './KbUploadAction.tsx'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import {
+  DeleteSessionConfirmDialog, DeleteSessionMenuItem, DeleteSessionRowButton, deleteArchivedSessionRequest,
+} from './DeleteSession.tsx'
+import type {
+  SessionDeleteActionInjected, SessionDeleteDialogInjected, SessionDeleteRequest,
+} from './DeleteSession.tsx'
 
 export const inject = [
   'slots', 'sessions', 'workspaces', 'uiWorkspace', 'layout', 'conversation', 'inputTriggers', 'sidebarRight',
@@ -152,4 +159,44 @@ export function apply(ctx: ClientContext): void {
     label: () => '企业服务配置',
     inject: () => ({ load: servicesAccess.load, save: servicesAccess.save }),
   }, EnterpriseServicesSection))
+
+  // 已归档会话的「删除会话」三件套:菜单第一项(order 50,官方条目 100-400)
+  // + 行悬停按钮 + shell.overlay 确认对话框;发起与确认经共享的 deleteRequest
+  // store 连接,删除成功后 Host 的 domain/changed 变更经 feed 推回刷新列表。
+  const deleteRequest = createSnapshotStore<SessionDeleteRequest | null>(null)
+  const deleteActionInjected = (): SessionDeleteActionInjected => ({
+    hooks: { deleteRequest },
+    // 两个入口都带 owner 的 displayTitle(会话无持久标题时为空串),此时
+    // 回退到会话快照的展示标题,再回退到会话 id。
+    requestSessionDelete: (sessionId, displayTitle) => {
+      deleteRequest.set({
+        sessionId,
+        displayTitle: displayTitle !== ''
+          ? displayTitle
+          : ctx.sessions.list.getSnapshot().byId[sessionId]?.displayTitle ?? sessionId,
+      })
+    },
+  })
+  const deleteDialogInjected = (): SessionDeleteDialogInjected => ({
+    hooks: { deleteRequest },
+    settleSessionDelete: () => { deleteRequest.set(null) },
+    deleteSession: sessionId => deleteArchivedSessionRequest(sessionId),
+  })
+  ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
+    name: 'sidebar.workspaces.session.menu.item',
+    id: 'enterprise-delete-session',
+    order: 50,
+    inject: deleteActionInjected,
+  }, DeleteSessionMenuItem))
+  ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
+    name: 'sidebar.workspaces.session.row.action',
+    id: 'enterprise-delete-session',
+    order: 50,
+    inject: deleteActionInjected,
+  }, DeleteSessionRowButton))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'enterprise-delete-session',
+    inject: deleteDialogInjected,
+  }, DeleteSessionConfirmDialog))
 }
