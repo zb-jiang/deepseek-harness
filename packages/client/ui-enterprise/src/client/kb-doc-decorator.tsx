@@ -50,7 +50,7 @@ function resolveDocName(docId: string): Promise<string | null> {
   const inflight = getDocument(docId)
     .then((doc) => {
       settledNames.set(docId, doc.name)
-      return doc.name as string | null
+      return doc.name
     })
     .catch(() => {
       failedNames.set(docId, Date.now())

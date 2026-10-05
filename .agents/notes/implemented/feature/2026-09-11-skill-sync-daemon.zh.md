@@ -10,7 +10,7 @@ BPMN user task 以裸 `dsh:skillRef` 名引用企业 skill,但员工端 DSH 无�
 
 ## 决策
 
-[skill-repo 设计](../../../../../docs/plans/2026-09-09-skill-repo-design.md)持有四工作项框架;本 note 记录工作项 2 的实现。flowable-engine 暴露 `GET /dsh/skills/required`(JWT `sub` 是唯一身份入参),聚合两个来源:活跃待办 `dsh_node_meta` 的 skillRefs,以及全部最新已部署定义的静态扫描——用户的角色集合(按 `auth_subject` 反查 `public.app_memberships`)命中 userTask 的候选角色或超时升级目标即计入。返回的每个 skill 携带 SkillHub namespace,经 `public.workflow_definitions.published_procdef_id` JOIN 应用表的 `skillhub_namespace` 解析——定义级 app 归属只存在 web-console 的表里,而引擎已共享同一 Supabase PG。
+skill-repo 设计持有四工作项框架;本 note 记录工作项 2 的实现。flowable-engine 暴露 `GET /dsh/skills/required`(JWT `sub` 是唯一身份入参),聚合两个来源:活跃待办 `dsh_node_meta` 的 skillRefs,以及全部最新已部署定义的静态扫描——用户的角色集合(按 `auth_subject` 反查 `public.app_memberships`)命中 userTask 的候选角色或超时升级目标即计入。返回的每个 skill 携带 SkillHub namespace,经 `public.workflow_definitions.published_procdef_id` JOIN 应用表的 `skillhub_namespace` 解析——定义级 app 归属只存在 web-console 的表里,而引擎已共享同一 Supabase PG。
 
 新企业插件 `@deepseek-ai/dsh-skill-sync` 持有员工端。一个注册在 `$DSH_HOME/skill-sync/skills` 上的 `FileSystemSkillProvider` 实例(不含默认根、不 watch)供给 `ctx.skills`;守护定时器持登录员工的 Supabase JWT 调 `/dsh/skills/required`,将 namespace 清单与本地指纹状态文件 diff,把缺失/过期的 SkillHub zip 下载到临时目录后原子改名,再调 `control.invalidate()` 让注册表重建。`ctx.skillSync.ensureInstalled(names)` 按需执行同一同步,供待办打开路径使用(工作项 3)。原始 access token 经现有 `platform-user/verified` 事件进入 `CurrentUserService.getToken()`,后台消费者以登录员工身份行动;token 不进入模型上下文。
 

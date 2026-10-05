@@ -850,6 +850,30 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-cordis'],
     note: 'Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport.',
   },
+  {
+    key: 'currentUser',
+    pkg: 'user-identity-context',
+    title: 'Latest verified employee identity',
+    mode: 'service',
+    consumers: ['skill-sync', 'process-start', 'llm-access', 'knowledge'],
+    note: 'In-process store fed by the platform-user/verified and platform-user/signout events; enterprise callers read the identity and bearer token to act as the signed-in employee.',
+  },
+  {
+    key: 'platformUsers',
+    pkg: 'platform-user',
+    title: 'Platform-user governance read seam',
+    mode: 'seam',
+    implementations: ['platform-user-console'],
+    consumers: ['platform-user-console', 'platform-user-api'],
+    note: 'The console provider verifies Supabase Auth JWTs locally via JWKS and resolves the governance record; the auth API consumes the read entry point.',
+  },
+  {
+    key: 'skillSync',
+    pkg: 'skill-sync',
+    title: 'Enterprise skill distribution daemon',
+    mode: 'service',
+    note: 'Periodically downloads the signed-in employee required skills to a local cache and offers an ensureInstalled entry point for todo skillRefs.',
+  },
 ]
 
 function generatedHeader(title: string): string[] {

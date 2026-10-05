@@ -100,7 +100,7 @@ export function probeTarget(kind: NonNullable<FieldSpec['probe']>, baseUrl: stri
  * 端点不开 CORS,浏览器直连会把正确配置误报为不可达)。
  */
 export async function probeConnectivity(kind: NonNullable<FieldSpec['probe']>, baseUrl: string): Promise<ProbeResult> {
-  const res = await fetch('/api/enterprise/auth/connectivity-check', {
+  const res = await fetch('api/enterprise/auth/connectivity-check', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url: probeTarget(kind, baseUrl) }),

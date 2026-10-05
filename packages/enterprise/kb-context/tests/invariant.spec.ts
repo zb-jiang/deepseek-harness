@@ -142,7 +142,7 @@ describe('kb-context invariants', () => {
     }).toThrow(/exactly one text block/)
   })
 
-  it('requires exact snapshot provenance without copied request authority', async () => {
+  it('requires an exactly-sourced snapshot without copied request authority', async () => {
     const ctx = await setup()
     const base = event(BLOCK_TEXT)
     for (const source of [

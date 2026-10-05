@@ -28,7 +28,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 export const name = 'flowable-task-proxy'
 
 /** 等待 webServer 服务就绪后才挂载路由。 */
-export const inject = ['webServer'] as const
+export const inject = ['webServer']
 
 /** 插件配置:flowable-engine 的基地址。 */
 export interface Config {

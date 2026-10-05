@@ -71,6 +71,7 @@ export function buildKbDocsSource(deps: {
       const kb = await resolveSessionKb(workbench, knowledge, session.sessionId)
       if (kb === null || signal.aborted) return []
       const tree = await knowledge.kbMenuTree(kb.id)
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- abort can happen during the await above; the flag is not constant
       if (signal.aborted) return []
       const needle = query.trim().toLowerCase()
       const folderPathById = new Map(tree.folders.map(folder => [folder.id, folder.path]))

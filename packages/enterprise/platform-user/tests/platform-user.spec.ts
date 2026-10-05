@@ -53,7 +53,7 @@ describe('dsh-platform-user', () => {
     const ctx = new Context()
     await ctx.plugin(PlatformUserService)
     ctx.platformUsers.registerProvider(new StubProvider())
-    expect(() => ctx.platformUsers.registerProvider(new StubProvider())).toThrowError(PlatformUserError)
+    expect(() => ctx.platformUsers.registerProvider(new StubProvider())).toThrow(PlatformUserError)
   })
 
   it('resolves a user by valid token', async () => {

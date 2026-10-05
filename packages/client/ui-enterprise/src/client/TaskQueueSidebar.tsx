@@ -207,7 +207,7 @@ export function TaskQueueSidebar({ wide, workbench, useSessions, useWorkspaces }
           我的待办
           <span className={css.countBadge}>{tasks.items.length}</span>
           <span className={css.sectionActions}>
-            <TaskViewMenu options={viewState.pending} onPick={next => updateView('pending', next)} />
+            <TaskViewMenu options={viewState.pending} onPick={(next) => { updateView('pending', next) }} />
           </span>
         </div>
 
@@ -261,7 +261,7 @@ export function TaskQueueSidebar({ wide, workbench, useSessions, useWorkspaces }
               已完成
               <span className={css.countBadge}>{tasks.completed.length}</span>
               <span className={css.sectionActions}>
-                <TaskViewMenu options={viewState.completed} onPick={next => updateView('completed', next)} />
+                <TaskViewMenu options={viewState.completed} onPick={(next) => { updateView('completed', next) }} />
               </span>
             </div>
             <div className={css.list}>
@@ -297,9 +297,11 @@ export function TaskQueueSidebar({ wide, workbench, useSessions, useWorkspaces }
 
       {authed && (
         <div className={css.footer}>
+          {/* oxlint-disable typescript/no-unnecessary-condition -- TS cannot narrow via the authed flag */}
           <span className={css.footerUser} title={currentUser?.email ?? ''}>
             {currentUser?.displayName ?? ''}
           </span>
+          {/* oxlint-enable typescript/no-unnecessary-condition */}
           <button type="button" className={css.logout} onClick={() => { void switchAccount() }}>
             退出
           </button>

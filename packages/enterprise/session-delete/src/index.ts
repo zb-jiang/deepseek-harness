@@ -10,9 +10,10 @@
  * touch the artifact (the archive gate blocks every `agent/pre-step` wake, and
  * an unforced archive refuses active sessions). Deletion removes the session's
  * JSONL artifact directory, drops the id from every workspace's accounted
- * list, and drops it from the registry-global archive set. Deleting the
- * artifact first keeps a failed bookkeeping write retryable: the next call
- * finds no directory, skips straight to bookkeeping, and converges.
+ * list, and drops it from the registry-global archive set. Deletion
+ * converges: when the JSONL snapshot is absent (artifact already deleted
+ * externally) or the artifact directory is missing, the call skips the
+ * directory removal and clears the bookkeeping directly.
  *
  * @module @deepseek-ai/dsh-session-delete
  */
@@ -30,7 +31,7 @@ import { sessionDir } from '@deepseek-ai/dsh-session-persistence-jsonl'
 export const name = 'session-delete'
 
 /** 等待 webServer、sessionPersistence、workspaceRegistry 就绪后才挂载路由。 */
-export const inject = ['webServer', 'sessionPersistence', 'workspaceRegistry'] as const
+export const inject = ['webServer', 'sessionPersistence', 'workspaceRegistry']
 
 /** 删除路由路径。 */
 const DELETE_ROUTE = '/api/enterprise/sessions/delete'
@@ -120,7 +121,8 @@ function persistenceRoot(persistence: SessionPersistence): string {
 
 /**
  * 删除一个已归档会话：删 JSONL 工件目录 → 清 workspace 记账 → 移出归档集。
- * 目录缺失视为工件已删除（上次调用在清记账前中断），继续清记账以收敛。
+ * 持久化里找不到 snapshot（工件已被外部删除）或目录缺失时跳过目录删除，
+ * 直接清记账收敛，归档 id 不会残留。
  */
 async function deleteArchivedSession(ctx: Context, rawSessionId: string): Promise<void> {
   const registry = ctx.workspaceRegistry
@@ -131,18 +133,17 @@ async function deleteArchivedSession(ctx: Context, rawSessionId: string): Promis
 
   const snapshots = await ctx.sessionPersistence.list()
   const snapshot = snapshots.find(entry => entry.header.id === archivedId)
-  if (snapshot === undefined) {
-    throw new SessionDeleteHttpError(404, `session '${archivedId}' is archived but absent from session persistence; check the persistence root configuration`)
-  }
-
-  const root = persistenceRoot(ctx.sessionPersistence)
-  const dir = resolve(sessionDir(root, snapshot.header.cwd, snapshot.header.id))
-  const resolvedRoot = resolve(root)
-  if (!dir.startsWith(resolvedRoot + sep)) {
-    throw new SessionDeleteHttpError(500, `session directory '${dir}' escaped the persistence root '${resolvedRoot}'`)
-  }
-  if (await pathExists(dir)) {
-    await rm(dir, { recursive: true, force: true })
+  // snapshot 缺失 = 工件已被外部删除（或上次调用中断），跳过目录删除直接清记账收敛。
+  if (snapshot !== undefined) {
+    const root = persistenceRoot(ctx.sessionPersistence)
+    const dir = resolve(sessionDir(root, snapshot.header.cwd, snapshot.header.id))
+    const resolvedRoot = resolve(root)
+    if (!dir.startsWith(resolvedRoot + sep)) {
+      throw new SessionDeleteHttpError(500, `session directory '${dir}' escaped the persistence root '${resolvedRoot}'`)
+    }
+    if (await pathExists(dir)) {
+      await rm(dir, { recursive: true, force: true })
+    }
   }
 
   for (const workspace of registry.list()) {

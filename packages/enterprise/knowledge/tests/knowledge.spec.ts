@@ -67,7 +67,7 @@ interface StubFetchInit {
 
 /** 按前缀分发的 fetch 桩;response 抛错即上游网络失败。 */
 function stubFetch(routes: { match: (url: string) => boolean; response: () => Response }[]) {
-  return vi.fn(async (input: URL | RequestInfo, _init?: StubFetchInit) => {
+  return vi.fn(async (input: URL | string, _init?: StubFetchInit) => {
     const url = String(input)
     for (const route of routes) {
       if (route.match(url)) return route.response()
@@ -103,8 +103,8 @@ function stubResponse() {
       res.status = status
       res.headers = headers ?? {}
     },
-    end: (chunk?: unknown) => {
-      res.body += String(chunk ?? '')
+    end: (chunk?: string) => {
+      res.body += chunk ?? ''
     },
   }
   return res
@@ -190,7 +190,7 @@ describe('knowledge', () => {
   }
 
   const execute = (tool: StubTool, args: unknown) =>
-    tool.execute(args as never, { signal: new AbortController().signal } as never)
+    tool.execute(args as never, { signal: new AbortController().signal })
 
   const routeOf = (webServer: ReturnType<typeof stubWebServer>, path: string) => {
     const found = webServer.routes.find(route => route.path === path)
@@ -221,9 +221,9 @@ describe('knowledge', () => {
     ctx.provide('tools', stubTools() as never)
     ctx.provide('currentUser', stubCurrentUser('jwt') as never)
     ctx.provide('webServer', stubWebServer() as never)
-    expect(() => apply(ctx, { ...CONFIG, readMaxChars: 0 })).toThrow('readMaxChars')
-    expect(() => apply(ctx, { ...CONFIG, readMaxChars: Number.NaN })).toThrow('readMaxChars')
-    expect(() => apply(ctx, { ...CONFIG, readMaxChars: Number.POSITIVE_INFINITY })).toThrow('readMaxChars')
+    expect(() => { apply(ctx, { ...CONFIG, readMaxChars: 0 }) }).toThrow('readMaxChars')
+    expect(() => { apply(ctx, { ...CONFIG, readMaxChars: Number.NaN }) }).toThrow('readMaxChars')
+    expect(() => { apply(ctx, { ...CONFIG, readMaxChars: Number.POSITIVE_INFINITY }) }).toThrow('readMaxChars')
   })
 
   it('webConsoleBaseUrl 非法:apply 照常注册,代理 502、工具报错(volatile 请求期校验)', async () => {
@@ -239,7 +239,7 @@ describe('knowledge', () => {
     const res = stubResponse()
     await webServer.routes[0]!.handler(stubRequest('GET', '/api/enterprise/kb/kb1/folders') as never, res as never)
     expect(res.status).toBe(502)
-    expect(JSON.parse(res.body).error).toContain('webConsoleBaseUrl 配置无效')
+    expect((JSON.parse(res.body) as { error: string }).error).toContain('webConsoleBaseUrl 配置无效')
 
     const search = tools.registered.find(tool => tool.name === 'kb_search')!
     await expect(execute(search, { kbId: 'kb1', query: 'x' })).rejects.toThrow('webConsoleBaseUrl 配置无效')
@@ -251,7 +251,7 @@ describe('knowledge', () => {
     await routeOf(webServer, '/api/enterprise/kb')
       .handler(stubRequest('GET', '/api/enterprise/kb/kb1/folders') as never, res as never)
     expect(res.status).toBe(401)
-    expect(JSON.parse(res.body).error).toContain('未登录')
+    expect((JSON.parse(res.body) as { error: string }).error).toContain('未登录')
   })
 
   it('代理:GET 转发改写前缀、附 JWT,上游响应原样回写', async () => {
@@ -297,7 +297,7 @@ describe('knowledge', () => {
     await routeOf(webServer, '/api/enterprise/kb')
       .handler(stubRequest('GET', '/api/enterprise/kb/kb1/folders') as never, res as never)
     expect(res.status).toBe(502)
-    expect(JSON.parse(res.body).error).toContain('web-console 不可达')
+    expect((JSON.parse(res.body) as { error: string }).error).toContain('web-console 不可达')
   })
 
   it('代理:fetch 抛非 Error 值时同样返回 502', async () => {
@@ -307,7 +307,7 @@ describe('knowledge', () => {
     await routeOf(webServer, '/api/enterprise/kb')
       .handler(stubRequest('GET', '/api/enterprise/kb/kb1/folders') as never, res as never)
     expect(res.status).toBe(502)
-    expect(JSON.parse(res.body).error).toContain('boom')
+    expect((JSON.parse(res.body) as { error: string }).error).toContain('boom')
   })
 
   it('代理:上游响应缺 content-type 时回写默认 JSON 类型', async () => {
@@ -362,11 +362,11 @@ describe('knowledge', () => {
     expect(search.output.render(undefined as never, result as never)).toEqual([
       {
         type: 'text',
-        text: expect.stringContaining('知识库检索 4 条命中:\n- 文档0 (docId: doc0, 路径: /, 相关度: 0.0164)\n  摘要: 摘要0'),
+        text: expect.stringContaining('知识库检索 4 条命中:\n- 文档0 (docId: doc0, 路径: /, 相关度: 0.0164)\n  摘要: 摘要0') as string,
       },
     ])
     expect(search.output.render(undefined as never, result as never)).toEqual([
-      { type: 'text', text: expect.stringContaining('- 文档1 (docId: doc1, 路径: /财务, 相关度:') },
+      { type: 'text', text: expect.stringContaining('- 文档1 (docId: doc1, 路径: /财务, 相关度:') as string },
     ])
     expect(search.presentCall({ kbId: 'kb1', query: '发票' } as never)).toEqual({
       card: 'generic', title: '知识库检索', kind: 'search', rawInput: '发票',

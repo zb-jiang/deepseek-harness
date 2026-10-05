@@ -41,8 +41,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO dsh_app;
 
 ### 2.2 New API 专用数据库与用户
 
-New API(企业统一 LLM 网关)和 `web-console`、`flowable-engine` 可以共用同一个 PostgreSQL 实例,但建议使用**独立数据库 + 独立账号**。
-业务含义很简单:
+New API(企业统一 LLM 网关)和 `web-console`、`flowable-engine` 可以共用同一个 PostgreSQL 实例,但建议使用**独立数据库 + 独立账号**。业务含义很简单:
 
 - `postgres` 库继续承载 `web-console` 和 `flowable-engine` 的业务表。
 - New API 自己的用户、渠道、令牌、调用日志等内部表单独放到 `newapi` 库。
@@ -562,6 +561,7 @@ ALTER TABLE public.llm_enterprise_models
 
 -- 月度额度授权表。
 -- 业务含义:一条记录代表“某个个人或某个部门,在某个模型上,某个生效区间内”的月额度。
+-- monthly_limit_tokens:-1 表示不限量,0 表示当月不可用,正数为月度 token 上限。
 -- subject_type + subject_id 做多态归属:
 -- - user     -> platform_users.id
 -- - org_unit -> org_units.id
@@ -571,7 +571,7 @@ CREATE TABLE IF NOT EXISTS public.llm_quota_grants (
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'org_unit')),
     subject_id UUID NOT NULL,
     model_id UUID NOT NULL REFERENCES public.llm_enterprise_models(id),
-    monthly_limit_tokens BIGINT NOT NULL CHECK (monthly_limit_tokens >= 0),
+    monthly_limit_tokens BIGINT NOT NULL CHECK (monthly_limit_tokens >= -1),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     effective_from DATE NOT NULL,
     effective_to DATE,
@@ -639,7 +639,7 @@ CREATE TABLE IF NOT EXISTS public.llm_usage_ledger (
     usage_month CHAR(7) NOT NULL,
     user_id UUID NOT NULL REFERENCES public.platform_users(id),
     route_id UUID REFERENCES public.llm_user_model_routes(id),
-    route_item_id UUID REFERENCES public.llm_user_model_route_items(id),
+    route_item_id UUID REFERENCES public.llm_user_model_route_items(id) ON DELETE SET NULL,
     selected_priority INTEGER,
     org_unit_id UUID REFERENCES public.org_units(id),
     source_type TEXT NOT NULL CHECK (source_type IN ('user', 'org_unit')),
@@ -683,7 +683,7 @@ CREATE TABLE IF NOT EXISTS public.llm_monthly_balances (
     source_type TEXT NOT NULL CHECK (source_type IN ('user', 'org_unit')),
     source_id UUID NOT NULL,
     model_id UUID NOT NULL REFERENCES public.llm_enterprise_models(id),
-    limit_tokens BIGINT NOT NULL CHECK (limit_tokens >= 0),
+    limit_tokens BIGINT NOT NULL CHECK (limit_tokens >= -1),
     reserved_tokens BIGINT NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
     consumed_tokens BIGINT NOT NULL DEFAULT 0 CHECK (consumed_tokens >= 0),
     overage_tokens BIGINT NOT NULL DEFAULT 0 CHECK (overage_tokens >= 0),

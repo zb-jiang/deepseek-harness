@@ -15,6 +15,15 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /**
+     * The nav seat between New Session and the workspace section: each
+     * registrant renders its own collapsible nav block inside the column.
+     * Declared by this package's `sidebar` entry; ui-enterprise registers
+     * the enterprise task queue there. Registrants receive only the column
+     * display state and own their data, actions, and internal chrome; with
+     * no registration the seat renders nothing and the column starts at
+     * New Session.
+     */
     'sidebar.nav': { kind: 'single'; scope: 'root'; owner: SidebarNavOwnerProps }
     /** Non-interactive notification inside the collapsed sidebar expand button. */
     'sidebar.toggle.badge': { kind: 'single'; scope: 'root'; owner: Record<never, never> }
@@ -96,7 +105,12 @@ export interface SidebarSectionOwnerProps {
   expandSidebar: () => void
 }
 
+/**
+ * Owner share of the nav seat: the column display state the registrant's
+ * block must render against (wide column vs rail icon).
+ */
 export interface SidebarNavOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
   wide: boolean
 }
 

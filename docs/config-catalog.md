@@ -380,6 +380,37 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-attachment-local -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-backend-task -->
+<a id="deepseek-aidsh-backend-task"></a>
+
+## `@deepseek-ai/dsh-backend-task`
+
+- `inject`: `webServer` · `agents` · `sessions` · `agentDefaultModel` · `skills`
+- `source`: [`packages/enterprise/backend-task/src/index.ts:60`](../packages/enterprise/backend-task/src/index.ts)
+
+```ts config-catalog
+/** 插件配置,全部来自 enterprise-backend profile 的 cordis.yml config 段。 */
+export interface Config {
+  /** web-console 基地址(注册心跳与 skill 归属拉取目标)。 */
+  webConsoleBaseUrl: string
+  /** 本实例对外可达的调用 URL(delegate 按此提交;注册表归属键)。 */
+  selfUrl: string
+  /** 实例展示名(注册表/设计器下拉显示)。 */
+  backendName: string
+  /** SkillHub 后端 API 基地址。 */
+  skillhubBaseUrl: string
+  /** SkillHub 只读分发 token;空串时跳过清单/下载(仅靠已装缓存)。 */
+  skillhubToken: string
+  /** skill 同步 daemon 间隔毫秒。 */
+  syncIntervalMs: number
+  /** 注册心跳 daemon 间隔毫秒。 */
+  registerIntervalMs: number
+  /** 覆盖 skill 缓存目录;缺省用 `$DSH_HOME/backend-task/skills`。 */
+  skillDir?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-backend-task -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-bash-local -->
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -1218,6 +1249,24 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-file-reference-local -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-flowable-task-proxy -->
+<a id="deepseek-aidsh-flowable-task-proxy"></a>
+
+## `@deepseek-ai/dsh-flowable-task-proxy`
+
+- `inject`: `webServer`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/flowable-task-proxy/src/index.ts:34`](../packages/enterprise/flowable-task-proxy/src/index.ts)
+
+```ts config-catalog
+/** 插件配置:flowable-engine 的基地址。 */
+export interface Config {
+  /** flowable-engine 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  engineBaseUrl: Volatile<string>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-flowable-task-proxy -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-fs-local -->
 <a id="deepseek-aidsh-fs-local"></a>
 
@@ -1561,6 +1610,78 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-jobs-local -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-kb-context -->
+<a id="deepseek-aidsh-kb-context"></a>
+
+## `@deepseek-ai/dsh-kb-context`
+
+- `inject`: `webServer` · `currentUser` · `agents`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/kb-context/src/index.ts:44`](../packages/enterprise/kb-context/src/index.ts)
+
+```ts config-catalog
+/** 插件配置。 */
+export interface Config {
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-kb-context -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-knowledge -->
+<a id="deepseek-aidsh-knowledge"></a>
+
+## `@deepseek-ai/dsh-knowledge`
+
+- `inject`: `webServer` · `tools`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/knowledge/src/index.ts:50`](../packages/enterprise/knowledge/src/index.ts)
+
+```ts config-catalog
+/** 插件配置,全部来自 enterprise/backend profile 的 cordis.yml config 段。 */
+export interface Config {
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
+  /** kb_read 返回全文的最大字符数,超出截断并在结果中注明。 */
+  readMaxChars: number
+  /**
+   * 服务密钥(X-Service-Key):backend profile 无人值守模式的 web-console 认证
+   * 凭证,须与 web-console {@code dsh.service-key} 一致。enterprise profile 有
+   * 登录 JWT,保持空串即可;两处都为空时工具调用报错。
+   */
+  serviceKey: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-knowledge -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-access -->
+<a id="deepseek-aidsh-llm-access"></a>
+
+## `@deepseek-ai/dsh-llm-access`
+
+- `inject`: `llm` · `currentUser`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/llm-access/src/index.ts:57`](../packages/enterprise/llm-access/src/index.ts)
+
+```ts config-catalog
+/** 插件配置,全部来自 enterprise profile 的 cordis.yml config 段。 */
+export interface Config {
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,下次刷新生效。 */
+  webConsoleBaseUrl: Volatile<string>
+  /** 模型目录刷新间隔毫秒(目录非空时)。 */
+  catalogRefreshMs: number
+  /** 目录为空时的快刷间隔毫秒:员工尚未配到模型,尽快发现新授权。 */
+  catalogEmptyRefreshMs: number
+  /** 选择器读取目录时视为"陈旧"的阈值毫秒:超过即后台重拉一次。 */
+  catalogReadRefreshMs: number
+  /** 目录条目未声明 contextWindow 时的兜底上下文容量(token)。 */
+  defaultContextWindow: number
+  /** 目录条目未声明 maxTokens 时的兜底输出上限(token)。 */
+  defaultMaxTokens: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-access -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-deepseek-account -->
 <a id="deepseek-aidsh-llm-deepseek-account"></a>
@@ -2242,6 +2363,46 @@ export interface PlanModeConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-plan-mode -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-platform-user-api -->
+<a id="deepseek-aidsh-platform-user-api"></a>
+
+## `@deepseek-ai/dsh-platform-user-api`
+
+- `inject`: `webServer` · `platformUsers`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/platform-user-api/src/index.ts:37`](../packages/enterprise/platform-user-api/src/index.ts)
+
+```ts config-catalog
+/** 插件配置：Supabase 连接信息，用于 /auth/config 端点向前端暴露。 */
+export interface Config {
+  /** Supabase 项目 URL;volatile:设置面板可改,即时生效。 */
+  supabaseUrl: Volatile<string>
+  /** Supabase anon key，前端直连 Supabase Auth 使用;volatile:设置面板可改,即时生效。 */
+  supabaseAnonKey: Volatile<string>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-platform-user-api -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-platform-user-console -->
+<a id="deepseek-aidsh-platform-user-console"></a>
+
+## `@deepseek-ai/dsh-platform-user-console`
+
+- `inject`: `platformUsers`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/platform-user-console/src/index.ts:33`](../packages/enterprise/platform-user-console/src/index.ts)
+
+```ts config-catalog
+/** Plugin config for the Web-Console-backed provider. */
+export interface Config {
+  /** Supabase project URL; only its Auth issuer is used for JWT verification;volatile:设置面板可改,即时生效。 */
+  supabaseUrl: Volatile<string>
+  /** Web Console backend base URL serving `GET /api/users/me`;volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-platform-user-console -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-plugin-manager -->
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -2293,6 +2454,24 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-plugin-package-inventory-deepseek -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-process-start -->
+<a id="deepseek-aidsh-process-start"></a>
+
+## `@deepseek-ai/dsh-process-start`
+
+- `inject`: `currentUser` · `tools`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/process-start/src/index.ts:28`](../packages/enterprise/process-start/src/index.ts)
+
+```ts config-catalog
+/** 插件配置,来自 enterprise profile 的 cordis.yml config 段。 */
+export interface Config {
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-process-start -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-ptc-runtime-node -->
 <a id="deepseek-aidsh-ptc-runtime-node"></a>
@@ -2602,7 +2781,7 @@ export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
-- `source`: [`packages/session/session-persistence-jsonl/src/index.ts:90`](../packages/session/session-persistence-jsonl/src/index.ts)
+- `source`: [`packages/session/session-persistence-jsonl/src/index.ts:92`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config for the JSONL backend's root and physical encoding. */
@@ -2907,6 +3086,32 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-skill-office -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-skill-sync -->
+<a id="deepseek-aidsh-skill-sync"></a>
+
+## `@deepseek-ai/dsh-skill-sync`
+
+- `inject`: `skills` · `currentUser` · `webServer`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/skill-sync/src/index.ts:49`](../packages/enterprise/skill-sync/src/index.ts)
+
+```ts config-catalog
+/** 插件配置,全部来自 enterprise profile 的 cordis.yml config 段。 */
+export interface Config {
+  /** flowable-engine 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  flowableBaseUrl: Volatile<string>
+  /** SkillHub 后端 API 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  skillhubBaseUrl: Volatile<string>
+  /** SkillHub 只读分发 token;空串时跳过清单/下载(仅靠已装缓存);volatile:设置面板可改,即时生效。 */
+  skillhubToken: Volatile<string>
+  /** daemon 扫描间隔毫秒;volatile:设置面板可改,变更即重排 daemon 定时器。 */
+  intervalMs: Volatile<number>
+  /** 覆盖缓存目录;缺省用 `$DSH_HOME/skill-sync/skills`。 */
+  skillDir?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-skill-sync -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-spill-local -->
 <a id="deepseek-aidsh-spill-local"></a>
@@ -4009,7 +4214,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tools`
 
 - `inject`: `systemPrompt`
-- `source`: [`packages/core/tools/src/index.ts:674`](../packages/core/tools/src/index.ts)
+- `source`: [`packages/core/tools/src/index.ts:677`](../packages/core/tools/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */
@@ -4089,6 +4294,24 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-user-approval -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-user-identity-context -->
+<a id="deepseek-aidsh-user-identity-context"></a>
+
+## `@deepseek-ai/dsh-user-identity-context`
+
+- `inject`: `agents`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/enterprise/user-identity-context/src/index.ts:39`](../packages/enterprise/user-identity-context/src/index.ts)
+
+```ts config-catalog
+/** 插件配置:web-console 基地址(组织身份清单拉取目标)。 */
+export interface Config {
+  /** web-console 基地址(协议+主机+端口,无路径);volatile:设置面板可改,即时生效。 */
+  webConsoleBaseUrl: Volatile<string>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-user-identity-context -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-web -->
 <a id="deepseek-aidsh-web"></a>
@@ -4350,6 +4573,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-deliverables` | `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges` | [`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | — | [`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-native` | — | [`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-enterprise` | — | [`packages/client/ui-enterprise/src/index.ts`](../packages/client/ui-enterprise/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-goal` | — | [`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | — | [`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-jobs` | — | [`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts) |
@@ -4408,9 +4632,11 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-lsp` | — | [`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts) |
 | `@deepseek-ai/dsh-mcp-resources` | `tools` | [`packages/mcp/mcp-resources/src/index.ts`](../packages/mcp/mcp-resources/src/index.ts) |
 | `@deepseek-ai/dsh-otel` | — | [`packages/telemetry/otel/src/index.ts`](../packages/telemetry/otel/src/index.ts) |
+| `@deepseek-ai/dsh-platform-user` | — | [`packages/enterprise/platform-user/src/index.ts`](../packages/enterprise/platform-user/src/index.ts) |
 | `@deepseek-ai/dsh-sandbox-ssh` | `ssh` | [`packages/ssh/sandbox-ssh/src/index.ts`](../packages/ssh/sandbox-ssh/src/index.ts) |
 | `@deepseek-ai/dsh-session` | — | [`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts) |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | `llm` · `sessionPersistence` · `sessions` · `tools` | [`packages/session/session-checkpoint-policy/src/index.ts`](../packages/session/session-checkpoint-policy/src/index.ts) |
+| `@deepseek-ai/dsh-session-delete` | `webServer` · `sessionPersistence` · `workspaceRegistry` | [`packages/enterprise/session-delete/src/index.ts`](../packages/enterprise/session-delete/src/index.ts) |
 | `@deepseek-ai/dsh-session-projection` | — | [`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts) |
 | `@deepseek-ai/dsh-session-stats` | `sessionProjections` | [`packages/session/session-stats/src/index.ts`](../packages/session/session-stats/src/index.ts) |
 | `@deepseek-ai/dsh-session-turn-outline` | `sessionProjections` | [`packages/session/session-turn-outline/src/index.ts`](../packages/session/session-turn-outline/src/index.ts) |
@@ -4475,6 +4701,8 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-client-web` | — | [`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts) |
 | `@deepseek-ai/dsh-cmdline` | — | [`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts) |
 | `@deepseek-ai/dsh-deque` | — | [`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts) |
+| `@deepseek-ai/dsh-enterprise-app` | — | [`packages/bundle/enterprise-app/src/index.ts`](../packages/bundle/enterprise-app/src/index.ts) |
+| `@deepseek-ai/dsh-enterprise-backend` | — | [`packages/bundle/enterprise-backend/src/index.ts`](../packages/bundle/enterprise-backend/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-agent-team-profile` | — | [`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-browser-use-runtime` | — | [`packages/experimental/browser-use-runtime/src/index.ts`](../packages/experimental/browser-use-runtime/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-schedule-bundle` | — | [`packages/experimental/schedule-bundle/src/index.ts`](../packages/experimental/schedule-bundle/src/index.ts) |

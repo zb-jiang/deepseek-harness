@@ -114,7 +114,9 @@ public class LlmProxyService {
             }
             var balance = quotaRepository.lockOrCreateBalance(month, item.sourceType(),
                 item.sourceId(), model.id(), grant.get().monthlyLimitTokens());
-            long available = balance.limitTokens() - balance.consumedTokens() - balance.reservedTokens();
+            // -1 表示不限量,跳过余额检查该顺位直接中选;仍照常预留保证记账归属。
+            long available = balance.limitTokens() < 0 ? Long.MAX_VALUE
+                : balance.limitTokens() - balance.consumedTokens() - balance.reservedTokens();
             if (available >= need) {
                 quotaRepository.addReserved(balance.id(), need);
                 chosen = item;
@@ -285,7 +287,9 @@ public class LlmProxyService {
         var balance = quotaRepository.lockOrCreateBalance(reservation.usageMonth(),
             reservation.chosenItem().sourceType(), reservation.chosenItem().sourceId(),
             reservation.model().id(), 0);
-        long availableBefore = Math.max(0, balance.limitTokens() - balance.consumedTokens());
+        // -1 表示不限量,无超额概念,availableBefore 取极大值使 overage 恒为 0。
+        long availableBefore = balance.limitTokens() < 0 ? Long.MAX_VALUE
+            : Math.max(0, balance.limitTokens() - balance.consumedTokens());
         long overage = Math.max(0, total - availableBefore);
         quotaRepository.settle(balance.id(), reservation.reservedTokens(), total, overage);
         ledgerRepository.complete(reservation.requestId(), promptTokens, completionTokens,

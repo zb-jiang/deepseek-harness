@@ -31,18 +31,13 @@ object 类型附带字段清单（字段名 + 类型 + 说明，支持嵌套）�
 
 作用域：仅流程级。子流程 / 调用活动的嵌套作用域留待将来需要时再设计。
 
-运行时存法：object 以 Map、array 以 List 存入 Flowable 流程变量（启动 JSON、AI 提交 JSON 按声明类型反序列化：integer→Long、float→Double、boolean→Boolean、object→Map、array→List）；JUEL 表达式 `${var.field.sub}`、`${invoiceList[0].amount}` 原生可用，网关条件不需要特殊解析。
-date（yyyy-MM-dd）与 datetime（ISO-8601，yyyy-MM-dd'T'HH:mm:ss）以严格格式的字符串存储：入口处（启动参数、AI 提交）按格式校验，格式错报错；统一格式下字符串字典序即时间序，网关可直接写 `${endDate > '2026-12-31'}`。timer 事件如需 Date 类型，在其表达式内转换。
+运行时存法：object 以 Map、array 以 List 存入 Flowable 流程变量（启动 JSON、AI 提交 JSON 按声明类型反序列化：integer→Long、float→Double、boolean→Boolean、object→Map、array→List）；JUEL 表达式 `${var.field.sub}`、`${invoiceList[0].amount}` 原生可用，网关条件不需要特殊解析。date（yyyy-MM-dd）与 datetime（ISO-8601，yyyy-MM-dd'T'HH:mm:ss）以严格格式的字符串存储：入口处（启动参数、AI 提交）按格式校验，格式错报错；统一格式下字符串字典序即时间序，网关可直接写 `${endDate > '2026-12-31'}`。timer 事件如需 Date 类型，在其表达式内转换。
 
 ## 5. 节点输入边界
 
-**userTask：prompt 引用即输入。**
-所有已声明上下文变量对 prompt 编辑器可见；userPrompt 模板实际引用的变量即该节点输入。发布时校验器从模板静态提取引用，逐一检查是否在声明清单中。
-对比 Lombardi 式显式输入映射（先勾选节点可见变量集，prompt 只能从勾选集里选）：Lombardi 需要预绑定是因为其活动是服务 / 代码调用，输入参数必须在执行前绑定形参；DSH 的 userTask 输入就是一段自然语言模板，模板本身即映射，再勾选一遍是重复劳动，且勾选集与实际引用易漂移。
+**userTask：prompt 引用即输入。** 所有已声明上下文变量对 prompt 编辑器可见；userPrompt 模板实际引用的变量即该节点输入。发布时校验器从模板静态提取引用，逐一检查是否在声明清单中。对比 Lombardi 式显式输入映射（先勾选节点可见变量集，prompt 只能从勾选集里选）：Lombardi 需要预绑定是因为其活动是服务 / 代码调用，输入参数必须在执行前绑定形参；DSH 的 userTask 输入就是一段自然语言模板，模板本身即映射，再勾选一遍是重复劳动，且勾选集与实际引用易漂移。
 
-**serviceTask：不设运行时输入机制，delegate 直读上下文。**
-`execution.getVariable(...)` 直读流程上下文是 Flowable 原生能力，任意 JavaDelegate 零改造。不做引擎级输入映射（局部变量拷贝、形参改名绑定）：delegate 是黑盒代码，读了什么无从静态分析，映射拦不住也没有形参可绑；该能力（同一 delegate 跨流程复用时的形参解耦）作为进阶扩展，需要时再设计。也不设节点级消费标注（`dsh:inputVariables` 已废弃删除）：delegate 读了什么由代码本身表达，标注与代码极易漂移，漂移的标注比没有更误导。
-expression 模式（`${smsSender.send(execution, phone)}`）是例外：引擎原生把流程变量绑定到方法参数，参数引用可静态提取，校验器直接解析，无需声明。
+**serviceTask：不设运行时输入机制，delegate 直读上下文。** `execution.getVariable(...)` 直读流程上下文是 Flowable 原生能力，任意 JavaDelegate 零改造。不做引擎级输入映射（局部变量拷贝、形参改名绑定）：delegate 是黑盒代码，读了什么无从静态分析，映射拦不住也没有形参可绑；该能力（同一 delegate 跨流程复用时的形参解耦）作为进阶扩展，需要时再设计。也不设节点级消费标注（`dsh:inputVariables` 已废弃删除）：delegate 读了什么由代码本身表达，标注与代码极易漂移，漂移的标注比没有更误导。expression 模式（`${smsSender.send(execution, phone)}`）是例外：引擎原生把流程变量绑定到方法参数，参数引用可静态提取，校验器直接解析，无需声明。
 
 ## 6. 节点输出映射
 

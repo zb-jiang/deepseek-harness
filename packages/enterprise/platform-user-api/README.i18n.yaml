@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/enterprise/platform-user-api/README.md
+/:
+  en: c41f9fc2d1a05189
+  zh: 426d4eb2f9fab8fd
+/deepseek-ai-dsh-platform-user-api:
+  en: 39c073eb6a6d6070
+  zh: a591d45acb278300
+/deepseek-ai-dsh-platform-user-api/summary:
+  en: 50d4759bb4cde7fd
+  zh: 95e476d0421a63ca
+/deepseek-ai-dsh-platform-user-api/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-platform-user-api/use-this-package:
+  en: ff871178ec58bff9
+  zh: 1911a0d1238c1cc8
+/deepseek-ai-dsh-platform-user-api/use-this-package/minimal-configuration:
+  en: f5a18abc480b803b
+  zh: d1a5dade58bf44ad
+/deepseek-ai-dsh-platform-user-api/use-this-package/what-each-endpoint-does:
+  en: 6c0583cd9f904921
+  zh: 89122436fee8a8cf
+/deepseek-ai-dsh-platform-user-api/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-platform-user-api/understand-the-implementation/events-not-state:
+  en: 0dc3c6820ae12bbc
+  zh: 7981f2a0240f2af7
+/deepseek-ai-dsh-platform-user-api/understand-the-implementation/why-connectivity-check-runs-in-node:
+  en: c9fe6f3e1a02f106
+  zh: 8e139bf94dccdb32
+/deepseek-ai-dsh-platform-user-api/understand-the-implementation/why-the-anon-key-is-not-marked-secret:
+  en: 667003eed9f9bdd6
+  zh: 890d60e1dc798928
+/deepseek-ai-dsh-platform-user-api/further-exploration:
+  en: 8bcfb56e5bf40a6a
+  zh: b99f88719d39af1b
+/deepseek-ai-dsh-platform-user-api/model-experience:
+  en: 9bdbd0c2647fc432
+  zh: d1a5e84a11d19364
+/deepseek-ai-dsh-platform-user-api/model-experience/kv-cache-effect:
+  en: 602202a25c5de99f
+  zh: 345fef5b3b9ee61f
+/deepseek-ai-dsh-platform-user-api/known-limitations-and-deferred-work:
+  en: 12d28e6c07e6d9db
+  zh: 1af63ce8b8da4eec
+/deepseek-ai-dsh-platform-user-api/known-limitations-and-deferred-work/dev-note:
+  en: 4014f84d43640451
+  zh: 81bfbc249869ca9f

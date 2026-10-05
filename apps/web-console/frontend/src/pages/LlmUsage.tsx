@@ -14,11 +14,32 @@ import {
   type UsageSummaryRow,
 } from '../api/llm'
 
-const DIMENSION_OPTIONS = [
-  { label: '按人员', value: 'user' },
-  { label: '按部门', value: 'org_unit' },
-  { label: '按模型', value: 'model' },
-]
+/** 维度口径枚举,与后端 LlmLedgerJdbcRepository.summary 一致 */
+type Dimension = 'user' | 'pool_user' | 'pool_org_unit' | 'model'
+
+/** 各维度的分组、标签与口径说明(员工×部门为多对多,不提供部门员工合计口径) */
+const DIMENSION_META: Record<Dimension, { label: string; group: string; caption: string }> = {
+  user: {
+    label: '人员',
+    group: '谁在用',
+    caption: '按请求发起人统计真实用量——无论从哪个授权池扣费,都算在发起人名下。',
+  },
+  pool_user: {
+    label: '人员池',
+    group: '池被消耗',
+    caption: '按个人授权池统计实际扣费——含其他用户路由借用的量,不含本人走部门池的量。',
+  },
+  pool_org_unit: {
+    label: '部门池',
+    group: '池被消耗',
+    caption: '按部门授权池统计实际扣费——含外部借用的量,不含本部门员工走个人池的量。',
+  },
+  model: {
+    label: '模型',
+    group: '按模型',
+    caption: '按模型统计全部实际扣费的消耗。',
+  },
+}
 
 const LEDGER_STATUS: Record<string, { text: string; color: string }> = {
   completed: { text: '已完成', color: 'green' },
@@ -220,7 +241,7 @@ export default function LlmUsagePage() {
   // 维度汇总是全貌数据,仅系统管理员可见/可查;热力图与明细后端按角色自动收敛
   const isSys = me?.roles?.includes(PLATFORM_ROLE.SYSTEM_ADMIN) ?? false
   const [month, setMonth] = useState<Dayjs>(dayjs())
-  const [dimension, setDimension] = useState<string>('user')
+  const [dimension, setDimension] = useState<Dimension>('user')
   const [summary, setSummary] = useState<UsageSummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [yearHeat, setYearHeat] = useState<UsageDailyTotal[]>([])
@@ -327,7 +348,11 @@ export default function LlmUsagePage() {
   }, [loadLedger])
 
   const summaryColumns: ColumnsType<UsageSummaryRow> = [
-    { title: '对象', dataIndex: 'subjectName', key: 'subjectName' },
+    {
+      title: { user: '人员', pool_user: '池归属人员', pool_org_unit: '池归属部门', model: '模型' }[dimension],
+      dataIndex: 'subjectName',
+      key: 'subjectName',
+    },
     {
       title: '总消耗(token)',
       dataIndex: 'totalTokens',
@@ -472,11 +497,32 @@ export default function LlmUsagePage() {
           />
         )}
         {isSys && (
-          <Segmented options={DIMENSION_OPTIONS} value={dimension} onChange={v => setDimension(v as string)} />
+          <Segmented
+            options={(Object.keys(DIMENSION_META) as Dimension[]).map(d => ({
+              label: DIMENSION_META[d].label,
+              value: d,
+            }))}
+            value={dimension}
+            onChange={v => setDimension(v as Dimension)}
+          />
         )}
       </Space>
       {isSys && (
-        <Card title="维度汇总" style={{ marginBottom: 16 }}>
+        <Card
+          title={`维度汇总 · ${DIMENSION_META[dimension].group}（${DIMENSION_META[dimension].label}）`}
+          style={{ marginBottom: 16 }}
+        >
+          <div
+            style={{
+              borderLeft: '3px solid #91caff',
+              paddingLeft: 10,
+              marginBottom: 12,
+              fontSize: 12,
+              color: '#8c8c8c',
+            }}
+          >
+            统计口径:{DIMENSION_META[dimension].caption} 自然月为最小统计粒度。
+          </div>
           <Table<UsageSummaryRow>
             rowKey={r => `${r.subjectId}`}
             columns={summaryColumns}

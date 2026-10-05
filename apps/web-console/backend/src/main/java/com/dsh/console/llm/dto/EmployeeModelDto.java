@@ -20,7 +20,8 @@ public record EmployeeModelDto(
 
     /**
      * 单个额度池的当月概况。
-     * 业务含义:remainingTokens = monthlyLimitTokens - consumedTokens - reservedTokens,可能为负(软提醒透支)。
+     * 业务含义:monthlyLimitTokens/remainingTokens 为 -1 表示不限量;否则
+     * remainingTokens = monthlyLimitTokens - consumedTokens - reservedTokens,可能为负(软提醒透支)。
      */
     public record PoolSummary(
         int priority,

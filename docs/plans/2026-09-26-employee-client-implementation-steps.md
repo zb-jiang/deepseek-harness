@@ -1,7 +1,6 @@
 # 云汉员工端实施操作手册（实操版）
 
-> 前提：仓库根目录 `D:\works\deepseek-harness`，终端用 PowerShell（5.1，不能用 `&&`）。
-> 以下所有文件路径都已核实过，改动点精确到行。
+> 前提：仓库根目录 `D:\works\deepseek-harness`，终端用 PowerShell（5.1，不能用 `&&`）。以下所有文件路径都已核实过，改动点精确到行。
 
 ---
 
@@ -99,8 +98,7 @@ skillhubBaseUrl: 'http://skillhub.yunhan.internal:8095'
 
 文件：`apps/desktop/scripts/electron-builder-config.mjs`
 
-- **第 247 行** `publish: update === undefined ? null : [{ provider: 'generic', url: update.publicUrl, ... }]`
-  → 改成 `publish: [{ provider: 'generic', url: 'http://你的内网服务器/updates/win-x64/' }]`
+- **第 247 行** `publish: update === undefined ? null : [{ provider: 'generic', url: update.publicUrl, ... }]` → 改成 `publish: [{ provider: 'generic', url: 'http://你的内网服务器/updates/win-x64/' }]`
 - **第 213 行附近** `const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(...)`——未签名构建默认**不带**自动更新。试点期用未签名包时要自动更新的话，把这一行的 `unsigned ? undefined :` 短路掉（正式推广买签名证书后可还原）。
 
 ### 构建第一个安装包
@@ -110,8 +108,7 @@ $env:DSH_DESKTOP_APP_ID = "com.yunhan.employee"
 pnpm run package:desktop:win:x64:unsigned
 ```
 
-产物位置：`apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/` 下的 exe。
-自己机器上双击安装走一遍完整流程验证。
+产物位置：`apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/` 下的 exe。自己机器上双击安装走一遍完整流程验证。
 
 ---
 

@@ -62,10 +62,10 @@ describe('dsh-platform-user-console', () => {
       on: () => {},
       logger: { warn: () => {}, info: () => {} },
     } as unknown as Context
-    expect(() => apply(ctx, {
+    expect(() => { apply(ctx, {
       supabaseUrl: { get: () => '' },
       webConsoleBaseUrl: { get: () => 'http://127.0.0.1:8080' },
-    })).not.toThrow()
+    }) }).not.toThrow()
     expect(registered).toHaveLength(1)
     await expect(registered[0]!.getUserByToken('jwt')).rejects.toThrow('认证服务未配置')
     await expect(registered[0]!.getUserByToken('jwt')).rejects.toBeInstanceOf(PlatformUserError)

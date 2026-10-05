@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-user-identity-context'
 export const name = 'process-start'
 
 /** 等待登录身份存储与工具注册表就绪后才挂载。 */
-export const inject = ['currentUser', 'tools'] as const
+export const inject = ['currentUser', 'tools']
 
 /** 插件配置,来自 enterprise profile 的 cordis.yml config 段。 */
 export interface Config {
@@ -348,8 +348,8 @@ export function apply(ctx: Context, config: Config): void {
         {
           type: 'text',
           text: `流程实例已发起(实例 id: ${value.instanceId}`
-            + `${value.name === undefined ? '' : `,实例名: ${value.name}`}`
-            + `${value.workflowName === undefined ? '' : `,流程: ${value.workflowName}`})。`,
+            + (value.name === undefined ? '' : `,实例名: ${value.name}`)
+            + (value.workflowName === undefined ? '' : `,流程: ${value.workflowName}`) + ')。',
         },
       ],
     },

@@ -4,7 +4,6 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ServerResponse } from 'node:http'
 import * as backendTask from '../src/index.ts'
 
 const { apply } = backendTask
@@ -50,7 +49,7 @@ class StubSessionLog {
   }
 
   eventAt(seq: number): { type: string; data: unknown } | undefined {
-    return this.events[Number(seq)]
+    return this.events[seq]
   }
 }
 
@@ -129,8 +128,8 @@ function stubResponse() {
       res.status = status
       res.headers = headers ?? {}
     },
-    end: (chunk?: unknown) => {
-      res.body += String(chunk ?? '')
+    end: (chunk?: string) => {
+      res.body += chunk ?? ''
     },
     get headersSent(): boolean {
       return res.status !== 0
@@ -148,7 +147,7 @@ interface StubFetchInit {
 
 /** 按前缀分发的 fetch 桩。 */
 function stubFetch(routes: { match: (url: string) => boolean; response: () => Response }[]) {
-  return vi.fn(async (input: URL | RequestInfo, _init?: StubFetchInit) => {
+  return vi.fn(async (input: URL | string, _init?: StubFetchInit) => {
     const url = String(input)
     for (const route of routes) {
       if (route.match(url)) return route.response()
@@ -206,7 +205,7 @@ describe('backend-task', () => {
     const res = stubResponse()
     await route.handler(
       stubRequest('POST', '/api/backend/tasks', Buffer.from(JSON.stringify({ prompt, ...options }))),
-      res as never as ServerResponse,
+      res,
     )
     await flushTasks()
     return { res, taskId: (JSON.parse(res.body) as { taskId: string }).taskId }
@@ -218,8 +217,8 @@ describe('backend-task', () => {
       await new Promise(resolve => setImmediate(resolve))
       const res = stubResponse()
       await route.handler(
-        stubRequest('GET', `/api/backend/tasks/${taskId}`) as never,
-        res as never as ServerResponse,
+        stubRequest('GET', `/api/backend/tasks/${taskId}`),
+        res,
       )
       const body = JSON.parse(res.body) as { status: string; result?: unknown; error?: string }
       if (body.status !== 'running') return body
@@ -240,7 +239,7 @@ describe('backend-task', () => {
     const { fetchMock } = mount('{"ok":true}')
     await new Promise(resolve => setImmediate(resolve))
     const registerCall = fetchMock.mock.calls
-      .map(([input, init]) => ({ url: String(input), init: init as RequestInit | undefined }))
+      .map(([input, init]) => ({ url: String(input), init }))
       .find(call => call.url === 'http://console:8080/api/backend-profiles/register')
     expect(registerCall).toBeDefined()
     expect(registerCall?.init?.method).toBe('POST')
@@ -312,7 +311,7 @@ describe('backend-task', () => {
     const noName = stubResponse()
     await route.handler(
       stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "kbId": "kb-1"}')),
-      noName as never as ServerResponse,
+      noName,
     )
     await flushTasks()
     expect(noName.status).toBe(202)
@@ -320,7 +319,7 @@ describe('backend-task', () => {
     const badId = stubResponse()
     await route.handler(
       stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "kbId": 42}')),
-      badId as never as ServerResponse,
+      badId,
     )
     await flushTasks()
     expect(badId.status).toBe(400)
@@ -328,7 +327,7 @@ describe('backend-task', () => {
     const orphanName = stubResponse()
     await route.handler(
       stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "kbName": "x"}')),
-      orphanName as never as ServerResponse,
+      orphanName,
     )
     await flushTasks()
     expect(orphanName.status).toBe(400)
@@ -354,15 +353,15 @@ describe('backend-task', () => {
     const { route } = mount('{"a":1}')
     const bad = stubResponse()
     await route.handler(
-      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "  "}')) as never,
-      bad as never as ServerResponse,
+      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "  "}')),
+      bad,
     )
     await flushTasks()
     expect(bad.status).toBe(400)
     const badRefs = stubResponse()
     await route.handler(
-      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "skillRefs": [1]}')) as never,
-      badRefs as never as ServerResponse,
+      stubRequest('POST', '/api/backend/tasks', Buffer.from('{"prompt": "p", "skillRefs": [1]}')),
+      badRefs,
     )
     await flushTasks()
     expect(badRefs.status).toBe(400)
@@ -372,14 +371,14 @@ describe('backend-task', () => {
     const { route } = mount('{"a":1}')
     const res = stubResponse()
     await route.handler(
-      stubRequest('GET', '/api/backend/tasks/no-such-id') as never,
-      res as never as ServerResponse,
+      stubRequest('GET', '/api/backend/tasks/no-such-id'),
+      res,
     )
     expect(res.status).toBe(404)
     const badRoute = stubResponse()
     await route.handler(
-      stubRequest('DELETE', '/api/backend/tasks') as never,
-      badRoute as never as ServerResponse,
+      stubRequest('DELETE', '/api/backend/tasks'),
+      badRoute,
     )
     expect(badRoute.status).toBe(404)
   })
@@ -391,9 +390,9 @@ describe('backend-task', () => {
     ctx.provide('agentDefaultModel', stubDefaultModel() as never)
     ctx.provide('skills', stubSkills() as never)
     ctx.provide('webServer', stubWebServer() as never)
-    expect(() => apply(ctx, { ...CONFIG, skillDir, webConsoleBaseUrl: 'not-a-url' })).toThrow()
-    expect(() => apply(ctx, { ...CONFIG, skillDir, selfUrl: 'not-a-url' })).toThrow()
-    expect(() => apply(ctx, { ...CONFIG, skillDir, registerIntervalMs: 0 })).toThrow('registerIntervalMs')
-    expect(() => apply(ctx, { ...CONFIG, skillDir, syncIntervalMs: -1 })).toThrow('syncIntervalMs')
+    expect(() => { apply(ctx, { ...CONFIG, skillDir, webConsoleBaseUrl: 'not-a-url' }) }).toThrow()
+    expect(() => { apply(ctx, { ...CONFIG, skillDir, selfUrl: 'not-a-url' }) }).toThrow()
+    expect(() => { apply(ctx, { ...CONFIG, skillDir, registerIntervalMs: 0 }) }).toThrow('registerIntervalMs')
+    expect(() => { apply(ctx, { ...CONFIG, skillDir, syncIntervalMs: -1 }) }).toThrow('syncIntervalMs')
   })
 })

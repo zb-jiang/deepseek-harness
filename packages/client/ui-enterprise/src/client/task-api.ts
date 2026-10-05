@@ -8,6 +8,7 @@
 
 const TOKEN_KEY = 'dsh.enterprise.token'
 
+/** object 上下文变量的嵌套字段声明(名称/类型/说明/子字段)。 */
 export type ContextVariableField = {
   name: string
   type: string
@@ -15,6 +16,7 @@ export type ContextVariableField = {
   fields: ContextVariableField[] | null
 }
 
+/** 流程级上下文变量声明(名称/类型/说明/初始值/元素类型/来源/字段清单)。 */
 export type ContextVariable = {
   name: string
   type: string
@@ -25,30 +27,36 @@ export type ContextVariable = {
   fields: ContextVariableField[] | null
 }
 
+/** 节点输出映射行(source 为输出 JSON 内点路径,target 为上下文变量路径)。 */
 export type OutputMapping = {
   source: string | null
   target: string | null
 }
 
+/** 节点分配规则:候选角色 id,办理人为该角色全部成员。 */
 export type AssignmentRule = {
   candidateRoleId: string | null
 }
 
+/** 超时策略:ISO-8601 时长与升级目标角色/用户。 */
 export type TimeoutPolicy = {
   duration: string | null
   escalateToRoleId: string | null
   escalateToUserId: string | null
 }
 
+/** 责权分离(SoD)规则行:规则类型。 */
 export type SodRule = {
   type: string
 }
 
+/** 节点动作策略:超时升级 + 责权分离。 */
 export type ActionPolicy = {
   timeoutPolicy: TimeoutPolicy | null
   sodRules: SodRule[] | null
 }
 
+/** BPMN `dsh:` 扩展解析出的节点元数据(prompt/skill/输出映射/上下文声明)。 */
 export type DshMeta = {
   assignmentRule: AssignmentRule | null
   userPrompt: string | null
@@ -58,6 +66,7 @@ export type DshMeta = {
   contextVariables: ContextVariable[] | null
 }
 
+/** 员工名下的待办任务(引擎按当前 JWT 用户过滤)。 */
 export type Task = {
   id: string
   processInstanceId: string
@@ -125,13 +134,19 @@ export type HistoricVariable = {
   lastUpdatedTime: string | null
 }
 
-/** 读取企业 JWT(kb-api 等同域代理客户端复用)。 */
+/**
+ * 读取企业 JWT(kb-api 等同域代理客户端复用)。
+ * @returns localStorage 中的令牌;无令牌或非浏览器环境为 null。
+ */
 export function readToken(): string | null {
   if (typeof window === 'undefined') return null
   return window.localStorage.getItem(TOKEN_KEY)
 }
 
-/** 从 JWT payload 中读取 sub claim(仅用于诊断显示,不做安全校验)。 */
+/**
+ * 从 JWT payload 中读取 sub claim(仅用于诊断显示,不做安全校验)。
+ * @returns sub claim;无令牌、解析失败或无该 claim 为 null。
+ */
 export function readTokenSubject(): string | null {
   const token = readToken()
   if (token == null) return null
@@ -161,19 +176,38 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
   return res.json() as Promise<T>
 }
 
+/**
+ * 查当前用户名下的待办任务(待办队列数据源)。
+ * @returns 待办任务列表。
+ */
 export async function getMyTasks(): Promise<Task[]> {
   return fetchJson<Task[]>('/dsh/tasks/my-tasks')
 }
 
-/** 查当前用户已完成的历史任务(侧栏"已完成"分组数据源,按完成时间倒序)。 */
+/**
+ * 查当前用户已完成的历史任务(侧栏"已完成"分组数据源,按完成时间倒序)。
+ * @param size - 返回条数上限。
+ * @returns 已完成历史任务列表。
+ */
 export async function getCompletedTasks(size = 20): Promise<CompletedTask[]> {
   return fetchJson<CompletedTask[]>(`/dsh/history/tasks?finished=true&size=${size}`)
 }
 
+/**
+ * 按 id 查单条待办(档案栏刷新数据源)。
+ * @param taskId - 待办任务 id。
+ * @returns 待办任务详情。
+ */
 export async function getTask(taskId: string): Promise<Task> {
   return fetchJson<Task>(`/dsh/tasks/${taskId}`)
 }
 
+/**
+ * 提交待办:把映射后的流程上下文变量写回引擎,待办完成、流程继续。
+ * @param taskId - 待办任务 id。
+ * @param variables - 员工确认后的最终映射变量。
+ * @throws 引擎拒绝(校验失败/待办已不存在等)时原样抛出。
+ */
 export async function completeTask(
   taskId: string,
   variables: Record<string, unknown>,
@@ -214,21 +248,33 @@ export async function ensureSkills(names: readonly string[]): Promise<string[]> 
   return res.missing
 }
 
-/** 查实例的历史活动(执行记录 + 迷你流程图高亮数据源)。 */
+/**
+ * 查实例的历史活动(执行记录 + 迷你流程图高亮数据源)。
+ * @param processInstanceId - 流程实例 id。
+ * @returns 按时间序的历史活动列表。
+ */
 export async function getHistoricActivities(processInstanceId: string): Promise<HistoricActivity[]> {
   return fetchJson<HistoricActivity[]>(
     `/dsh/history/activities?processInstanceId=${encodeURIComponent(processInstanceId)}`,
   )
 }
 
-/** 查实例的上下文变量当前值(与声明 schema 连接展示)。 */
+/**
+ * 查实例的上下文变量当前值(与声明 schema 连接展示)。
+ * @param processInstanceId - 流程实例 id。
+ * @returns 变量记录列表。
+ */
 export async function getHistoricVariables(processInstanceId: string): Promise<HistoricVariable[]> {
   return fetchJson<HistoricVariable[]>(
     `/dsh/history/variables?processInstanceId=${encodeURIComponent(processInstanceId)}`,
   )
 }
 
-/** 查流程定义的部署版 BPMN XML(迷你流程图按部署版渲染)。 */
+/**
+ * 查流程定义的部署版 BPMN XML(迷你流程图按部署版渲染)。
+ * @param processDefinitionId - 流程定义(部署版) id。
+ * @returns BPMN XML 文本。
+ */
 export async function getBpmnXml(processDefinitionId: string): Promise<string> {
   const token = readToken()
   const headers: Record<string, string> = {}

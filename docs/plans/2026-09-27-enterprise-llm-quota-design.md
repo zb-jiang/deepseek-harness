@@ -133,6 +133,8 @@ New API 已解决“多上游接入、凭据管理、模型名统一”这类与
 
 - 余额行按 `usage_month`（`yyyy-MM`）唯一键隔离，跨月首次命中时自动开新行，上月余额不结转；
 - `monthly_limit_tokens` 是月度上限；月中新建的余额行按当次命中的授权额度取快照，已存在的余额行不随授权调整改写 limit；
+- `monthly_limit_tokens` 为 -1 表示不限量：该池跳过余额检查直接中选，仍照常预留/消耗记账；无超额概念（`overage_tokens` 恒为 0）；与 0 语义不同（0 = 当月不可用，仍走余额检查并拒绝或软提醒）；
+- 管理端授权列表的「当前周期剩余」列口径：授权（或余额行快照）为 -1 时返回 -1（界面显示「不限量」）；无余额行取授权当前值；有余额行按 `快照 limit - consumed - reserved`——除 -1 哨兵外的负数表示软提醒策略下已透支，不是不限量；
 - 月份归属以账本 `usage_month` 为准（预留发生时即确定），不按 `completed_at` 归属。
 
 ***
@@ -218,7 +220,7 @@ New API 已解决“多上游接入、凭据管理、模型名统一”这类与
 | `subject_type`         | varchar(16)   | `user` 或 `org_unit`                  |
 | `subject_id`           | UUID          | `platform_users.id` 或 `org_units.id` |
 | `model_id`             | UUID FK       | 企业模型                                 |
-| `monthly_limit_tokens` | bigint        | 月度 token 上限                          |
+| `monthly_limit_tokens` | bigint        | 月度 token 上限；-1=不限量，0=当月不可用           |
 | `enabled`              | boolean       | 是否启用                                 |
 | `effective_from`       | date          | 生效日期                                 |
 | `effective_to`         | date nullable | 失效日期                                 |
@@ -229,7 +231,7 @@ New API 已解决“多上游接入、凭据管理、模型名统一”这类与
 
 - 生效口径为 `enabled` 且 `effective_from <= 今天 <= effective_to`（`effective_to` 为 NULL 视为长期有效）；同主体同模型存在多条启用授权时，以 `created_at` 最新一条为生效（`findEffectiveGrant`）；
 - 授权只定义“月度上限”，不直接产生余额；余额行在该来源首次被路由命中时按授权快照创建（§11.3）；
-- `monthly_limit_tokens` 允许调整为 0（表示该池当月不可用，但不阻止软提醒路径的记账归属）。
+- `monthly_limit_tokens` 允许 0（表示该池当月不可用，但不阻止软提醒路径的记账归属）与 -1（表示不限量，运行时跳过余额检查、无超额概念）；小于 -1 的值在创建/编辑时被拒绝。
 
 ### 7.3 `llm_user_model_routes`
 
@@ -268,7 +270,8 @@ New API 已解决“多上游接入、凭据管理、模型名统一”这类与
 
 约束：
 
-- `(route_id, priority)` 唯一，顺位从 1 开始；保存路由时顺位项整体替换（先删后插）；
+- `(route_id, priority)` 唯一，顺位从 1 开始；保存路由时顺位项整体替换（先删后插），顺位未改动时跳过替换；
+- 账本 `route_item_id` 外键 `ON DELETE SET NULL`：顺位项是被整体替换的配置行，账本行只保留命中时点的审计快照，引用项被删除时置空而不阻止配置更新；
 - 保存校验只验证来源主体存在性，不校验池授权；运行时对无生效授权的顺位 `continue` 跳过；
 - 前端表单保证顺位项连续且不重复选同一池（§9.3）。
 
@@ -510,9 +513,12 @@ New API 的模型接入单元是**渠道（Channel）**。本系统采用“**�
 
 页面至少提供以下维度：
 
-- 按发起人（`user`）；
-- 按实际扣费部门池（`org_unit`）；
+- 按发起人（`user`，谁在用）；
+- 按实际扣费个人池（`pool_user`）；
+- 按实际扣费部门池（`pool_org_unit`）；
 - 按模型（`model`）。
+
+员工与部门为多对多关系（一个员工可属多个部门），不提供「部门员工合计用量」口径。维度切换在汇总卡标题与口径说明行呈现当前维度的统计口径。
 
 月份选择器（`YYYY-MM`）作用于维度汇总与账本明细；热力图固定近一年、不受维度筛选影响。
 
@@ -581,8 +587,7 @@ New API 的模型接入单元是**渠道（Channel）**。本系统采用“**�
 
 **适用范围：仅当本轮对话选中的是企业模型时才走本端点。** 员工在模型选择器里选了自己配置的 provider 时，推理请求沿用 DSH 原有直连路径，与本端点无关——每次请求的出口由当轮实际选中的模型决定。
 
-员工端不直接访问 New API。\
-选中的是企业模型时，员工端统一调用：
+员工端不直接访问 New API。选中的是企业模型时，员工端统一调用：
 
 `POST /api/llm/v1/chat/completions`
 
@@ -703,8 +708,7 @@ usage 缺失时按 0 实扣并释放预留，避免预留泄漏。
 
 ### 11.6 软提醒提示语义
 
-软提醒不是前端 toast 的名字，而是账务语义。\
-系统必须做到：
+软提醒不是前端 toast 的名字，而是账务语义。系统必须做到：
 
 - 兜底顺位放行时照常预留、照常转发，不向前端返回额度不足信息（对员工无感）；
 - 结算时把超出“该池当月正常可用量”（`max(0, limit - consumed)`）的部分记入 `overage_tokens`，余额行与账本行都记；
@@ -755,7 +759,8 @@ usage 缺失时按 0 实扣并释放预留，避免预留泄漏。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/admin/llm/usage/summary` | 维度汇总；`dimension=user/org_unit/model`，`month=YYYY-MM` |
+| GET | `/api/admin/llm/usage/summary` | 维度汇总；`dimension=user/pool_user/pool_org_unit/model`，`month=YYYY-MM` |
+| GET | `/api/admin/llm/usage/pool-users` | 池维度用户分解；`sourceType` / `sourceId` / `modelId` / `month=YYYY-MM`，按发起人聚合、总消耗倒序（授权列表点击池子下钻） |
 | GET | `/api/admin/llm/usage/heatmap/year` | 近一年按天聚合热力图（§12.3） |
 | GET | `/api/admin/llm/usage/ledger` | 账本明细分页；`month` / `userId` / `modelId` / `status` / `page` / `pageSize` |
 
@@ -870,24 +875,22 @@ usage 缺失时按 0 实扣并释放预留，避免预留泄漏。
 
 | 维度 | 聚合依据 | 名称来源 |
 | --- | --- | --- |
-| `user` | 账本 `user_id`（发起调用的员工） | `platform_users.display_name` |
-| `org_unit` | 账本 `source_id` 且 `source_type='org_unit'`（实际入账的部门池） | `org_units.name` |
+| `user` | 账本 `user_id`（发起调用的员工，谁在用） | `platform_users.display_name` |
+| `pool_user` | 账本 `source_id` 且 `source_type='user'`（实际入账的个人池） | `platform_users.display_name` |
+| `pool_org_unit` | 账本 `source_id` 且 `source_type='org_unit'`（实际入账的部门池） | `org_units.name` |
 | `model` | 账本 `model_id` | `llm_enterprise_models.display_name` |
 
 所有维度均按 `usage_month`（YYYY-MM）过滤，仅统计 `status='completed'` 的账本行，聚合输出 tokens / prompt_tokens / completion_tokens / overage_tokens / request_count。账本明细（§12.1 `usage/ledger`）与热力图（§12.3）为固定补充视图。
 
 ### 15.3 用户与部门归属口径
 
-调用已经命中了来源，因此统计口径按"本次调用实际入账来源"统计：走个人池入账记到个人，走部门池入账记到部门（`org_unit` 维度即 `source_type='org_unit'` 的 `source_id`），软提醒超额同样记在兜底顺位对应来源头上。
+调用已经命中了来源，因此「池被消耗」口径按"本次调用实际入账来源"统计：走个人池入账记到个人池（`pool_user`），走部门池入账记到部门池（`pool_org_unit`），软提醒超额同样记在兜底顺位对应来源头上。个人池维度含其他用户路由借用的量；部门池维度含外部借用量、不含本部门员工走个人池的量。
 
-同时，为了支持"谁用了多少"，ledger 也始终保存发起调用的 `user_id`。
+同时，为了支持"谁用了多少"，ledger 也始终保存发起调用的 `user_id`，构成「谁在用」口径（`user` 维度）：这个员工这个月一共消耗了多少（不管走的自己的池还是部门的池），明细可下钻到每次调用（账本行同时带 `user_id` 与来源 `source_type`/`source_id`）。
 
-因此可以同时回答两个问题：
+员工与部门为多对多关系（一个员工可属多个部门，`org_unit_members`），因此不提供「部门员工合计用量」口径——多对多下该口径要么重复计入多个部门、要么需要引入无业务依据的主部门概念。
 
-- **部门维度**：这个部门这个月一共消耗了多少（含员工借道部门池的消耗）；
-- **用户维度**：这个员工这个月一共消耗了多少（不管走的自己的池还是部门的池），明细可下钻到每次调用（账本行同时带 `user_id` 与来源 `source_type`/`source_id`）。
-
-两个口径不冲突：同一条账本行在 `org_unit` 汇总里计入部门，在 `user` 汇总里计入员工。
+两类口径不冲突：同一条账本行在 `pool_user`/`pool_org_unit` 汇总里计入池归属者，在 `user` 汇总里计入发起员工。
 
 ***
 

@@ -2,15 +2,57 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/user-identity-context/README.md
+/:
+  en: 1213c4c3778546ec
+  zh: 6007daed3a7057b2
 /deepseek-ai-dsh-user-identity-context:
-  en: 3612504094e8500f
-  zh: b02ca060424cec9f
+  en: 9fbb5501d813e325
+  zh: ec06e6e1c2514e7a
+/deepseek-ai-dsh-user-identity-context/summary:
+  en: 5d789bc827559368
+  zh: e054182dc474bad4
+/deepseek-ai-dsh-user-identity-context/table-of-contents:
+  en: b563e4ec4727d0de
+  zh: f009bdd6b0122ac6
+/deepseek-ai-dsh-user-identity-context/use-this-package:
+  en: aa3714a273bc13d5
+  zh: 4de87b98c63d7a55
+/deepseek-ai-dsh-user-identity-context/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-user-identity-context/understand-the-implementation/events-decouple-the-packages:
+  en: 19c02bab6cccfcd7
+  zh: 9378441d5658a36a
+/deepseek-ai-dsh-user-identity-context/understand-the-implementation/token-discipline-is-written-into-the-block:
+  en: 24efca40b2df05b1
+  zh: 2a023913f94a3698
+/deepseek-ai-dsh-user-identity-context/understand-the-implementation/the-invariant-checks-format-and-attribution:
+  en: 2889949bebc609c6
+  zh: 317d36163f240a00
+/deepseek-ai-dsh-user-identity-context/further-exploration:
+  en: e1b2e7d0659777c9
+  zh: ade954c37fee741f
 /deepseek-ai-dsh-user-identity-context/model-experience:
-  en: f7e99883fd276344
-  zh: b3a265f9e235740b
-/deepseek-ai-dsh-user-identity-context/data-flow:
-  en: 7a0a828234a07058
-  zh: 2864abeb9887a69f
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-user-identity-context/model-experience/current-user-identity-block:
+  en: 31ee31fefe5dfe3b
+  zh: 8e2bb65bb86d01b9
+/deepseek-ai-dsh-user-identity-context/model-experience/current-user-identity-block/what-the-model-sees:
+  en: 40a13016b1ab3b33
+  zh: 5c4f72b9a7d591eb
+/deepseek-ai-dsh-user-identity-context/model-experience/current-user-identity-block/what-the-model-sees/injected-block:
+  en: 28e53b26117c6cb5
+  zh: 9e8c0f7de789a5ad
+/deepseek-ai-dsh-user-identity-context/model-experience/current-user-identity-block/token-effect:
+  en: 638116e3e3d335ba
+  zh: e6e828d826b8d36e
+/deepseek-ai-dsh-user-identity-context/model-experience/current-user-identity-block/kv-cache-effect:
+  en: 8df50a034ff34836
+  zh: c3385e517f953c79
 /deepseek-ai-dsh-user-identity-context/known-limitations-and-deferred-work:
-  en: 74e8b49aaa763304
-  zh: a1616cbd6d5dc438
+  en: f993448a29f3505a
+  zh: 580381379629476c
+/deepseek-ai-dsh-user-identity-context/known-limitations-and-deferred-work/dev-note:
+  en: a0bb5009952d6105
+  zh: 7152a0c53a56bc97

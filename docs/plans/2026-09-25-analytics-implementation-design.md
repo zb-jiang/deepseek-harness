@@ -1,8 +1,6 @@
 # DSH 企业平台 · 分析看板（业务分析 + 运维健康）实施设计
 
-日期：2026-09-25
-状态：设计完成，待评审后实施
-目标读者：第三方开发团队。本文档自包含：不依赖任何设计会话上下文，读者基于本文档 + 项目源码 + §3 列出的配套文档即可开始开发。
+日期：2026-09-25。状态：设计完成，待评审后实施。目标读者：第三方开发团队。本文档自包含：不依赖任何设计会话上下文，读者基于本文档 + 项目源码 + §3 列出的配套文档即可开始开发。
 
 ---
 
@@ -98,9 +96,7 @@ cd apps/web-console/frontend && npm install && npm run dev   # 构建: npm run b
 
 ### 3.3 环境变量（敏感值不写入仓库）
 
-两个 Java 应用共用（见各自 `application.yml` 顶部注释）：
-`SUPABASE_URL`、`SUPABASE_DB_HOST`、`SUPABASE_DB_USER`、`SUPABASE_DB_PASSWORD`。
-web-console 另有：`FLOWABLE_BASE_URL`（引擎地址，默认应指向 `http://127.0.0.1:8090`）、`SKILLHUB_BASE_URL`、`SOR_BASE_URL`/`SOR_SERVICE_KEY`（expense-sor 对接，默认 `http://127.0.0.1:8091` / `demo-service-key`）。
+两个 Java 应用共用（见各自 `application.yml` 顶部注释）：`SUPABASE_URL`、`SUPABASE_DB_HOST`、`SUPABASE_DB_USER`、`SUPABASE_DB_PASSWORD`。web-console 另有：`FLOWABLE_BASE_URL`（引擎地址，默认应指向 `http://127.0.0.1:8090`）、`SKILLHUB_BASE_URL`、`SOR_BASE_URL`/`SOR_SERVICE_KEY`（expense-sor 对接，默认 `http://127.0.0.1:8091` / `demo-service-key`）。
 
 ### 3.4 测试模式与建表约定
 

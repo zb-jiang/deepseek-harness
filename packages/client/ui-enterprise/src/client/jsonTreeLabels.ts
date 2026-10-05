@@ -4,6 +4,7 @@
  */
 import type { JsonTreeLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 
+/** JsonTree 按钮与状态的企业中文文案,消费方直接传入组件 labels prop。 */
 export const JSON_TREE_LABELS: JsonTreeLabels = {
   copyValue: '复制值',
   copyJson: '复制 JSON',

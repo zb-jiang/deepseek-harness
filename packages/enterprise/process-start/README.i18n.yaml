@@ -1,0 +1,61 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/enterprise/process-start/README.md
+/:
+  en: 6b4e626ae85e3277
+  zh: 3b329e09dd236573
+/deepseek-ai-dsh-process-start:
+  en: c422d6ea3a9970eb
+  zh: 4628b6fc5e286cd0
+/deepseek-ai-dsh-process-start/summary:
+  en: f098ee5ac6e2d6de
+  zh: a697ae37b43c0cf9
+/deepseek-ai-dsh-process-start/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-process-start/use-this-package:
+  en: 2b21027d1624c813
+  zh: 0bf1c1dd01abcde6
+/deepseek-ai-dsh-process-start/use-this-package/minimal-configuration:
+  en: c0cfde0a63c5d1c3
+  zh: 9579c8063000ed83
+/deepseek-ai-dsh-process-start/use-this-package/what-each-tool-does:
+  en: 96d17b39a114b6cc
+  zh: d5d512bb53901aa9
+/deepseek-ai-dsh-process-start/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: 29b3be7e036131d4
+/deepseek-ai-dsh-process-start/understand-the-implementation/one-resolver-for-ids-names-and-keys:
+  en: e443dc46532c672c
+  zh: dfb0dfd9a2af017a
+/deepseek-ai-dsh-process-start/understand-the-implementation/per-call-authentication-and-volatile-base-url:
+  en: cb7a0895f050158b
+  zh: 1411a5aaf86164ac
+/deepseek-ai-dsh-process-start/understand-the-implementation/errors-invite-recovery:
+  en: cadbc25bbb1007b4
+  zh: 7108d3992e55467b
+/deepseek-ai-dsh-process-start/further-exploration:
+  en: de407e9b43bf1251
+  zh: 7e3ed81f4628e8d7
+/deepseek-ai-dsh-process-start/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-process-start/model-experience/process-start-tools:
+  en: d0a3ba1978a0a56d
+  zh: fdf753c7d3ad9438
+/deepseek-ai-dsh-process-start/model-experience/process-start-tools/what-the-model-sees:
+  en: 9b644001ca6d6be1
+  zh: 232aa6e855cc5d31
+/deepseek-ai-dsh-process-start/model-experience/process-start-tools/token-effect:
+  en: a4a2765854a2970d
+  zh: bc825a7c6b5667e2
+/deepseek-ai-dsh-process-start/model-experience/process-start-tools/kv-cache-effect:
+  en: 2c9e8aab847a7a8c
+  zh: 7e6a886146a90343
+/deepseek-ai-dsh-process-start/known-limitations-and-deferred-work:
+  en: 3fff536c44bb7d41
+  zh: 41ae5021d2a798f8
+/deepseek-ai-dsh-process-start/known-limitations-and-deferred-work/dev-note:
+  en: 8dba17378f2fb3c9
+  zh: 8b462d8133695fdf

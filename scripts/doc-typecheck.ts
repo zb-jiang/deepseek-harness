@@ -207,7 +207,10 @@ const markdownGlobs = ['README.md', '.agents/notes/**/*.md', 'docs/**/*.md', 'pa
 const files: string[] = []
 for (const pattern of markdownGlobs) {
   for (const match of globSync(pattern, { cwd: root })) {
-    if (!isArchivedAgentNotePath(match)) files.push(resolve(root, match))
+    // docs/plans holds design and teaching documents whose ts fences are sketches
+    // with placeholder names, not compilable workspace examples.
+    if (isArchivedAgentNotePath(match) || match.replaceAll('\\', '/').startsWith('docs/plans/')) continue
+    files.push(resolve(root, match))
   }
 }
 files.sort()

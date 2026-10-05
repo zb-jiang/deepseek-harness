@@ -2,15 +2,42 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/platform-user/README.md
+/:
+  en: 6486fe60b8f12d92
+  zh: 207b8a2ee33556a1
 /deepseek-ai-dsh-platform-user:
-  en: 06c4a1b438258514
-  zh: a10212754edf6777
-/deepseek-ai-dsh-platform-user/service-api:
-  en: 6b488581e6f8f70e
-  zh: 1a0daed5cd9b9c37
+  en: 0cb2f8f6014c9f09
+  zh: bfed7a715035d730
+/deepseek-ai-dsh-platform-user/summary:
+  en: cb526018366b6f62
+  zh: c5a2e1366b7058a4
+/deepseek-ai-dsh-platform-user/table-of-contents:
+  en: b563e4ec4727d0de
+  zh: f009bdd6b0122ac6
+/deepseek-ai-dsh-platform-user/use-this-package:
+  en: 6f0d8f5aa4b5a8e5
+  zh: 999c8cb011a5d1a9
+/deepseek-ai-dsh-platform-user/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-platform-user/understand-the-implementation/validation-before-the-provider:
+  en: fadbcd0e81a0a9db
+  zh: db09a4c91160d945
+/deepseek-ai-dsh-platform-user/understand-the-implementation/an-empty-invariant-companion:
+  en: 6b42b5c1bada1c7a
+  zh: d0ee3522d85048a5
+/deepseek-ai-dsh-platform-user/further-exploration:
+  en: 815f9915542a10e2
+  zh: 5be07e98798ba994
 /deepseek-ai-dsh-platform-user/model-experience:
-  en: bbe87a92b940a236
-  zh: a259a401fafdcb0e
+  en: 730decd59df68990
+  zh: b18a0438d13b7cf6
+/deepseek-ai-dsh-platform-user/model-experience/kv-cache-effect:
+  en: ac68103bcab6bbbf
+  zh: d87e56c8f00b2985
 /deepseek-ai-dsh-platform-user/known-limitations-and-deferred-work:
-  en: 95f842add7d61bf6
-  zh: 84307d8933645f8e
+  en: 5750058a4a55e335
+  zh: 22ae372904686af8
+/deepseek-ai-dsh-platform-user/known-limitations-and-deferred-work/dev-note:
+  en: d1a2aafcfc00d69c
+  zh: 1647eaf37a61038a

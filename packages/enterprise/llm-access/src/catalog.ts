@@ -124,6 +124,7 @@ export async function fetchEnterpriseModels(request: CatalogRequest): Promise<re
   const models: EnterpriseModel[] = []
   const seen = new Set<string>()
   for (const entry of body.data) {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- wire data may contain null entries despite the DTO assertion
     if (typeof entry?.gatewayModelName !== 'string' || entry.gatewayModelName.length === 0) continue
     if (seen.has(entry.gatewayModelName)) continue
     seen.add(entry.gatewayModelName)

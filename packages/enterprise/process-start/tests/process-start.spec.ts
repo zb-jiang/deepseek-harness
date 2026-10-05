@@ -40,7 +40,7 @@ function stubTools() {
 
 /** 按 URL 分发的 fetch 桩;response 抛错即网络失败。 */
 function stubFetch(routes: { match: (url: string) => boolean; response: () => Response }[]) {
-  return vi.fn(async (input: URL | RequestInfo, _init?: RequestInit) => {
+  return vi.fn(async (input: URL | string, _init?: RequestInit) => {
     const url = String(input)
     for (const route of routes) {
       if (route.match(url)) return route.response()
@@ -98,7 +98,7 @@ describe('process-start', () => {
   }
 
   const execute = (tool: StubTool, args: unknown) =>
-    tool.execute(args as never, { signal: new AbortController().signal } as never)
+    tool.execute(args as never, { signal: new AbortController().signal })
 
   beforeEach(() => {
     ctx = new Context()
@@ -246,7 +246,7 @@ describe('process-start', () => {
       authorization: 'Bearer jwt',
       'content-type': 'application/json',
     })
-    expect(JSON.parse(String(init?.body))).toEqual({
+    expect(JSON.parse(init?.body as string)).toEqual({
       workflowDefinitionId: W1_ID,
       orgUnitId: 'unit-a',
       variables: { amount: 1200.5 },
@@ -272,7 +272,7 @@ describe('process-start', () => {
     const start = toolOf(tools, 'dsh_process_start')
     const result = await execute(start, { workflowDefinitionId: W2_ID }) as Record<string, unknown>
     expect(result).toEqual({ instanceId: 'inst-2', startTime: '2026-09-20T10:00:00+08:00' })
-    expect(JSON.parse(String(fetchRef.mock.calls[0]![1]?.body))).toEqual({ workflowDefinitionId: W2_ID })
+    expect(JSON.parse(fetchRef.mock.calls[0]![1]?.body as string)).toEqual({ workflowDefinitionId: W2_ID })
     expect(start.output.render(undefined as never, result as never)).toEqual([
       { type: 'text', text: '流程实例已发起(实例 id: inst-2)。' },
     ])
@@ -326,7 +326,7 @@ describe('process-start', () => {
       workflowName: '报销流程',
     })
     // POST 请求体里是解析后的 UUID,不是原始 key
-    expect(JSON.parse(String(fetchRef.mock.calls[1]![1]?.body))).toEqual({ workflowDefinitionId: W1_ID })
+    expect(JSON.parse(fetchRef.mock.calls[1]![1]?.body as string)).toEqual({ workflowDefinitionId: W1_ID })
   })
 
   it('解析:模糊匹配到多个流程时报错并列出候选', async () => {

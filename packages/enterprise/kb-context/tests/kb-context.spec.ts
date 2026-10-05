@@ -74,8 +74,8 @@ function stubResponse() {
       res.status = status
       res.headers = headers ?? {}
     },
-    end: (chunk?: unknown) => {
-      res.body += String(chunk ?? '')
+    end: (chunk?: string) => {
+      res.body += chunk ?? ''
     },
   }
   return res
@@ -83,7 +83,7 @@ function stubResponse() {
 
 /** 按应用解析端点分发的 fetch 桩。 */
 function stubKbFetch(handler: (url: string) => Response): ReturnType<typeof vi.fn> {
-  return vi.fn(async (input: URL | RequestInfo) => handler(String(input)))
+  return vi.fn(async (input: URL | string) => handler(String(input)))
 }
 
 const volatileOf = <T>(value: T): { get: () => T } => ({ get: () => value })

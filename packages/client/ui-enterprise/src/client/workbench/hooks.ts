@@ -11,10 +11,18 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
  * @returns 当前快照。
  */
 export function useSnapshot<T>(store: SnapshotStore<T>): T {
-  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  return useSyncExternalStore(
+    onStoreChange => store.subscribe(onStoreChange),
+    () => store.getSnapshot(),
+    () => store.getSnapshot(),
+  )
 }
 
-/** ISO 时间 → `MM-DD HH:mm` 短格式;解析失败原样返回。 */
+/**
+ * ISO 时间 → `MM-DD HH:mm` 短格式;解析失败原样返回。
+ * @param iso ISO 时间字符串。
+ * @returns 短格式时间文本。
+ */
 export function formatShortTime(iso: string): string {
   const time = Date.parse(iso)
   if (Number.isNaN(time)) return iso
@@ -23,7 +31,12 @@ export function formatShortTime(iso: string): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-/** 两个 ISO 时间的时长 → `x分y秒` / `x秒`;缺失返回空串。 */
+/**
+ * 两个 ISO 时间的时长 → `x分y秒` / `x秒`;缺失返回空串。
+ * @param startIso 开始时间;null 返回空串。
+ * @param endIso 结束时间;null 返回空串。
+ * @returns 人读时长文本。
+ */
 export function formatDuration(startIso: string | null, endIso: string | null): string {
   if (startIso === null || endIso === null) return ''
   const start = Date.parse(startIso)
@@ -36,7 +49,12 @@ export function formatDuration(startIso: string | null, endIso: string | null): 
   return `${Math.floor(minutes / 60)}时${minutes % 60}分`
 }
 
-/** 判断会话是否仍存活(用于完成回执列表的可点击性)。 */
+/**
+ * 判断会话是否仍存活(用于完成回执列表的可点击性)。
+ * @param byId 当前会话快照索引。
+ * @param sessionId 目标会话 id。
+ * @returns 会话存在于索引中时 true。
+ */
 export function sessionAlive(
   byId: Readonly<Record<SessionId, unknown>>, sessionId: SessionId,
 ): boolean {

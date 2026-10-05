@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/bundle/enterprise-backend/README.md
+/:
+  en: dc3c8273a4f607f1
+  zh: 982327dd85d86631
+/deepseek-ai-dsh-enterprise-backend:
+  en: 822d7010e2a4e64c
+  zh: 68a39dbd55f78a27
+/deepseek-ai-dsh-enterprise-backend/summary:
+  en: f0ff53ffb13aceaf
+  zh: f6de11bb4f4111fb
+/deepseek-ai-dsh-enterprise-backend/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-enterprise-backend/use-this-package:
+  en: 98fdb6414e1c82bf
+  zh: 87fe6613cd81f7cb
+/deepseek-ai-dsh-enterprise-backend/use-this-package/what-the-patch-mounts:
+  en: 3644237dd16f8b4c
+  zh: 20703a72af855fff
+/deepseek-ai-dsh-enterprise-backend/use-this-package/environment-variables:
+  en: 26d351c69e793466
+  zh: eaaf9d6cd2c1cf02
+/deepseek-ai-dsh-enterprise-backend/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-enterprise-backend/understand-the-implementation/a-static-patch-list-carrier:
+  en: 2bfc106582eeca8f
+  zh: fe6037ea50013f80
+/deepseek-ai-dsh-enterprise-backend/understand-the-implementation/environment-variables-not-yml-config:
+  en: 71ed88e8a77416c5
+  zh: cefdb9ac00bfcd73
+/deepseek-ai-dsh-enterprise-backend/understand-the-implementation/what-the-bundle-deliberately-omits:
+  en: fb92a2629a51ec2f
+  zh: d8470f73efa78487
+/deepseek-ai-dsh-enterprise-backend/further-exploration:
+  en: b6319d7d53c52f5c
+  zh: a843e5a8e75bd669
+/deepseek-ai-dsh-enterprise-backend/model-experience:
+  en: ed44db8f4b24023b
+  zh: 8d3a9a3172bdb5fc
+/deepseek-ai-dsh-enterprise-backend/model-experience/kv-cache-effect:
+  en: 11dc9e79f7c95fd1
+  zh: 27fcccc9e0b1cca5
+/deepseek-ai-dsh-enterprise-backend/known-limitations-and-deferred-work:
+  en: 8febb6f50e5d2477
+  zh: a67abb0cc3652429
+/deepseek-ai-dsh-enterprise-backend/known-limitations-and-deferred-work/dev-note:
+  en: 1dd8f1cb0f392a53
+  zh: e08b156ca939d3c7

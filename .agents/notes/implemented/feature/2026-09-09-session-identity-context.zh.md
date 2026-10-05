@@ -26,7 +26,7 @@ Status: implemented
 
 ## 落选方案
 
-**系统提示词 section。** prompt section 按请求装配，但每轮模型上下文的既有持久机制是带 invariant 校验与 section 归属的插件快照消息（time-context 先例）；prompt section 会绕开这套词汇并让 invariant 故事复杂化。
+**系统提示词 section。** prompt section 按请求装配，但每轮模型上下文的既有持久机制是带 invariant 校验与 section 来源归属的插件快照消息（time-context 先例）；prompt section 会绕开这套词汇并让 invariant 故事复杂化。
 
 **通过工具或 MCP 参数传递身份。** 这会让模型成为身份传输通道：伪造或注入的值在工具边界与真实值无法区分。因安全原因否决；身份块中的纪律行明确禁止。
 

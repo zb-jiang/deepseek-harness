@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 企业 profile bundle，作为叠在 [`dsh-web-app`](../web-app/README.zh.md) 之上的 patch 层，随 `enterprise` profile 交付（`dsh --profile enterprise`）。本包是静态 patch 清单载体，自身没有运行时 API：插入平台用户缝及其 Web-Console 后端 provider、浏览器侧 `/auth` 路由、flowable-engine 任务代理、企业 skill 分发、知识库工具、流程发起工具与企业 client-UI 行。
 

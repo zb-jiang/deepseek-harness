@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-platform-user-console",
   "description": "Web-Console-backed read-only provider for the platform-user seam (JWKS JWT verify + /api/users/me self-read)",
-  "version": "0.1.0-rc.8",
+  "version": "0.2.0-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -27,15 +27,15 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/dsh-platform-user": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/dsh-platform-user": "workspace:*",
+    "@deepseek-ai/cordis": "workspace:~"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:~",
     "jose": "^5.9.6"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-platform-user": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/dsh-platform-user": "workspace:*",
+    "@deepseek-ai/cordis": "workspace:~"
   }
 }

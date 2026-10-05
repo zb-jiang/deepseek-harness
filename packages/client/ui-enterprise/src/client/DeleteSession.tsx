@@ -60,7 +60,7 @@ export type SessionDeleteDialogProps =
  * @returns 请求完成(删除成功);失败 reject 携带可展示的错误文本。
  */
 export async function deleteArchivedSessionRequest(sessionId: SessionId): Promise<void> {
-  const response = await fetch('/api/enterprise/sessions/delete', {
+  const response = await fetch('api/enterprise/sessions/delete', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${readToken()}` },
     body: JSON.stringify({ sessionId }),

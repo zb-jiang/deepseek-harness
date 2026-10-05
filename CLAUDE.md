@@ -67,4 +67,3 @@ AGENTS.md
 - DSH backend task 设计：`docs/plans/2026-09-14-dsh-backend-task-design.md`
 - Supabase 建表与配置手册：`docs/plans/2026-08-19-supabase-setup-guide.md`
 - BPMN 组件教程：`docs/plans/2026-08-24-bpmn-components-tutorial.md`
-- skill repo：`docs/plans/2026-09-09-skill-repo-design.md`

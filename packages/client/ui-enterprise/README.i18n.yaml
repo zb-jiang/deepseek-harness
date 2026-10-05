@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-enterprise/README.md
+/:
+  en: 7c2a66a175c0f678
+  zh: 13565d269364251f
+/deepseek-ai-dsh-client-ui-enterprise:
+  en: 288c828613284bbd
+  zh: 57cc37ed734c3f74
+/deepseek-ai-dsh-client-ui-enterprise/summary:
+  en: 9240636748bfec07
+  zh: 0ac190a2d7ef3b0b
+/deepseek-ai-dsh-client-ui-enterprise/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-client-ui-enterprise/use-this-package:
+  en: 3ad4da11e5ef6c61
+  zh: 64a14b3ba86fc33b
+/deepseek-ai-dsh-client-ui-enterprise/use-this-package/where-each-piece-mounts:
+  en: f4ea52ea712d15e0
+  zh: 795772e2a319953f
+/deepseek-ai-dsh-client-ui-enterprise/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-client-ui-enterprise/understand-the-implementation/slots-compose-the-workbench-orchestrates:
+  en: 12c39569a5e3dc10
+  zh: fe2c20b87dcf0718
+/deepseek-ai-dsh-client-ui-enterprise/understand-the-implementation/the-auth-gate-is-also-the-identity-pump:
+  en: ddd55e113e7063a7
+  zh: c53d802aabc988e7
+/deepseek-ai-dsh-client-ui-enterprise/understand-the-implementation/todos-never-overwrite-employee-work:
+  en: 1c4f2b74bf10e957
+  zh: 39b3c7c5f9e6c0fc
+/deepseek-ai-dsh-client-ui-enterprise/further-exploration:
+  en: f3af1343e2a8f320
+  zh: f235842403232210
+/deepseek-ai-dsh-client-ui-enterprise/model-experience:
+  en: b0be8253b751a2f6
+  zh: 244ed7394061eb2c
+/deepseek-ai-dsh-client-ui-enterprise/model-experience/kv-cache-effect:
+  en: d4af60744dd612fd
+  zh: 9115f7943921a47d
+/deepseek-ai-dsh-client-ui-enterprise/known-limitations-and-deferred-work:
+  en: afe0526b3d85d9cb
+  zh: 2b24c509361eead0
+/deepseek-ai-dsh-client-ui-enterprise/known-limitations-and-deferred-work/dev-note:
+  en: 41cd77026ad79d4a
+  zh: a96aaedf22a71fd1

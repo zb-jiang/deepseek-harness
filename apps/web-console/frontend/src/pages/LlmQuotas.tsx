@@ -1,5 +1,5 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { App, Button, Card, DatePicker, Form, InputNumber, Radio, Select, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { App, Button, Card, DatePicker, Drawer, Empty, Form, InputNumber, Radio, Select, Space, Spin, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
@@ -12,6 +12,7 @@ import {
   type RouteItemParam,
   type UpdateGrantRequest,
   type UpdateRouteRequest,
+  type UsageSummaryRow,
   type UserModelRouteDto,
 } from '../api/llm'
 import { type OrgUnitTreeNode, orgUnitsApi } from '../api/org-units'
@@ -206,6 +207,29 @@ export default function LlmQuotasPage() {
     }
   }
 
+  // ---------- 池子下钻 ----------
+
+  const [poolDrill, setPoolDrill] = useState<QuotaGrantDto | null>(null)
+  const [poolUsers, setPoolUsers] = useState<UsageSummaryRow[]>([])
+  const [poolUsersLoading, setPoolUsersLoading] = useState(false)
+
+  /** 打开池子下钻:加载当前自然月内使用该池的发起人消耗列表,总消耗倒序 */
+  const openPoolDrill = async (grant: QuotaGrantDto) => {
+    setPoolDrill(grant)
+    setPoolUsersLoading(true)
+    try {
+      const rows = await llmApi.usagePoolUsers(grant.subjectType, grant.subjectId, grant.modelId, dayjs().format('YYYY-MM'))
+      setPoolUsers(rows ?? [])
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载池子用量失败')
+    } finally {
+      setPoolUsersLoading(false)
+    }
+  }
+
+  const poolUsersMax = poolUsers[0]?.totalTokens ?? 0
+  const poolUsersTotal = poolUsers.reduce((sum, r) => sum + r.totalTokens, 0)
+
   const grantColumns: ColumnsType<QuotaGrantDto> = [
     {
       title: '对象类型',
@@ -215,14 +239,44 @@ export default function LlmQuotasPage() {
       render: (v: string) =>
         v === 'user' ? <Tag color="blue">用户</Tag> : <Tag color="cyan">部门</Tag>,
     },
-    { title: '对象', dataIndex: 'subjectName', key: 'subjectName' },
+    {
+      title: '对象',
+      dataIndex: 'subjectName',
+      key: 'subjectName',
+      render: (v: string, grant) => (
+        <Button
+          type="link"
+          size="small"
+          style={{ padding: 0, height: 'auto' }}
+          title="点击查看本周期使用该池的用户"
+          onClick={() => void openPoolDrill(grant)}
+        >
+          {v}
+        </Button>
+      ),
+    },
     { title: '模型', dataIndex: 'modelDisplayName', key: 'modelDisplayName' },
     {
       title: '月度额度(token)',
       dataIndex: 'monthlyLimitTokens',
       key: 'monthlyLimitTokens',
       align: 'right',
-      render: (v: number) => (v < 0 ? '不限' : v.toLocaleString()),
+      render: (v: number) => (v === -1 ? '不限' : v.toLocaleString()),
+    },
+    {
+      title: '当前周期已消耗(token)',
+      dataIndex: 'periodConsumedTokens',
+      key: 'periodConsumedTokens',
+      align: 'right',
+      render: (v: number) => v.toLocaleString(),
+    },
+    {
+      title: '当前周期剩余(token)',
+      dataIndex: 'periodRemainingTokens',
+      key: 'periodRemainingTokens',
+      align: 'right',
+      // -1 是「不限量」哨兵值;其他负数表示软提醒策略下已透支(剩余 = 快照额度 - 消耗 - 预留)
+      render: (v: number) => (v === -1 ? '不限量' : v.toLocaleString()),
     },
     {
       title: '生效区间',
@@ -393,7 +447,7 @@ export default function LlmQuotasPage() {
                 }
               >
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-                  额度授权定义用户/部门对某个模型的月度 token 上限;-1 表示不限量。用户个人池与部门池并存,扣减顺序由用户路由的顺位项决定。
+                  额度授权定义用户/部门对某个模型的月度 token 上限;-1 表示不限量,0 表示当月不可用。用户个人池与部门池并存,扣减顺序由用户路由的顺位项决定。
                 </Typography.Paragraph>
                 <Table<QuotaGrantDto>
                   rowKey="id"
@@ -432,6 +486,164 @@ export default function LlmQuotasPage() {
           },
         ]}
       />
+      <Drawer
+        width={520}
+        open={!!poolDrill}
+        onClose={() => setPoolDrill(null)}
+        destroyOnClose
+        title={
+          poolDrill ? (
+            <Space size={8} wrap>
+              <span>池子用量 · {poolDrill.subjectName}</span>
+              <Tag color={poolDrill.subjectType === 'user' ? 'blue' : 'cyan'}>
+                {poolDrill.subjectType === 'user' ? '个人池' : '部门池'}
+              </Tag>
+              <Tag color="geekblue">{poolDrill.modelDisplayName}</Tag>
+            </Space>
+          ) : (
+            '池子用量'
+          )
+        }
+      >
+        {poolDrill ? (
+          <Spin spinning={poolUsersLoading}>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 0 }}>
+              统计周期:{dayjs().format('YYYY-MM')}(自然月);仅统计已完成扣账的请求,按发起人聚合。
+            </Typography.Paragraph>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              {[
+                {
+                  label: '月度额度',
+                  value:
+                    poolDrill.monthlyLimitTokens === -1
+                      ? '不限量'
+                      : poolDrill.monthlyLimitTokens.toLocaleString(),
+                  danger: false,
+                },
+                {
+                  label: '本周期已消耗',
+                  value: poolDrill.periodConsumedTokens.toLocaleString(),
+                  danger: false,
+                },
+                {
+                  label: '本周期剩余',
+                  value:
+                    poolDrill.periodRemainingTokens === -1
+                      ? '不限量'
+                      : poolDrill.periodRemainingTokens.toLocaleString(),
+                  danger: poolDrill.periodRemainingTokens !== -1 && poolDrill.periodRemainingTokens < 0,
+                },
+              ].map(item => (
+                <div key={item.label} style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#fafafa' }}>
+                  <div style={{ fontSize: 12, color: '#8c8c8c' }}>{item.label}</div>
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 600,
+                      color: item.danger ? '#d46b08' : undefined,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {poolDrill.periodRemainingTokens !== -1 && poolDrill.periodRemainingTokens < 0 && (
+              <Typography.Paragraph type="warning" style={{ fontSize: 12 }}>
+                该池已透支:软提醒策略下超出的部分仍会记账,剩余为负值。
+              </Typography.Paragraph>
+            )}
+            {poolUsers.length === 0 && !poolUsersLoading ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本周期暂无消耗记录" />
+            ) : (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {poolUsers.map((row, idx) => {
+                    const badgeColor =
+                      idx === 0 ? '#faad14' : idx === 1 ? '#bfbfbf' : idx === 2 ? '#d48806' : undefined
+                    return (
+                      <div key={row.subjectId}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {badgeColor ? (
+                            <span
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: '50%',
+                                background: badgeColor,
+                                color: '#fff',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {idx + 1}
+                            </span>
+                          ) : (
+                            <span style={{ width: 22, textAlign: 'center', color: '#8c8c8c', fontSize: 12, flexShrink: 0 }}>
+                              {idx + 1}
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              flex: 1,
+                              fontWeight: 500,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {row.subjectName || row.subjectId}
+                          </span>
+                          {row.overageTokens > 0 && <Tag color="orange" style={{ marginInlineEnd: 0 }}>超额</Tag>}
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                            {row.totalTokens.toLocaleString()}
+                          </span>
+                          <span
+                            style={{
+                              width: 48,
+                              textAlign: 'right',
+                              color: '#8c8c8c',
+                              fontSize: 12,
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {poolUsersTotal > 0 ? `${((row.totalTokens / poolUsersTotal) * 100).toFixed(1)}%` : '-'}
+                          </span>
+                        </div>
+                        <div style={{ height: 6, borderRadius: 3, background: '#f0f0f0', margin: '6px 0 0 30px' }}>
+                          <div
+                            style={{
+                              width: `${poolUsersMax > 0 ? (row.totalTokens / poolUsersMax) * 100 : 0}%`,
+                              height: '100%',
+                              borderRadius: 3,
+                              background: 'linear-gradient(90deg, #1677ff, #69b1ff)',
+                            }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 12, color: '#8c8c8c', marginLeft: 30, marginTop: 4 }}>
+                          请求 {row.requestCount.toLocaleString()} 次 · 输入 {row.promptTokens.toLocaleString()} / 输出{' '}
+                          {row.completionTokens.toLocaleString()}
+                          {row.overageTokens > 0 && (
+                            <span style={{ color: '#d46b08' }}> · 超额 {row.overageTokens.toLocaleString()}</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 16 }}>
+                  共 {poolUsers.length} 名发起人,合计消耗 {poolUsersTotal.toLocaleString()} tokens。
+                </Typography.Paragraph>
+              </>
+            )}
+          </Spin>
+        ) : null}
+      </Drawer>
       <SubmitModal
         title={grantTarget ? `编辑额度授权(${grantTarget.subjectName} / ${grantTarget.modelDisplayName})` : '新建额度授权'}
         open={grantModalOpen}
@@ -482,7 +694,7 @@ export default function LlmQuotasPage() {
           <Form.Item
             name="monthlyLimitTokens"
             label="月度额度(token)"
-            tooltip="每月可消耗的 token 上限;-1 表示不限量"
+            tooltip="每月可消耗的 token 上限;-1 表示不限量,0 表示当月不可用"
             rules={[{ required: true, message: '请输入月度额度' }]}
           >
             <InputNumber style={{ width: '100%' }} min={-1} precision={0} />

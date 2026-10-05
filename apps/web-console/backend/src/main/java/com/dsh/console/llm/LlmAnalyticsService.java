@@ -39,9 +39,15 @@ public class LlmAnalyticsService {
         return ledgerRepository.filterOptions(userScope);
     }
 
-    /** 按维度汇总某月消耗。dimension 取 user/org_unit/model。 */
+    /** 按维度汇总某月消耗。dimension 取 user/pool_user/pool_org_unit/model。 */
     public List<LlmLedgerJdbcRepository.SummaryRow> summary(String dimension, String usageMonth) {
         return ledgerRepository.summary(dimension, usageMonth);
+    }
+
+    /** 池维度用户分解:某授权池当月按发起人聚合的消耗,总消耗倒序(复用 SummaryRow)。 */
+    public List<LlmLedgerJdbcRepository.SummaryRow> poolUserBreakdown(String sourceType, UUID sourceId,
+                                                                      UUID modelId, String usageMonth) {
+        return ledgerRepository.poolUserBreakdown(sourceType, sourceId, modelId, usageMonth);
     }
 
     /**

@@ -142,6 +142,9 @@ export const SERVICE_PAGE: Record<string, string> = {
   workspaceChanges: 'deliverables.md',
   terminalController: 'workspace.md',
   directoryPickerController: 'workspace.md',
+  currentUser: 'enterprise.md',
+  platformUsers: 'enterprise.md',
+  skillSync: 'enterprise.md',
 }
 
 /**
@@ -245,6 +248,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'webserver': 'web-server.md',
   'workflow': 'workflow.md',
   'workspace': 'workspace.md',
+  'platform-user': 'enterprise.md',
 }
 
 /**
@@ -945,6 +949,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   TerminalFrame: 'Browser terminal stream frames are owned by packages/api/terminal-controller/README.md',
   TerminalRetentionFrame: 'Browser terminal window holds are owned by packages/api/terminal-controller/README.md',
   WebTerminalId: 'Browser terminal identity is owned by packages/api/terminal-controller/README.md',
+  PlatformUser: 'enterprise governance user record is owned by packages/enterprise/platform-user/README.md',
+  PlatformUserProvider: 'enterprise platform-user provider contract is owned by packages/enterprise/platform-user/README.md',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */

@@ -31,7 +31,7 @@ import {
 export const name = 'platform-user-api'
 
 /** 等待 webServer 和 platformUsers 服务就绪后才挂载路由。 */
-export const inject = ['webServer', 'platformUsers'] as const
+export const inject = ['webServer', 'platformUsers']
 
 /** 插件配置：Supabase 连接信息，用于 /auth/config 端点向前端暴露。 */
 export interface Config {
@@ -210,7 +210,7 @@ async function dispatchAuth(
   if (method === 'POST' && segments.length === 1 && segments[0] === 'connectivity-check') {
     const body = await readJsonBody(req)
     const rawUrl = typeof body === 'object' && body !== null && 'url' in body
-      ? String((body as { url: unknown }).url).trim()
+      ? String(body.url).trim()
       : ''
     let parsed: URL
     try {

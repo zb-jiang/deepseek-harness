@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/enterprise/llm-access/README.md
+/:
+  en: 23fbf8fff39a6bbb
+  zh: aa0d5a4da2a6845f
+/deepseek-ai-dsh-llm-access:
+  en: bde887aec8b01f08
+  zh: c9a6c52729638931
+/deepseek-ai-dsh-llm-access/summary:
+  en: 4925f325ec292b9f
+  zh: 26a8af3010c2d942
+/deepseek-ai-dsh-llm-access/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-llm-access/use-this-package:
+  en: 47207e0a581de122
+  zh: 02ec4ce75a69aa4e
+/deepseek-ai-dsh-llm-access/use-this-package/minimal-configuration:
+  en: 986a0a85966fbf14
+  zh: 8853a06571b21a42
+/deepseek-ai-dsh-llm-access/use-this-package/what-it-registers:
+  en: 1afbaa4f4fdd3aad
+  zh: dd2d2b19542a7e7b
+/deepseek-ai-dsh-llm-access/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: 29b3be7e036131d4
+/deepseek-ai-dsh-llm-access/understand-the-implementation/a-route-that-follows-the-catalog:
+  en: 672412ae77bf3444
+  zh: 3a75aea25c8a4bb9
+/deepseek-ai-dsh-llm-access/understand-the-implementation/refresh-on-four-triggers:
+  en: 12e4e84217b33272
+  zh: 4e56408247ee4384
+/deepseek-ai-dsh-llm-access/understand-the-implementation/employee-facing-failure-copy:
+  en: 1a6aa578812a846a
+  zh: ad29e0c46893e7f2
+/deepseek-ai-dsh-llm-access/further-exploration:
+  en: ee61fb39ddd60468
+  zh: ebd3c82eb9be39de
+/deepseek-ai-dsh-llm-access/model-experience:
+  en: 7a313d3f455459ee
+  zh: d7b4e8ee1b3df515
+/deepseek-ai-dsh-llm-access/model-experience/kv-cache-effect:
+  en: 71d1a082ca2153e1
+  zh: d9a04db771676b68
+/deepseek-ai-dsh-llm-access/known-limitations-and-deferred-work:
+  en: 9dbd11c9d216abd3
+  zh: 15c1212d1fe263a9
+/deepseek-ai-dsh-llm-access/known-limitations-and-deferred-work/dev-note:
+  en: 8a5045317cf26d97
+  zh: f8f9b66ba76ea26b

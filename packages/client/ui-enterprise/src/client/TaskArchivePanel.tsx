@@ -72,7 +72,7 @@ function activityTypeLabel(type: string): string {
 
 /** 变量值的人读格式:JSON 一行,超长截断。 */
 function formatValue(value: unknown): string {
-  const text = JSON.stringify(value) ?? 'null'
+  const text = value === undefined ? 'null' : JSON.stringify(value)
   return text.length > 160 ? `${text.slice(0, 159)}…` : text
 }
 
@@ -105,12 +105,14 @@ function useArchiveData(task: ArchiveTaskRef | undefined, refreshKey: string | u
           getHistoricVariables(instanceId),
           getBpmnXml(definitionId),
         ])
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- tsgolint cannot track the closure-mutated `live` flag
         if (!live) return
         setState({
           loading: false, error: null, activities, variables,
           diagram: parseMiniBpmn(xml),
         })
       } catch (e) {
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- tsgolint cannot track the closure-mutated `live` flag
         if (!live) return
         setState({
           ...ARCHIVE_EMPTY,
@@ -170,7 +172,7 @@ export function TaskArchivePanel({ sessionId, useSession, useChat, useTabInfo, w
   }, [blocks, pickedNo, nodes])
   const jsonTreeData = useMemo<object | unknown[] | null>(() => {
     if (json === null || typeof json !== 'object') return null
-    return json as object | unknown[]
+    return json
   }, [json])
   const jsonText = useMemo(
     () => (json === undefined ? '' : JSON.stringify(json, null, 2)),

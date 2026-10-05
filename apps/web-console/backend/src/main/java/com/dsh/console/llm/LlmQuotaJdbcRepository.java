@@ -9,6 +9,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,9 +23,17 @@ import java.util.UUID;
 @Repository
 public class LlmQuotaJdbcRepository {
 
+    /** 当前自然月键(yyyy-MM);与账本/余额行的 usage_month 口径一致。 */
+    private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
+
+    private static String currentMonth() {
+        return YearMonth.now().format(MONTH_FORMAT);
+    }
+
     /**
      * 月度余额行快照。
-     * 业务含义:available = limitTokens - consumedTokens - reservedTokens;为负表示软提醒透支中。
+     * 业务含义:available = limitTokens - consumedTokens - reservedTokens;为负表示软提醒透支中;
+     * limitTokens 为 -1 表示不限量(运行时跳过余额检查)。
      */
     public record BalanceRow(
         UUID id,
@@ -48,7 +58,7 @@ public class LlmQuotaJdbcRepository {
     public List<QuotaGrantDto> listGrants(UUID modelId) {
         String sql = GRANT_SELECT + (modelId != null ? " WHERE g.model_id = :modelId" : "")
             + " ORDER BY g.created_at DESC";
-        var spec = jdbcClient.sql(sql);
+        var spec = jdbcClient.sql(sql).param("month", currentMonth());
         if (modelId != null) {
             spec = spec.param("modelId", modelId);
         }
@@ -58,6 +68,7 @@ public class LlmQuotaJdbcRepository {
     public Optional<QuotaGrantDto> findGrantById(UUID id) {
         return jdbcClient.sql(GRANT_SELECT + " WHERE g.id = :id")
             .param("id", id)
+            .param("month", currentMonth())
             .query(this::mapGrant)
             .optional();
     }
@@ -80,6 +91,7 @@ public class LlmQuotaJdbcRepository {
             .param("subjectId", subjectId)
             .param("modelId", modelId)
             .param("date", date)
+            .param("month", currentMonth())
             .query(this::mapGrant)
             .optional();
     }
@@ -334,6 +346,12 @@ public class LlmQuotaJdbcRepository {
 
     // ---------- 内部 ----------
 
+    /**
+     * 授权查询基片段:联立当前自然月余额行,带出该授权在本周期的已消耗与剩余。
+     * 剩余口径:授权或余额行快照为 -1(不限量)返回 -1;无余额行(本月未动)取授权当前值;
+     * 有余额行按快照 limit - consumed - reserved(负数为软提醒透支,与运行时扣减口径一致,
+     * 授权月中调整不改写已开行)。
+     */
     private static final String GRANT_SELECT = """
         SELECT g.id, g.subject_type, g.subject_id,
                CASE g.subject_type
@@ -342,9 +360,19 @@ public class LlmQuotaJdbcRepository {
                END AS subject_name,
                g.model_id, m.display_name AS model_display_name,
                g.monthly_limit_tokens, g.enabled, g.effective_from, g.effective_to,
-               g.created_at, g.updated_at
+               g.created_at, g.updated_at,
+               COALESCE(b.consumed_tokens, 0) AS period_consumed_tokens,
+               CASE
+                   WHEN g.monthly_limit_tokens < 0 THEN -1
+                   WHEN b.id IS NULL THEN g.monthly_limit_tokens
+                   WHEN b.limit_tokens < 0 THEN -1
+                   ELSE b.limit_tokens - b.consumed_tokens - b.reserved_tokens
+               END AS period_remaining_tokens
         FROM public.llm_quota_grants g
         JOIN public.llm_enterprise_models m ON m.id = g.model_id
+        LEFT JOIN public.llm_monthly_balances b
+            ON b.usage_month = :month AND b.source_type = g.subject_type
+           AND b.source_id = g.subject_id AND b.model_id = g.model_id
         """;
 
     private static final String ROUTE_SELECT = """
@@ -393,7 +421,9 @@ public class LlmQuotaJdbcRepository {
             rs.getObject("effective_from", LocalDate.class),
             rs.getObject("effective_to", LocalDate.class),
             rs.getObject("created_at", OffsetDateTime.class),
-            rs.getObject("updated_at", OffsetDateTime.class)
+            rs.getObject("updated_at", OffsetDateTime.class),
+            rs.getLong("period_consumed_tokens"),
+            rs.getLong("period_remaining_tokens")
         );
     }
 

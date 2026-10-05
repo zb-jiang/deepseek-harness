@@ -32,7 +32,7 @@ export type { KbBlockData } from './text.ts'
 export const name = 'kb-context'
 
 /** Services: local webserver (report route), login identity (JWT), agent scope events. */
-export const inject = ['webServer', 'currentUser', 'agents'] as const
+export const inject = ['webServer', 'currentUser', 'agents']
 
 /** kb 解析缓存 TTL:应用开通/改名知识库后最迟 5 分钟内生效。 */
 const KB_TTL_MILLIS = 5 * 60_000
@@ -52,6 +52,9 @@ export const Config = z.object({
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Knowledge-base retrieval display attribution; readers preserve the content without this producer.
+     * @persistenceAttribution
+     */
     'kb-context': { kind: 'kb-context' } & ContextFormed
   }
 }

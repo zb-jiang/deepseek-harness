@@ -254,7 +254,7 @@ export function ProcessDiagram({ diagram, statuses, currentActivityId }: Process
       {legend}
       <Modal
         open={expanded}
-        onClose={() => setExpanded(false)}
+        onClose={() => { setExpanded(false) }}
         title="流程进度"
         closeLabel="还原"
         className={css.lightboxDialog ?? ''}
@@ -263,7 +263,7 @@ export function ProcessDiagram({ diagram, statuses, currentActivityId }: Process
           <button
             type="button"
             className={css.zoomBtn}
-            onClick={() => setZoom(z => clampZoom(z - ZOOM_STEP))}
+            onClick={() => { setZoom(z => clampZoom(z - ZOOM_STEP)) }}
             disabled={zoom <= ZOOM_MIN}
             aria-label="缩小"
           >
@@ -273,7 +273,7 @@ export function ProcessDiagram({ diagram, statuses, currentActivityId }: Process
           <button
             type="button"
             className={css.zoomBtn}
-            onClick={() => setZoom(z => clampZoom(z + ZOOM_STEP))}
+            onClick={() => { setZoom(z => clampZoom(z + ZOOM_STEP)) }}
             disabled={zoom >= ZOOM_MAX}
             aria-label="放大"
           >
@@ -282,7 +282,7 @@ export function ProcessDiagram({ diagram, statuses, currentActivityId }: Process
           <button
             type="button"
             className={css.zoomBtn}
-            onClick={() => setZoom(ZOOM_MIN)}
+            onClick={() => { setZoom(ZOOM_MIN) }}
             disabled={zoom === ZOOM_MIN}
           >
             适应宽度

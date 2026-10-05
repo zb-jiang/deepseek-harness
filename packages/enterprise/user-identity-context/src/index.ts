@@ -33,7 +33,7 @@ import { type OrgPosition, renderIdentityText } from './text.ts'
 export const name = 'user-identity-context'
 
 /** Service that must be available before the identity listener mounts. */
-export const inject = ['agents'] as const
+export const inject = ['agents']
 
 /** 插件配置:web-console 基地址(组织身份清单拉取目标)。 */
 export interface Config {
@@ -48,6 +48,9 @@ export const Config = z.object({
 /** This package's message-source kind: the identity block's package ownership in the durable log. */
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Identity display attribution; readers preserve the content without this producer.
+     * @persistenceAttribution
+     */
     'user-identity-context': { kind: 'user-identity-context' } & ContextFormed
   }
 }
@@ -99,12 +102,16 @@ export class CurrentUserService extends Service {
     this.accessToken = undefined
   }
 
-  /** @returns the latest verified identity, or undefined when nobody is logged in. */
+  /**
+   * Read the latest verified identity.
+   * @returns the latest verified identity, or undefined when nobody is logged in.
+   */
   get(): PlatformUser | undefined {
     return this.user
   }
 
   /**
+   * Read the latest verified bearer token.
    * @returns the latest verified bearer token, or undefined when nobody has
    * signed in; may be stale after token expiry — callers treat a 401 as
    * "signed out" and retry after the next verified `/me`.
@@ -151,7 +158,7 @@ export function apply(ctx: Context, config: Config): void {
   let positionsCache: { token: string; expiresAt: number; positions: OrgPosition[] } | undefined
 
   const loadPositions = async (token: string): Promise<OrgPosition[]> => {
-    const webConsoleBaseUrl = resolveWebConsoleBaseUrl(config.webConsoleBaseUrl.get() ?? '')
+    const webConsoleBaseUrl = resolveWebConsoleBaseUrl(config.webConsoleBaseUrl.get())
     if (webConsoleBaseUrl === undefined) {
       ctx.logger.warn('user-identity-context: webConsoleBaseUrl 配置无效,本轮身份块不含组织位置')
       return []

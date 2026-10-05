@@ -16,8 +16,8 @@ export interface SessionKbEntry {
   readonly applicationId: string | null
 }
 
-/** 上报端点(本地 kb-context 插件注册的 exact 路由;document-relative,无前导斜杠)。 */
-const REPORT_PATH = 'api/enterprise/kb/session-context'
+/** 上报路由键(本地 kb-context 插件注册的 exact 路径;浏览器侧请求时去前导斜杠)。 */
+const REPORT_PATH = '/api/enterprise/kb/session-context'
 
 /**
  * 上报会话归属(fire-and-forget;未登录静默跳过)。
@@ -26,7 +26,7 @@ const REPORT_PATH = 'api/enterprise/kb/session-context'
 export function reportSessionKb(entries: readonly SessionKbEntry[]): void {
   const token = readToken()
   if (token === null) return
-  void fetch(REPORT_PATH, {
+  void fetch(REPORT_PATH.slice(1), {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify({ entries }),

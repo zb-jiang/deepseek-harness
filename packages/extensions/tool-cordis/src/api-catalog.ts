@@ -843,6 +843,35 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'currentUser',
+    summary: 'In-process store of the latest verified platform user.',
+    description: 'In-process store of the latest verified platform user. The `platform-user/verified` event (emitted on every verified `GET /api/enterprise/auth/me`) feeds CurrentUserService.observe; `platform-user/signout` feeds CurrentUserService.clear; the identity context listener reads the store at each turn\'s first step. State lives in memory only: a restarted webserver learns the identity at the client\'s next `/me` call, and a token expiring mid-session leaves the last verified identity in place until the next touchpoint (a same-human staleness window is benign). The raw access token is kept next to the identity with two consumers: enterprise background services (skill-sync) call server-side APIs as the signed-in employee, and the identity block renders it so the assistant can call enterprise internal systems (Supabase SSO bearer auth) as that employee.',
+    methods: [
+      {
+        signature: 'observe(user: PlatformUser, accessToken?: string): void',
+        description: 'Record one verified platform user as the current identity.',
+        parameters: [{ name: 'user', description: 'platform user resolved from a JWT-verified access token.' }, { name: 'accessToken', description: 'the verified bearer token; omitted keeps any previous token (callers that re-verify only the user).' }],
+      },
+      {
+        signature: 'clear(): void',
+        description: 'Forget the current identity (employee signed out).',
+        parameters: [],
+      },
+      {
+        signature: 'get(): PlatformUser | undefined',
+        description: 'Read the latest verified identity.',
+        parameters: [],
+        returns: 'the latest verified identity, or undefined when nobody is logged in.',
+      },
+      {
+        signature: 'getToken(): string | undefined',
+        description: 'Read the latest verified bearer token.',
+        parameters: [],
+        returns: 'the latest verified bearer token, or undefined when nobody has signed in; may be stale after token expiry — callers treat a 401 as "signed out" and retry after the next verified `/me`.',
+      },
+    ],
+  },
+  {
     key: 'deepseekAccount',
     summary: 'Account operations; only Host consumers can obtain a request credential.',
     description: 'Account operations; only Host consumers can obtain a request credential.',
@@ -1626,6 +1655,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Select whether plan mode should be active. Between turns the method appends the change immediately because no in-turn pre-step will run until another prompt starts a turn. The open-turn fold is the idle signal: agent status stays `running` through post-turn checkpointing, when no further in-turn pre-step runs. During an open turn the selection remains pending until the next accepted in-turn pre-step. Repeated selection of the current or already-pending state is a no-op.',
         parameters: [{ name: 'agent', description: 'The agent to switch.' }, { name: 'active', description: 'Whether plan mode should be active.' }],
         returns: 'what happened: `committed` (logged now), `queued` (awaiting the next accepted in-turn pre-step), `cancelled` (an opposite pending selection was cleared; the logged state already matches), or `noop` (already in that state).',
+      },
+    ],
+  },
+  {
+    key: 'platformUsers',
+    summary: '`ctx.platformUsers`: one active provider plus the read entry point.',
+    description: '`ctx.platformUsers`: one active provider plus the read entry point.',
+    methods: [
+      {
+        signature: 'registerProvider(provider: PlatformUserProvider): () => void',
+        description: 'Register the active provider. Only one provider may be mounted.',
+        parameters: [{ name: 'provider', description: 'provider implementation.' }],
+        returns: 'disposer that unregisters it.',
+      },
+      {
+        signature: 'getUserByToken(accessToken: string): Promise<PlatformUser>',
+        description: 'Resolve a platform user from a Supabase Auth access token.',
+        parameters: [{ name: 'accessToken', description: 'Supabase Auth access token (Bearer).' }],
+        returns: 'the platform user record.',
       },
     ],
   },
@@ -2652,6 +2700,29 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Load and validate the winning candidate, passing its opaque discovery locator back to the provider. Cancellation is rechecked after selection, including cache hits, and raced against loading so an uncooperative provider cannot hang the caller.',
         parameters: [{ name: 'name', description: 'kebab-case skill name.' }, { name: 'options', description: 'view options; `scope` selects the viewing agent\'s layers, `cwd` selects workspace-sensitive skills, and `signal` cancels work.' }],
         returns: 'the full skill, including body content, or `undefined`.',
+      },
+    ],
+  },
+  {
+    key: 'skillSync',
+    summary: '员工端 skill 分发服务:周期同步 + 即时安装入口(工作项 3 的对接面)。',
+    description: '员工端 skill 分发服务:周期同步 + 即时安装入口(工作项 3 的对接面)。\n\n<p>daemon 只在有人登录时干活:未登录(token 缺失)或 token 过期(401)的 一轮直接跳过,下轮重试;单 skill 下载失败记 warn 不中断同轮其他 skill。',
+    methods: [
+      {
+        signature: 'async start(): Promise<void>',
+        description: '启动服务:缓存目录不存在时创建,随后立即跑一轮同步(不等第一个 interval)。 本服务由 apply() 内普通构造挂载(非 class 插件),cordis 不会自动调用 `[Service.init]`,故由 apply 显式调用本方法。',
+        parameters: [],
+      },
+      {
+        signature: 'async sync(): Promise<void>',
+        description: '执行一轮同步:拉取当前用户所需清单,下载缺失/过期的 skill 到缓存目录, 有安装动作后失效 skill 注册表缓存。错误记日志不上抛(daemon 语义)。 已有一轮在跑时合并等待,不重复出站。',
+        parameters: [],
+      },
+      {
+        signature: 'async ensureInstalled(names: readonly string[]): Promise<readonly string[]>',
+        description: '确保指定 skill 已安装;缺失时立即执行一轮同步再复查。',
+        parameters: [{ name: 'names', description: '需要就绪的 skill 裸名(待办 dshMeta.skillRefs)。' }],
+        returns: '仍缺失的 skill 名(同步后依旧不可用,调用方走降级提示)。',
       },
     ],
   },
@@ -4140,6 +4211,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'The selectable process catalog changed.',
     description: 'The selectable process catalog changed. Payload-free by design: consumers subscribe first, then re-read the complete catalog.',
     parameters: [],
+  },
+  {
+    name: 'platform-user/signout',
+    mode: 'emit',
+    signature: '\'platform-user/signout\'(): void',
+    summary: 'The employee signed out on this DSH instance (emitted by `platform-user-api` on the signout touchpoint).',
+    description: 'The employee signed out on this DSH instance (emitted by `platform-user-api` on the signout touchpoint). Listeners holding a latest-verified-identity cache must forget it. Carries no payload: the touchpoint does not prove which identity signed out.',
+    parameters: [],
+  },
+  {
+    name: 'platform-user/verified',
+    mode: 'emit',
+    signature: '\'platform-user/verified\'(user: PlatformUser, accessToken: string): void',
+    summary: 'A platform user identity was verified through an auth touchpoint (emitted by `platform-user-api` after `getUserByToken` resolves).',
+    description: 'A platform user identity was verified through an auth touchpoint (emitted by `platform-user-api` after `getUserByToken` resolves). Listeners typically maintain a latest-verified-identity cache.',
+    parameters: [{ name: 'user', description: 'the verified platform user record.' }, { name: 'accessToken', description: 'the verified bearer token, re-carried so enterprise consumers (e.g. skill-sync) can call server-side APIs as the signed-in employee.' }],
   },
   {
     name: 'plugin-manager/changed',
@@ -5918,8 +6005,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PermissionCatalog {\n    options: PresetOption[];\n    defaultOptions: PresetOption[];\n    defaultPreset: string;\n}',
   },
   {
+    name: 'PlatformRole',
+    declaration: 'export type PlatformRole = \'system_admin\' | \'app_admin\' | \'normal_user\';',
+  },
+  {
     name: 'PlatformSession',
     declaration: 'export interface PlatformSession {\n    readonly origin: string;\n    readonly token: string;\n    readonly userId: AccountUserId | null;\n    readonly embeddedPageDist?: string;\n    readonly requestHeaders?: Readonly<Record<string, string>>;\n}',
+  },
+  {
+    name: 'PlatformUser',
+    declaration: 'export interface PlatformUser {\n    id: PlatformUserId;\n    authSubject: string;\n    loginName: string;\n    displayName: string;\n    email: string;\n    status: PlatformUserStatus;\n    platformRoles: readonly PlatformRole[];\n    createdAt: string;\n    createdBy?: PlatformUserId;\n    approvedAt?: string;\n    approvedBy?: PlatformUserId;\n    disabledAt?: string;\n    disabledBy?: PlatformUserId;\n    disabledReason?: string;\n    lockedAt?: string;\n    lockedBy?: PlatformUserId;\n    lockedReason?: string;\n}',
+  },
+  {
+    name: 'PlatformUserId',
+    declaration: 'export type PlatformUserId = Branded<\'PlatformUserId\'>;',
+  },
+  {
+    name: 'PlatformUserProvider',
+    declaration: 'export interface PlatformUserProvider {\n    getUserByToken(accessToken: string): Promise<PlatformUser>;\n}',
+  },
+  {
+    name: 'PlatformUserStatus',
+    declaration: 'export type PlatformUserStatus = \'pending_approval\' | \'active\' | \'disabled\' | \'locked\';',
   },
   {
     name: 'PluginChange',

@@ -709,10 +709,8 @@ pnpm dsh web --patch examples/mcp-memory/memorix.cordis.yml
 
 打开 `http://127.0.0.1:3080`，等启动日志里出现 `mcp__memorix__...` 工具就绪后，按官方示例的验证步骤试：
 
-1. 在会话 A 里说：> 记住我的幸运数字是 7。
-   → 管家会调用 memorix 的写入工具。
-2. 新建会话 B（同一个运行的 host，别重启），问：> 查一下记忆，我的幸运数字是多少？
-   → 管家调用 memorix 的搜索工具，答出 7。
+1. 在会话 A 里说：> 记住我的幸运数字是 7。→ 管家会调用 memorix 的写入工具。
+2. 新建会话 B（同一个运行的 host，别重启），问：> 查一下记忆，我的幸运数字是多少？→ 管家调用 memorix 的搜索工具，答出 7。
 
 **这道 seam 的意义**：A、B 是两个不同会话，各自的"日记本"互不相通；但它们共享了同一个"长期记忆提供方"，所以信息能跨会话留存。而这一切，DSH 本体一行没改——只是 `--patch` 挂了个提供方。
 
@@ -1835,7 +1833,7 @@ study-reminder/
 
 - **`dsh.bundle.patch`（灵魂字段）**：告诉 DSH"这个包是一件 bundle，被装进 profile 时，把 `cordis.patch.yml` 这一层叠进配置树"。没有这个声明的包也能装，但 dsh 会警告它"只是个普通依赖，不是一层"，不会激活任何配置。
 - `main`：指向**构建出来的 JS**，不是 `.ts`。为什么必须构建，见下一步。
-- `peerDependencies`：`cordis`、`dsh-tools`、`schemastery` 由 DSH 运行环境提供（profile 启动时会把内置插件链接到位）。声明成 peer 的意思是"运行时得有，但安装时别替我下载"--官方 bundle 也是这么声明的。
+- `peerDependencies`：`@deepseek-ai/cordis`、`dsh-tools`、`@deepseek-ai/schemastery` 由 DSH 运行环境提供（profile 启动时会把内置插件链接到位）。声明成 peer 的意思是"运行时得有，但安装时别替我下载"--官方 bundle 也是这么声明的。
 - `files`：将来 `pnpm pack` / 发布时打包哪些文件。
 
 `cordis.patch.yml`（就放在插件目录里）：

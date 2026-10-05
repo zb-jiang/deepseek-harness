@@ -30,6 +30,7 @@ export const KB_SOURCE_NAME = 'kbDocs'
 /**
  * chip 的剪贴板/模型投影(草稿文本形态;与 kb_read 工具的读取契约一致)。
  * @param ref - 文档 id(occurrence.ref,服务端 UUID)。
+ * @returns chip 的投影文本。
  */
 export function kbReferenceText(ref: string): string {
   return `知识库文档 docid: ${ref}`
@@ -86,6 +87,7 @@ export class KnowledgeWorkbench {
    * 知识库全树(文件夹 + 递归全部文档):拉最新并刷新菜单缓存。选择器
    * Modal 每次打开调用,保证看到刚上传的文档;'@' 菜单读同一份缓存。
    * @param kbId - 知识库 id。
+   * @returns 文件夹与文档的树形数据;失败时 reject(缓存不驻留)。
    */
   loadKbTree(kbId: string): Promise<KbTree> {
     const pending = Promise.all([
@@ -103,6 +105,7 @@ export class KnowledgeWorkbench {
   /**
    * '@' 菜单的文档树(缓存优先,miss 才拉;并发调用共享同一 Promise)。
    * @param kbId - 知识库 id。
+   * @returns 文件夹与文档的树形数据。
    */
   kbMenuTree(kbId: string): Promise<KbTree> {
     return this.treeByKb.get(kbId) ?? this.loadKbTree(kbId)
@@ -112,6 +115,7 @@ export class KnowledgeWorkbench {
    * 关键字检索文档(仅解析 ready;选择器搜索框数据源)。
    * @param kbId - 知识库 id。
    * @param kw - 关键字。
+   * @returns 命中的文档列表。
    */
   async searchDocuments(kbId: string, kw: string): Promise<KbDocument[]> {
     return listDocuments(kbId, { kw })

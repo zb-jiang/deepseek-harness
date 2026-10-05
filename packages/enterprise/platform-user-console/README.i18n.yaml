@@ -2,18 +2,39 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/platform-user-console/README.md
+/:
+  en: b371fdd6396ae022
+  zh: 5b8318c22a8c0e30
 /deepseek-ai-dsh-platform-user-console:
-  en: bc1c197e71442098
-  zh: 2556708b8d597806
-/deepseek-ai-dsh-platform-user-console/plugin-contract:
-  en: fdd105d44891a611
-  zh: a9d29f9cce058d8a
-/deepseek-ai-dsh-platform-user-console/invariants:
-  en: d3fa5a27192409dc
-  zh: 0cf57eb0bbbe1b0c
+  en: 3aba503f11a08e85
+  zh: 32a5d983ab5c25dc
+/deepseek-ai-dsh-platform-user-console/summary:
+  en: 8be9babcb6676ad8
+  zh: fa35444be4049480
+/deepseek-ai-dsh-platform-user-console/table-of-contents:
+  en: b563e4ec4727d0de
+  zh: f009bdd6b0122ac6
+/deepseek-ai-dsh-platform-user-console/use-this-package:
+  en: 2c18cf70e8a5a5eb
+  zh: 7fe65e9dcb9e964d
+/deepseek-ai-dsh-platform-user-console/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-platform-user-console/understand-the-implementation/the-self-read-contract:
+  en: efb6084e3a9cfc10
+  zh: 3ca7b9304fb60095
+/deepseek-ai-dsh-platform-user-console/further-exploration:
+  en: de25ca357bf80aed
+  zh: 32435b57b016ef45
 /deepseek-ai-dsh-platform-user-console/model-experience:
-  en: 2009a98ed5645bc0
-  zh: 95b8ea6125dc4a51
+  en: 56c255724eab56aa
+  zh: 6b9c1be896f0ea75
+/deepseek-ai-dsh-platform-user-console/model-experience/kv-cache-effect:
+  en: 47153a03868e8fe0
+  zh: 3967de195410a011
 /deepseek-ai-dsh-platform-user-console/known-limitations-and-deferred-work:
-  en: a45d9dc98aff080e
-  zh: 1a9bb6a147295d53
+  en: 8261fe415c5e03c1
+  zh: 48a29967ddc36937
+/deepseek-ai-dsh-platform-user-console/known-limitations-and-deferred-work/dev-note:
+  en: e5f1bb7ed9ddb1dd
+  zh: 35ea38b1536cc9e0

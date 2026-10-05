@@ -45,7 +45,7 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 export const name = 'backend-task'
 
 /** 等待 webserver、Agent 注册表、会话存储、默认模型与 skill 注册表就绪后才挂载。 */
-export const inject = ['webServer', 'agents', 'sessions', 'agentDefaultModel', 'skills'] as const
+export const inject = ['webServer', 'agents', 'sessions', 'agentDefaultModel', 'skills']
 
 /** skill 同步 daemon 默认间隔:5 分钟。 */
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -154,7 +154,7 @@ function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown
  * 从 assistant 文本提取首个 `{` 到末个 `}` 之间的 JSON 对象;无花括号或
  * 解析失败返回 undefined(任务按 failed 结算,调用方重试)。
  */
-function extractJson(text: string): unknown | undefined {
+function extractJson(text: string): unknown {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start === -1 || end <= start) return undefined
@@ -178,6 +178,7 @@ function summarize(session: Session, firstSeq: SessionLogOffset): RunOutcome {
   let reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
   const length = session.seq
   for (let seq = firstSeq; seq < length; seq++) {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const event = session.eventAt(SessionSeq(seq))
     if (event === undefined) {
       throw new Error(`backend-task summary cannot read seq ${String(seq)} below captured length ${String(length)}`)
@@ -238,6 +239,7 @@ async function runBackendTask(
   sections.push(prompt)
   const promptText = sections.join('\n\n')
   const selection = deps.defaultModel.currentSelection()
+  // oxlint-disable-next-line typescript/unbound-method -- called with its receiver; the rule cannot trace the interface indirection
   const { agent, dispose } = await deps.agents.create({
     sessionId: brandString<SessionId>(`backend-task-${randomUUID()}`),
     meta: { cwd: process.cwd() },
@@ -500,9 +502,9 @@ export function apply(ctx: Context, config: Config): void {
   'backend-task: /api/backend/tasks prefix route',
   )
   // 注册心跳 daemon:启动先跑一轮,周期续约(active 判定窗口 5 分钟)
-  void registerOnce(ctx, options).catch(error => ctx.logger.warn('backend-task: 注册失败', error))
+  void registerOnce(ctx, options).catch((error: unknown) => { ctx.logger.warn('backend-task: 注册失败', error) })
   const registerTimer = setInterval(() => {
-    void registerOnce(ctx, options).catch(error => ctx.logger.warn('backend-task: 注册心跳异常', error))
+    void registerOnce(ctx, options).catch((error: unknown) => { ctx.logger.warn('backend-task: 注册心跳异常', error) })
   }, options.registerIntervalMs)
   // skill 同步 daemon:mkdir 失败不阻塞启动,记日志后每轮 interval 重试
   let providerControl: SkillProviderControl | undefined
@@ -523,10 +525,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => () => { void provider?.dispose() }, 'backend-task: provider disposal')
   const syncOnce = () =>
     syncSkillsOnce(ctx, options, () => providerControl)
-      .catch(error => ctx.logger.warn('backend-task: skill 同步失败', error))
+      .catch((error: unknown) => { ctx.logger.warn('backend-task: skill 同步失败', error) })
   void mkdir(options.skillDir, { recursive: true })
     .then(() => syncOnce())
-    .catch(error => ctx.logger.warn('backend-task: skill 缓存目录创建失败', error))
+    .catch((error: unknown) => { ctx.logger.warn('backend-task: skill 缓存目录创建失败', error) })
   const syncTimer = setInterval(() => void syncOnce(), options.syncIntervalMs)
   ctx.effect(() => () => {
     clearInterval(registerTimer)

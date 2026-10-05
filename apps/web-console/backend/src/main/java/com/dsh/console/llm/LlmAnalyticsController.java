@@ -35,13 +35,26 @@ public class LlmAnalyticsController {
 
     /**
      * 维度汇总(仅系统管理员)。
-     * dimension: user(按发起人) / org_unit(按实际扣费部门池) / model(按模型);month 格式 YYYY-MM。
+     * dimension: user(按发起人,谁在用) / pool_user(按实际扣费个人池) / pool_org_unit(按实际扣费部门池) /
+     * model(按模型);month 格式 YYYY-MM。
      */
     @GetMapping("/summary")
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public ApiResponse<List<LlmLedgerJdbcRepository.SummaryRow>> summary(@RequestParam String dimension,
                                                                          @RequestParam String month) {
         return ApiResponse.ok(analyticsService.summary(dimension, month));
+    }
+
+    /**
+     * 池维度用户分解(仅系统管理员):某授权池(sourceType+sourceId+modelId)当月按发起人聚合的
+     * 消耗,总消耗倒序;subject_id 为发起人、subject_name 为用户显示名。供授权列表点击池子下钻。
+     */
+    @GetMapping("/pool-users")
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public ApiResponse<List<LlmLedgerJdbcRepository.SummaryRow>> poolUsers(
+        @RequestParam String sourceType, @RequestParam UUID sourceId,
+        @RequestParam UUID modelId, @RequestParam String month) {
+        return ApiResponse.ok(analyticsService.poolUserBreakdown(sourceType, sourceId, modelId, month));
     }
 
     /** 近一年每日消耗热力图,系统管理员看全对象合计,其余用户仅本人(与维度筛选无关)。 */

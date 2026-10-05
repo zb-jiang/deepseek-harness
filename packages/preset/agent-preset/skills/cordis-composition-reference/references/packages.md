@@ -75,6 +75,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-deliverables` | no | Changed-files card with per-file comparison tabs, delivery cards, and clickable final-response file references for Web |
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | no | In-app directory browsing surface: the workspace directory-flow owner rendering the host's listing and creation primitives |
 | `@deepseek-ai/dsh-client-ui-directory-picker-native` | no | Native directory-picker surface: the renderless workspace directory-flow occupant driving the local Desktop or Host OS chooser |
+| `@deepseek-ai/dsh-client-ui-enterprise` | no | Enterprise workbench UI: auth gate + task-queue sidebar + task-archive details over the three-column shell |
 | `@deepseek-ai/dsh-client-ui-goal` | no | Session goal surface: GoalBar docked above the composer, read from the goal session projection |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | no | Input trigger pipeline: '/' and '@' detection, candidate menu, pick routing to registered sources |
 | `@deepseek-ai/dsh-client-ui-jobs` | no | Session-header background-job list with on-demand streaming record panels |
@@ -173,6 +174,23 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-office-to-pdf` | yes | Shared Office-to-PDF conversion with bounded queues and caching |
+
+## enterprise
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-backend-task` | yes | Server-side unattended DSH backend task runner: REST submit/poll endpoints over the webserver, one non-interactive Agent session per task, registry heartbeat and skill sync daemons against web-console |
+| `@deepseek-ai/dsh-flowable-task-proxy` | yes | HTTP proxy for /dsh/tasks and /dsh/history from the DSH webserver to the flowable-engine |
+| `@deepseek-ai/dsh-kb-context` | yes | Enterprise session knowledge-base context: employee-client session-to-application reports plus a per-turn model-visible kb block |
+| `@deepseek-ai/dsh-knowledge` | yes | Enterprise knowledge base access on the employee side: webserver proxy to web-console /api/kb plus model-facing kb_search/kb_read/kb_list tools |
+| `@deepseek-ai/dsh-llm-access` | yes | Enterprise LLM access on the employee side: registers the llm-enterprise provider route backed by web-console /api/llm (model catalog + OpenAI-compatible proxy) with the signed-in employee's JWT |
+| `@deepseek-ai/dsh-platform-user` | no | Platform-user governance seam (ctx.platformUsers) for enterprise account approval, roles, and status management |
+| `@deepseek-ai/dsh-platform-user-api` | yes | HTTP API routes for platform-user authentication (/auth/me, /auth/config) |
+| `@deepseek-ai/dsh-platform-user-console` | yes | Web-Console-backed read-only provider for the platform-user seam (JWKS JWT verify + /api/users/me self-read) |
+| `@deepseek-ai/dsh-process-start` | yes | Employee-side process start via AI conversation: model-facing dsh_process_list/dsh_process_start_form/dsh_process_start tools over web-console REST |
+| `@deepseek-ai/dsh-session-delete` | no | HTTP endpoint that permanently deletes one archived session (JSONL artifact directory plus workspace registry bookkeeping) |
+| `@deepseek-ai/dsh-skill-sync` | yes | Enterprise skill distribution: periodic required-skill scan against flowable-engine, download from SkillHub into a dedicated cache root, and injection into ctx.skills |
+| `@deepseek-ai/dsh-user-identity-context` | yes | Enterprise session-identity context: ctx.currentUser store plus a per-turn model-visible identity block |
 
 ## experimental
 

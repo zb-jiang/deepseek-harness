@@ -125,12 +125,19 @@ export async function getKbByApp(appId: string): Promise<KnowledgeBase | null> {
   }
 }
 
-/** 当前用户可见的知识库清单(应用管理员 ∪ active 成员;工作空间上传选应用)。 */
+/**
+ * 当前用户可见的知识库清单(应用管理员 ∪ active 成员;工作空间上传选应用)。
+ * @returns 知识库与角色摘要列表。
+ */
 export async function listMyKbs(): Promise<KbAppSummary[]> {
   return kbFetch<KbAppSummary[]>('/mine')
 }
 
-/** 知识库的文件夹全集(平铺按 path 排序,前端组树)。 */
+/**
+ * 知识库的文件夹全集(平铺按 path 排序,前端组树)。
+ * @param kbId - 目标知识库。
+ * @returns 平铺文件夹列表。
+ */
 export async function listFolders(kbId: string): Promise<KbFolder[]> {
   return kbFetch<KbFolder[]>(`/${kbId}/folders`)
 }
@@ -138,6 +145,7 @@ export async function listFolders(kbId: string): Promise<KbFolder[]> {
 /**
  * 按文档 id 查文档元数据(历史消息 docid 徽标反查名称)。
  * @param docId - 文档 id(服务端 UUID)。
+ * @returns 文档元数据。
  * @throws KbApiError 文档不存在(404,如已删除)或员工失去应用访问权。
  */
 export async function getDocument(docId: string): Promise<KbDocument> {
@@ -154,7 +162,12 @@ export interface ListDocumentsQuery {
   kw?: string
 }
 
-/** 列文档(按文件夹/关键字;搜索结果按解析就绪过滤)。 */
+/**
+ * 列文档(按文件夹/关键字;搜索结果按解析就绪过滤)。
+ * @param kbId - 目标知识库。
+ * @param query - 查询参数,缺省列根下全部。
+ * @returns 文档元数据列表。
+ */
 export async function listDocuments(kbId: string, query: ListDocumentsQuery = {}): Promise<KbDocument[]> {
   const params = new URLSearchParams()
   if (query.folderId != null) params.set('folderId', query.folderId)

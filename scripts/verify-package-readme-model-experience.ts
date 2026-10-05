@@ -230,6 +230,17 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web-fetch-http': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
+
+  'packages/client/ui-enterprise': { kind: 'none', reason: 'Browser-side enterprise workbench UI; it renders state and registers no prompt, tool, or session event.' },
+  'packages/enterprise/backend-task': { kind: 'none', reason: 'The runner submits the interpolated node prompt as an ordinary user message; the BPMN node configuration owns every model-visible contribution.' },
+  'packages/enterprise/flowable-task-proxy': { kind: 'none', reason: 'Pure HTTP forwarding for task endpoints; it registers nothing model-facing.' },
+  'packages/enterprise/llm-access': { kind: 'none', reason: 'The adapter forwards already-assembled requests to the enterprise quota proxy unchanged.' },
+  'packages/enterprise/platform-user': { kind: 'none', reason: 'Identity verification and governance-record storage; it registers nothing model-facing.' },
+  'packages/enterprise/platform-user-api': { kind: 'none', reason: 'Auth endpoints and configuration projection; it registers nothing model-facing.' },
+  'packages/enterprise/platform-user-console': { kind: 'none', reason: 'The provider verifies JWTs and reads governance records; it registers nothing model-facing.' },
+  'packages/enterprise/session-delete': { kind: 'none', reason: 'Archived-session artifact deletion; it registers nothing model-facing.' },
+  'packages/enterprise/skill-sync': { kind: 'indirect', reason: 'The cache-root provider delegates model rendering to dsh-tool-skill.' },
+  'packages/bundle/enterprise-backend': { kind: 'indirect', reason: 'The bundle is a patch-list carrier; each inserted row\'s package owns its model-facing behavior.' },
 }
 
 interface Failure {

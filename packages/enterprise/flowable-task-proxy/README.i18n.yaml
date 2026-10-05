@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/enterprise/flowable-task-proxy/README.md
+/:
+  en: 31f44b2b40faeded
+  zh: 5699f517c8914247
+/deepseek-ai-dsh-flowable-task-proxy:
+  en: a4dee473195edfa5
+  zh: 730cf5401b062859
+/deepseek-ai-dsh-flowable-task-proxy/summary:
+  en: 87665268770702f4
+  zh: 6bb7e62f45def8cf
+/deepseek-ai-dsh-flowable-task-proxy/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-flowable-task-proxy/use-this-package:
+  en: fe767c5d06e0f616
+  zh: 71e7b86e3976e2c2
+/deepseek-ai-dsh-flowable-task-proxy/use-this-package/minimal-configuration:
+  en: f0fdc8975baf3b20
+  zh: a03d8033916c777a
+/deepseek-ai-dsh-flowable-task-proxy/use-this-package/what-is-forwarded:
+  en: dffc9e21532d2b3d
+  zh: c3f3640b3b5d8748
+/deepseek-ai-dsh-flowable-task-proxy/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: 29b3be7e036131d4
+/deepseek-ai-dsh-flowable-task-proxy/understand-the-implementation/verbatim-forwarding:
+  en: 70753b215560668e
+  zh: 4f21c915056c1a65
+/deepseek-ai-dsh-flowable-task-proxy/understand-the-implementation/failures-are-json-never-html:
+  en: 494c19acc3b5f9f9
+  zh: 7c8032d2c3a89ea8
+/deepseek-ai-dsh-flowable-task-proxy/understand-the-implementation/why-the-proxy-exists:
+  en: 7c0352b51d20ffc5
+  zh: aea68d3c45523ab8
+/deepseek-ai-dsh-flowable-task-proxy/further-exploration:
+  en: d2fe9ac45a163d5f
+  zh: fdeb7a1409a4eb98
+/deepseek-ai-dsh-flowable-task-proxy/model-experience:
+  en: 5e575af11d9b9cb4
+  zh: 253b2a6a651b9118
+/deepseek-ai-dsh-flowable-task-proxy/model-experience/kv-cache-effect:
+  en: 7b9610df24e4bdad
+  zh: 26ba8442f9896edb
+/deepseek-ai-dsh-flowable-task-proxy/known-limitations-and-deferred-work:
+  en: 7939481e25b57778
+  zh: dade4f5689d52c29
+/deepseek-ai-dsh-flowable-task-proxy/known-limitations-and-deferred-work/dev-note:
+  en: 12ca732579b02c0e
+  zh: bb0197460feb67d2

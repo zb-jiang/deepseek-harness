@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/enterprise/skill-sync/README.md
+/:
+  en: 307f541954d40d46
+  zh: f1e6524837c0ddaf
+/deepseek-ai-dsh-skill-sync:
+  en: 0a6e38c283c5c3b5
+  zh: 1fe9e388eff93002
+/deepseek-ai-dsh-skill-sync/summary:
+  en: e5ac19d659ec2837
+  zh: ed940d47ac9b4d6f
+/deepseek-ai-dsh-skill-sync/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-skill-sync/use-this-package:
+  en: b3f9e0556e0861b3
+  zh: 5712ba347a490d8c
+/deepseek-ai-dsh-skill-sync/use-this-package/minimal-configuration:
+  en: b61e4bc5ce458664
+  zh: 5c68c4a307da1690
+/deepseek-ai-dsh-skill-sync/use-this-package/what-each-endpoint-does:
+  en: c4954328eb65d3a8
+  zh: 18ec8cda21e9b7fc
+/deepseek-ai-dsh-skill-sync/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-skill-sync/understand-the-implementation/a-daemon-that-only-works-when-someone-is-signed-in:
+  en: daeacd5675a41f8e
+  zh: 6ef1e8102c1d0a7f
+/deepseek-ai-dsh-skill-sync/understand-the-implementation/fingerprint-diff-atomic-install:
+  en: 93860e924c88d789
+  zh: 8bb92a343d4d6b4a
+/deepseek-ai-dsh-skill-sync/understand-the-implementation/degrade-never-block:
+  en: 6e654e9ecc97bdbd
+  zh: 16ab3a0c8c6ffa65
+/deepseek-ai-dsh-skill-sync/further-exploration:
+  en: 9745a38a9d3bcb7f
+  zh: 38305bd9ac75909b
+/deepseek-ai-dsh-skill-sync/model-experience:
+  en: 48ec8ebb003a6b9f
+  zh: 831243869757f23b
+/deepseek-ai-dsh-skill-sync/model-experience/kv-cache-effect:
+  en: 85b2fcaac3023cef
+  zh: 9b7fb6ba452d96d2
+/deepseek-ai-dsh-skill-sync/known-limitations-and-deferred-work:
+  en: 08b20c6943d1febe
+  zh: 40c945d5dde6e671
+/deepseek-ai-dsh-skill-sync/known-limitations-and-deferred-work/dev-note:
+  en: d4a560ef1f19a67f
+  zh: 3ee6421561afe1b3

@@ -115,7 +115,7 @@ describe('platform-user-api', () => {
     })
     await handler(req, res)
     expect(state.statusCode).toBe(200)
-    const parsed = JSON.parse(state.body)
+    const parsed = JSON.parse(state.body) as { loginName: string; status: string }
     expect(parsed.loginName).toBe('alice')
     expect(parsed.status).toBe('active')
   })
@@ -191,7 +191,7 @@ describe('platform-user-api', () => {
     const { res, state } = mockRes()
     await handler(mockReq('GET', '/api/enterprise/auth/config'), res)
     expect(state.statusCode).toBe(200)
-    const parsed = JSON.parse(state.body)
+    const parsed = JSON.parse(state.body) as { url: string; anonKey: string }
     expect(parsed.url).toBe('https://example.supabase.co')
     expect(parsed.anonKey).toBe('anon-secret')
   })
@@ -223,7 +223,7 @@ describe('platform-user-api', () => {
     const { res, state } = mockRes()
     await handler(mockJsonReq('POST', '/api/enterprise/auth/connectivity-check', { url: 'http://engine:8090/actuator/health' }), res)
     expect(state.statusCode).toBe(200)
-    const parsed = JSON.parse(state.body)
+    const parsed = JSON.parse(state.body) as { ok: boolean; status: number }
     expect(parsed.ok).toBe(true)
     expect(parsed.status).toBe(200)
   })
@@ -235,7 +235,7 @@ describe('platform-user-api', () => {
     const { res, state } = mockRes()
     await handler(mockJsonReq('POST', '/api/enterprise/auth/connectivity-check', { url: 'http://engine:8090/actuator/health' }), res)
     expect(state.statusCode).toBe(200)
-    const parsed = JSON.parse(state.body)
+    const parsed = JSON.parse(state.body) as { ok: boolean; error: string }
     expect(parsed.ok).toBe(false)
     expect(parsed.error).toContain('ECONNREFUSED')
   })

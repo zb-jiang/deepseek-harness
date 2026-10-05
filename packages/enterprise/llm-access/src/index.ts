@@ -42,7 +42,7 @@ import type { EnterpriseModel } from './catalog.ts'
 export const name = 'llm-access'
 
 /** 等待 LLM 运行时与登录身份存储就绪后才挂载。 */
-export const inject = ['llm', 'currentUser'] as const
+export const inject = ['llm', 'currentUser']
 
 /** 模型目录默认刷新间隔(毫秒)。 */
 const DEFAULT_CATALOG_REFRESH_MS = 600_000
@@ -107,16 +107,16 @@ export function apply(ctx: Context, config: Config): void {
 
   const piAi = new PiAiAdapter({
     profiles: () => profiles,
-    resolveApiKey: async () => {
+    resolveApiKey: () => {
       const token = ctx.currentUser.getToken()
       if (token === undefined) {
-        throw new LlmError('未登录,无法调用企业模型;请先登录员工账号', 'AUTH')
+        return Promise.reject(new LlmError('未登录,无法调用企业模型;请先登录员工账号', 'AUTH'))
       }
-      return token
+      return Promise.resolve(token)
     },
     auth: { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) },
   })
-  const adapter = new EnterpriseLlmAdapter(piAi, { onListModels: () => maybeRefresh() })
+  const adapter = new EnterpriseLlmAdapter(piAi, { onListModels: () => { maybeRefresh() } })
 
   /** 按当前 profiles 同步路由注册:空清单=休眠/撤出,非空=注册或原位替换。 */
   const syncRegistration = (): void => {

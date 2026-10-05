@@ -2,18 +2,54 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/kb-context/README.md
+/:
+  en: 4fec1e6415fa0a6a
+  zh: e2010e8d9f9a68b8
 /deepseek-ai-dsh-kb-context:
-  en: ffa81e160345951e
-  zh: 5e48dcff004a2a19
-/deepseek-ai-dsh-kb-context/injected-block:
-  en: f414ce32fd02d3c5
-  zh: 44d5a82a63a630fc
-/deepseek-ai-dsh-kb-context/report-channel:
-  en: 2309ff1a08e5c1e5
-  zh: ef878589a406b441
-/deepseek-ai-dsh-kb-context/config:
-  en: 783e4ecfa0ec9552
-  zh: 5dd875a3c59d06e6
-/deepseek-ai-dsh-kb-context/invariants:
-  en: 898e1e42339a853b
-  zh: cfdcd22e73f23d38
+  en: 0f96f76c8218ed73
+  zh: f78bba6da8096cbb
+/deepseek-ai-dsh-kb-context/summary:
+  en: d1a5a4e6b155410a
+  zh: 51fe984272e67efe
+/deepseek-ai-dsh-kb-context/table-of-contents:
+  en: b563e4ec4727d0de
+  zh: f009bdd6b0122ac6
+/deepseek-ai-dsh-kb-context/use-this-package:
+  en: 84e262429bc0c04e
+  zh: 705eedd132453e15
+/deepseek-ai-dsh-kb-context/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: d31fae373d95d6a0
+/deepseek-ai-dsh-kb-context/understand-the-implementation/the-report-map-is-memory-with-a-replay-safety-net:
+  en: 0c37304b9189afc6
+  zh: c3d8d2030dc8cd63
+/deepseek-ai-dsh-kb-context/understand-the-implementation/forged-reports-cannot-escalate:
+  en: 9e2afabf69fb5ec5
+  zh: 26840f1245d302de
+/deepseek-ai-dsh-kb-context/understand-the-implementation/the-invariant-pins-format-and-position:
+  en: c0f2fa190a39633c
+  zh: 1ecc21526564c0f0
+/deepseek-ai-dsh-kb-context/further-exploration:
+  en: 0cc7a47b7ee723dd
+  zh: fb100c51d2d92b9e
+/deepseek-ai-dsh-kb-context/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-kb-context/model-experience/session-knowledge-base-block:
+  en: e51005e8e853e7ba
+  zh: 2f27d532c8215584
+/deepseek-ai-dsh-kb-context/model-experience/session-knowledge-base-block/what-the-model-sees:
+  en: 73b90b6559e6dd37
+  zh: cff608b269e60920
+/deepseek-ai-dsh-kb-context/model-experience/session-knowledge-base-block/token-effect:
+  en: aa6daf7b41978350
+  zh: 2673b40e4822f3f6
+/deepseek-ai-dsh-kb-context/model-experience/session-knowledge-base-block/kv-cache-effect:
+  en: 0a63b139f1b50268
+  zh: b507f9907b31e12e
+/deepseek-ai-dsh-kb-context/known-limitations-and-deferred-work:
+  en: 413b5a8b2fd2ff62
+  zh: 7094dbf79c3cfd19
+/deepseek-ai-dsh-kb-context/known-limitations-and-deferred-work/dev-note:
+  en: 059c19e9f60eb71c
+  zh: b2a4df85cc82a343

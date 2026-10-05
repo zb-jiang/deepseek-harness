@@ -197,7 +197,7 @@ describe('llm-access 生命周期', () => {
   })
 
   const mount = (token: string | undefined, data: () => unknown) => {
-    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+    const fetchMock = vi.fn(async (input: URL | string) => {
       void input
       return jsonResponse(200, { success: true, data: data() })
     })
@@ -211,7 +211,7 @@ describe('llm-access 生命周期', () => {
 
   it('挂载时已登录:拉取目录并注册路由', async () => {
     const { llm, fetchMock } = mount('jwt-1', () => MODELS_V1)
-    await vi.waitFor(() => expect(llm.calls).toEqual([{ kind: 'register', routes: ['llm-enterprise'] }]))
+    await vi.waitFor(() => { expect(llm.calls).toEqual([{ kind: 'register', routes: ['llm-enterprise'] }]) })
     expect(fetchMock.mock.calls[0]?.[0]).toBeInstanceOf(URL)
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://console:8080/api/llm/models')
   })
@@ -221,36 +221,36 @@ describe('llm-access 生命周期', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(llm.calls).toEqual([])
     ctx.emit('platform-user/verified', platformUser(), 'jwt-1')
-    await vi.waitFor(() => expect(llm.calls).toEqual([{ kind: 'register', routes: ['llm-enterprise'] }]))
+    await vi.waitFor(() => { expect(llm.calls).toEqual([{ kind: 'register', routes: ['llm-enterprise'] }]) })
   })
 
   it('清单未变:重复刷新不触发额外注册调用;清单变化:原位 replace;清空:replace([]) 撤出', async () => {
     let payload: unknown = MODELS_V1
     const { llm, fetchMock } = mount('jwt-1', () => payload)
-    await vi.waitFor(() => expect(llm.calls).toHaveLength(1))
+    await vi.waitFor(() => { expect(llm.calls).toHaveLength(1) })
 
     // 同一清单:拉取发生但跳过 replace(等第二次 fetch 完成后再断言)
     ctx.emit('platform-user/verified', platformUser(), 'jwt-2')
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalledTimes(2) })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(llm.calls).toEqual([{ kind: 'register', routes: ['llm-enterprise'] }])
 
     // 清单变化:replace 触发 llm/adapters-updated,选择器重读目录
     payload = MODELS_V2
     ctx.emit('platform-user/verified', platformUser(), 'jwt-3')
-    await vi.waitFor(() => expect(llm.calls).toHaveLength(2))
+    await vi.waitFor(() => { expect(llm.calls).toHaveLength(2) })
     expect(llm.calls[1]).toEqual({ kind: 'replace', routes: ['llm-enterprise'] })
 
     // 清单清空:撤出分组,注册句柄保留
     payload = []
     ctx.emit('platform-user/verified', platformUser(), 'jwt-4')
-    await vi.waitFor(() => expect(llm.calls).toHaveLength(3))
+    await vi.waitFor(() => { expect(llm.calls).toHaveLength(3) })
     expect(llm.calls[2]).toEqual({ kind: 'replace', routes: [] })
   })
 
   it('登出:清空目录并撤出路由', async () => {
     const { llm } = mount('jwt-1', () => MODELS_V1)
-    await vi.waitFor(() => expect(llm.calls).toHaveLength(1))
+    await vi.waitFor(() => { expect(llm.calls).toHaveLength(1) })
     ctx.emit('platform-user/signout')
     expect(llm.calls[1]).toEqual({ kind: 'replace', routes: [] })
   })

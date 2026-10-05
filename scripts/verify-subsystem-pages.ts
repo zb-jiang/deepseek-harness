@@ -20,6 +20,7 @@ export const GROUPS_WITHOUT_SUBSYSTEM_PAGE: Readonly<Record<string, string>> = {
   hooks: 'External hook-protocol bridges over existing interception points, not a new Harness service.',
   sdk: 'Out-of-process protocol and client packages whose package READMEs own the SDK contracts.',
   util: 'Low-level primitives whose business semantics remain with their consuming subsystems.',
+  enterprise: 'Enterprise customization seam over existing Harness extension points; the group README and per-package READMEs own the deployment-facing contracts.',
 }
 
 /** Result of auditing package-group subsystem documentation. */

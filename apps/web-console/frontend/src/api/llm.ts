@@ -22,7 +22,7 @@ export interface EnterpriseModelDto {
   updatedAt: string | null
 }
 
-/** 月度额度授权视图(对齐 QuotaGrantDto) */
+/** 月度额度授权视图(对齐 QuotaGrantDto);period* 为当前自然月已消耗/剩余,remaining 为 -1 表示不限量 */
 export interface QuotaGrantDto {
   id: string
   subjectType: string
@@ -36,6 +36,8 @@ export interface QuotaGrantDto {
   effectiveTo: string | null
   createdAt: string | null
   updatedAt: string | null
+  periodConsumedTokens: number
+  periodRemainingTokens: number
 }
 
 /** 路由顺位项(对齐 UserModelRouteDto.RouteItemDto) */
@@ -212,9 +214,13 @@ export const llmApi = {
     put<UserModelRouteDto>(`/api/admin/llm/routes/${id}`, body),
 
   // ---------- 用量分析 ----------
-  usageSummary: (dimension: string, month: string) =>
+  /** dimension 口径见 LlmLedgerJdbcRepository.summary:user=发起人 / pool_user=个人池 / pool_org_unit=部门池 / model=模型 */
+  usageSummary: (dimension: 'user' | 'pool_user' | 'pool_org_unit' | 'model', month: string) =>
     get<UsageSummaryRow[]>('/api/admin/llm/usage/summary', { dimension, month }),
   usageHeatmapYear: () => get<UsageDailyTotal[]>('/api/admin/llm/usage/heatmap/year'),
+  /** 池维度用户分解:subjectId=发起人、subjectName=用户显示名,按总消耗倒序 */
+  usagePoolUsers: (sourceType: string, sourceId: string, modelId: string, month: string) =>
+    get<UsageSummaryRow[]>('/api/admin/llm/usage/pool-users', { sourceType, sourceId, modelId, month }),
   usageLedger: (params: {
     /** ISO-8601 含时区;to 为排他上界 */
     from?: string

@@ -411,28 +411,34 @@ public class LlmLedgerJdbcRepository {
 
     /**
      * 按维度汇总某月消耗。
-     * 算法:仅统计 completed;user 维度按发起人,org_unit 维度按实际扣费的部门池,model 维度按模型。
+     * 算法:仅统计 completed;user 维度按发起人(谁在用,真实用量);
+     * pool_user/pool_org_unit 按实际扣费的个人池/部门池(池被消耗,含外部借用、不含员工走其他池的量);
+     * model 维度按模型。员工与部门为多对多,不提供部门员工合计口径。
      */
     public List<SummaryRow> summary(String dimension, String usageMonth) {
         String subjectExpr = switch (dimension) {
             case "user" -> "l.user_id";
-            case "org_unit" -> "l.source_id";
+            case "pool_user", "pool_org_unit" -> "l.source_id";
             case "model" -> "l.model_id";
             default -> throw new IllegalArgumentException("未知统计维度: " + dimension);
         };
         String nameJoin = switch (dimension) {
             case "user" -> "LEFT JOIN public.platform_users s ON s.id = l.user_id";
-            case "org_unit" -> "LEFT JOIN public.org_units s ON s.id = l.source_id";
+            case "pool_user" -> "LEFT JOIN public.platform_users s ON s.id = l.source_id";
+            case "pool_org_unit" -> "LEFT JOIN public.org_units s ON s.id = l.source_id";
             case "model" -> "LEFT JOIN public.llm_enterprise_models s ON s.id = l.model_id";
             default -> throw new IllegalArgumentException("未知统计维度: " + dimension);
         };
         String nameExpr = switch (dimension) {
-            case "user" -> "s.display_name";
-            case "org_unit" -> "s.name";
-            case "model" -> "s.display_name";
+            case "user", "pool_user", "model" -> "s.display_name";
+            case "pool_org_unit" -> "s.name";
             default -> throw new IllegalArgumentException("未知统计维度: " + dimension);
         };
-        String whereExtra = "org_unit".equals(dimension) ? " AND l.source_type = 'org_unit'" : "";
+        String whereExtra = switch (dimension) {
+            case "pool_user" -> " AND l.source_type = 'user'";
+            case "pool_org_unit" -> " AND l.source_type = 'org_unit'";
+            default -> "";
+        };
         return jdbcClient.sql("""
                 SELECT %s AS subject_id, max(%s) AS subject_name,
                        coalesce(sum(l.total_tokens), 0) AS total_tokens,
@@ -447,6 +453,44 @@ public class LlmLedgerJdbcRepository {
                 ORDER BY total_tokens DESC
                 """.formatted(subjectExpr, nameExpr, nameJoin, whereExtra, subjectExpr))
             .param("month", usageMonth)
+            .query((rs, rowNum) -> new SummaryRow(
+                rs.getObject("subject_id", UUID.class),
+                rs.getString("subject_name"),
+                rs.getLong("total_tokens"),
+                rs.getLong("prompt_tokens"),
+                rs.getLong("completion_tokens"),
+                rs.getLong("overage_tokens"),
+                rs.getLong("request_count")
+            ))
+            .list();
+    }
+
+    /**
+     * 池维度用户分解:某授权池(sourceType+sourceId+modelId)在指定月份按发起人聚合的消耗,
+     * 按总消耗倒序;仅统计 completed。复用 SummaryRow(subject_id=发起人, subject_name=用户显示名),
+     * 供授权列表点击池子查看"谁在用这个池"。
+     */
+    public List<SummaryRow> poolUserBreakdown(String sourceType, UUID sourceId, UUID modelId,
+                                              String usageMonth) {
+        return jdbcClient.sql("""
+                SELECT l.user_id AS subject_id, max(u.display_name) AS subject_name,
+                       coalesce(sum(l.total_tokens), 0) AS total_tokens,
+                       coalesce(sum(l.prompt_tokens), 0) AS prompt_tokens,
+                       coalesce(sum(l.completion_tokens), 0) AS completion_tokens,
+                       coalesce(sum(l.overage_tokens), 0) AS overage_tokens,
+                       count(*) AS request_count
+                FROM public.llm_usage_ledger l
+                LEFT JOIN public.platform_users u ON u.id = l.user_id
+                WHERE l.usage_month = :month AND l.status = 'completed'
+                  AND l.source_type = :sourceType AND l.source_id = :sourceId
+                  AND l.model_id = :modelId
+                GROUP BY l.user_id
+                ORDER BY total_tokens DESC
+                """)
+            .param("month", usageMonth)
+            .param("sourceType", sourceType)
+            .param("sourceId", sourceId)
+            .param("modelId", modelId)
             .query((rs, rowNum) -> new SummaryRow(
                 rs.getObject("subject_id", UUID.class),
                 rs.getString("subject_name"),

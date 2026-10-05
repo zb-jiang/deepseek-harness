@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/enterprise/backend-task/README.md
+/:
+  en: a86153fa8eb8a61c
+  zh: 5629dfc4422f71ec
+/deepseek-ai-dsh-backend-task:
+  en: b6be50155c532667
+  zh: c75a823756221b66
+/deepseek-ai-dsh-backend-task/summary:
+  en: 90b47005a871bd34
+  zh: 72e1abd8194c71fc
+/deepseek-ai-dsh-backend-task/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f14f34fce35a8d90
+/deepseek-ai-dsh-backend-task/use-this-package:
+  en: ae861b63e9f6dbf2
+  zh: b52e64be7458a699
+/deepseek-ai-dsh-backend-task/use-this-package/minimal-configuration:
+  en: 15f13102884f7d85
+  zh: 62366d6086f68ad9
+/deepseek-ai-dsh-backend-task/use-this-package/what-each-endpoint-does:
+  en: d0d625941c2e255c
+  zh: bd5894b6bbe60e5f
+/deepseek-ai-dsh-backend-task/understand-the-implementation:
+  en: c75599b18254aa11
+  zh: 29b3be7e036131d4
+/deepseek-ai-dsh-backend-task/understand-the-implementation/one-non-interactive-session-per-task:
+  en: 717e96f14e6b5568
+  zh: d8f1ec49d1863c57
+/deepseek-ai-dsh-backend-task/understand-the-implementation/two-daemons-keep-the-instance-integrated:
+  en: 630736ca86c06666
+  zh: a65ef7fad341e1f2
+/deepseek-ai-dsh-backend-task/understand-the-implementation/failure-is-a-status-not-a-crash:
+  en: ed88d59963d49bf2
+  zh: 2e8170182921ebdf
+/deepseek-ai-dsh-backend-task/further-exploration:
+  en: 8e495b8ae2c738c0
+  zh: ddcd5601f54ced6d
+/deepseek-ai-dsh-backend-task/model-experience:
+  en: 13d5d116d0907497
+  zh: 23eb018d69673f17
+/deepseek-ai-dsh-backend-task/model-experience/kv-cache-effect:
+  en: fcf2914b8f00f189
+  zh: cbd6ec187d51c76c
+/deepseek-ai-dsh-backend-task/known-limitations-and-deferred-work:
+  en: 5fd7e12307b13609
+  zh: 35a68a7f7e956e77
+/deepseek-ai-dsh-backend-task/known-limitations-and-deferred-work/dev-note:
+  en: 5756b403b1b775c6
+  zh: 5bb4da1c3d2fe99b

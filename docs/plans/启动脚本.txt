@@ -166,6 +166,9 @@ git merge master
 
 # 4. 验证
 pnpm install
+pnpm run lint
+pnpm run hygiene
+pnpm run doc-sync
 pnpm run typecheck
 pnpm run build
 pnpm dsh --profile enterprise

@@ -40,7 +40,7 @@ export const name = 'skill-sync'
 class SessionExpiredError extends Error {}
 
 /** 等待 skill 注册表、登录身份存储与本地 webserver 就绪后才挂载。 */
-export const inject = ['skills', 'currentUser', 'webServer'] as const
+export const inject = ['skills', 'currentUser', 'webServer']
 
 /** SkillHub 命名空间清单单页上限(服务端 CLI 端点上限 100)。 */
 const SKILLHUB_PAGE_LIMIT = 100
@@ -212,7 +212,7 @@ export class SkillSyncService extends Service {
   async start(): Promise<void> {
     await mkdir(this.options.skillDir, { recursive: true })
     await mkdir(dirname(this.statePath), { recursive: true })
-    void this.sync().catch(error => this.ctx.logger.warn('skill-sync 首轮同步失败', error))
+    void this.sync().catch((error: unknown) => { this.ctx.logger.warn('skill-sync 首轮同步失败', error) })
   }
 
   private get statePath(): string {
@@ -327,7 +327,7 @@ export class SkillSyncService extends Service {
     const before = await missing(names)
     if (before.length === 0) return []
     // 同步失败不阻断:已装 skill 依旧可用,缺失项进入返回值走降级提示
-    await this.sync().catch(error => this.ctx.logger.warn('skill-sync: ensure 触发的同步失败', error))
+    await this.sync().catch((error: unknown) => { this.ctx.logger.warn('skill-sync: ensure 触发的同步失败', error) })
     return await missing(names)
   }
 
@@ -522,11 +522,11 @@ export function apply(ctx: Context, config: Config): void {
     () => providerControl,
   )
   // mkdir 失败(如 DSH_HOME 只读)不阻塞员工端启动,记日志后每轮 interval 重试
-  void service.start().catch(error => ctx.logger.warn('skill-sync 启动失败', error))
+  void service.start().catch((error: unknown) => { ctx.logger.warn('skill-sync 启动失败', error) })
   const schedule = (intervalMs: number): void => {
     if (timer !== undefined) clearInterval(timer)
     timer = setInterval(() => {
-      void service.sync().catch(error => ctx.logger.warn('skill-sync 周期同步异常', error))
+      void service.sync().catch((error: unknown) => { ctx.logger.warn('skill-sync 周期同步异常', error) })
     }, intervalMs)
   }
   schedule(initialIntervalMs)
@@ -545,7 +545,7 @@ export function apply(ctx: Context, config: Config): void {
   })
   // 登录即触发一轮同步:启动首轮通常发生在登录前,不让用户等下一个 interval
   ctx.on('platform-user/verified', () => {
-    void service.sync().catch(error => ctx.logger.warn('skill-sync 登录触发同步异常', error))
+    void service.sync().catch((error: unknown) => { ctx.logger.warn('skill-sync 登录触发同步异常', error) })
   }, { global: true })
   // 即时安装端点(工作项 3):待办打开时前端先调 ensure 再建会话
   ctx.effect(() =>
@@ -555,7 +555,7 @@ export function apply(ctx: Context, config: Config): void {
       // handler 返回分发 Promise,webserver 可等待完成(测试亦由此确定性断言)
       handler: (req, res) =>
         dispatchEnsure(service, req.method ?? 'GET', new URL(req.url ?? '/', 'http://localhost').pathname, req, res)
-          .catch((error) => {
+          .catch((error: unknown) => {
             ctx.logger.warn('skill-sync: ensure 端点异常', error)
             if (!res.headersSent) {
               sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) })

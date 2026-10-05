@@ -24,7 +24,11 @@ export interface SettingsRpcFace {
   ) => Promise<{ ok: true } | { ok: false; error: { message: string } }>
 }
 
-/** 从 settings RPC 构造企业服务配置的读写面(两处入口共用同一实例语义)。 */
+/**
+ * 从 settings RPC 构造企业服务配置的读写面(两处入口共用同一实例语义)。
+ * @param remote ui-enterprise `remote.settings` inject 的使用子集。
+ * @returns 承载 load/save 的 {@link EnterpriseServicesInjected} 读写面。
+ */
 export function createEnterpriseServicesAccess(remote: SettingsRpcFace): EnterpriseServicesInjected {
   const load: EnterpriseServicesInjected['load'] = async () => {
     const response = await remote.describe()
@@ -33,7 +37,11 @@ export function createEnterpriseServicesAccess(remote: SettingsRpcFace): Enterpr
     const values: FieldValues = {}
     for (const field of ALL_FIELDS) {
       const raw = (byNs.get(field.ns)?.value as Record<string, unknown> | undefined)?.[field.key]
-      values[field.label] = raw === undefined || raw === null ? '' : String(raw)
+      // object/array 值序列化为 JSON 文本,避免 String() 产生 "[object Object]"。
+      values[field.label] = raw === undefined || raw === null
+        ? ''
+        // oxlint-disable-next-line typescript/no-base-to-string -- false positive: typeof narrowing already excludes objects
+        : typeof raw === 'object' ? JSON.stringify(raw) : String(raw)
     }
     return { ok: true, values }
   }

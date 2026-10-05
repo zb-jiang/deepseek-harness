@@ -26,7 +26,7 @@ function getSupabaseClient(): Promise<SupabaseClient> {
   if (supabaseClient !== null) return Promise.resolve(supabaseClient)
   if (supabaseInitPromise !== null) return supabaseInitPromise
   supabaseInitPromise = (async () => {
-    const res = await fetch('/api/enterprise/auth/config')
+    const res = await fetch('api/enterprise/auth/config')
     const config = await res.json() as { url: string; anonKey: string }
     supabaseClient = createClient(config.url, config.anonKey, {
       // 会话化:session 持久化在 localStorage,access token 到期前由 supabase-js
@@ -61,7 +61,7 @@ async function refreshAuthUser(): Promise<void> {
   const token = readToken()
   if (token === null) return
   try {
-    const res = await fetch('/api/enterprise/auth/me', { headers: { authorization: `Bearer ${token}` } })
+    const res = await fetch('api/enterprise/auth/me', { headers: { authorization: `Bearer ${token}` } })
     if (res.status === 401) {
       clearToken()
       setAuthSnapshot({ currentUser: null, loading: false })
@@ -94,7 +94,7 @@ function getAuthSnapshot(): AuthSnapshot {
 
 function setAuthSnapshot(next: AuthSnapshot): void {
   authSnapshot = next
-  authListeners.forEach(fn => fn())
+  authListeners.forEach((fn) => { fn() })
 }
 
 function readToken(): string | null {
@@ -153,8 +153,10 @@ export function useAuth() {
     const client = await getSupabaseClient()
     const { data, error } = await client.auth.signInWithPassword({ email, password })
     if (error !== null) throw new Error(error.message)
+    // oxlint-disable typescript/no-unnecessary-condition -- supabase is an external service; keep the runtime guard at the wire boundary
     const accessToken = data.session?.access_token
     if (accessToken === undefined) throw new Error('登录失败：未返回会话')
+    // oxlint-enable typescript/no-unnecessary-condition -- restore the rule after the wire-boundary guard
     writeToken(accessToken)
     const user = await fetchJson<PlatformUserRow>('/api/enterprise/auth/me')
     setAuthSnapshot({ currentUser: user, loading: false })
@@ -184,7 +186,7 @@ export function useAuth() {
     // 再清本地与 supabase 会话;SIGNED_OUT 监听里的清理是幂等的
     const token = readToken()
     try {
-      await fetch('/api/enterprise/auth/signout', {
+      await fetch('api/enterprise/auth/signout', {
         method: 'POST',
         headers: token === null ? {} : { authorization: `Bearer ${token}` },
       })

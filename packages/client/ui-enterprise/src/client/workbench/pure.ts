@@ -24,7 +24,7 @@ function assistantText(node: AssistantMessageNode): string {
  * @param nodes 会话节点序列(seq 升序)。
  * @returns 解析后的 JSON 值;整段会话无合法 JSON 时为 undefined。
  */
-export function latestJson(nodes: readonly ConversationNode[]): unknown | undefined {
+export function latestJson(nodes: readonly ConversationNode[]): unknown {
   for (let i = nodes.length - 1; i >= 0; i--) {
     const node = nodes[i]
     if (node?.kind !== 'assistant') continue
@@ -53,7 +53,7 @@ export function collectJsonBlocks(nodes: readonly ConversationNode[]): JsonBlock
   const blocks: JsonBlock[] = []
   let messageNo = 0
   for (const node of nodes) {
-    if (node?.kind !== 'assistant') continue
+    if (node.kind !== 'assistant') continue
     messageNo++
     const value = extractJson(assistantText(node))
     if (value === undefined) continue
@@ -66,7 +66,8 @@ export function collectJsonBlocks(nodes: readonly ConversationNode[]): JsonBlock
 function previewOf(value: unknown): string {
   let text: string
   try {
-    text = JSON.stringify(value) ?? String(value)
+    // value 来自 JSON.parse 产物,不会是 undefined;循环引用等异常走 catch。
+    text = JSON.stringify(value)
   } catch {
     text = String(value)
   }
@@ -79,7 +80,7 @@ function previewOf(value: unknown): string {
  * @param text 助手正文(可能为 null/空)。
  * @returns 解析后的 JSON 值;无合法 JSON 时为 undefined。
  */
-export function extractJson(text: string | null): unknown | undefined {
+export function extractJson(text: string | null): unknown {
   if (text == null || text.trim() === '') return undefined
 
   // 最后一个围栏块优先:多轮输出时以最新代码块为准。
@@ -97,7 +98,7 @@ export function extractJson(text: string | null): unknown | undefined {
   return balanced === undefined ? undefined : tryParse(balanced)
 }
 
-function tryParse(raw: string): unknown | undefined {
+function tryParse(raw: string): unknown {
   try {
     return JSON.parse(raw) as unknown
   } catch {

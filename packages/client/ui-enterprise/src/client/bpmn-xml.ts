@@ -80,6 +80,7 @@ export function parseMiniBpmn(xml: string): MiniBpmnDiagram | null {
   if (doc.querySelector('parsererror') !== null) return null
 
   const root = doc.documentElement
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- DOM spec allows null documentElement (empty input)
   if (root === null) return null
 
   // 语义元素表:id → (kind, name)。lane/participant 只有 DI 没有 process 子元素时也入表。

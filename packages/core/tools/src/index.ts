@@ -1000,7 +1000,8 @@ export class ToolRuntime extends Service {
         yield ctx.systemPrompt.section(this.sdkSection())
       }
     }.bind(this), 'tools.presentAs()')
-    return dispose
+    // The disposer is async internally; callers of presentAs() treat it as sync cleanup.
+    return () => { void dispose() }
   }
 
   /**

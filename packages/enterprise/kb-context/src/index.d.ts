@@ -33,7 +33,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
   webConsoleBaseUrl: z<string, string, 'volatile-defined'>
 }>>, Schemastery.ObjectT<NoInfer<{
   webConsoleBaseUrl: z<string, string, 'volatile-defined'>
-}>>, 'plain'>
+}>>>
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'kb-context': {

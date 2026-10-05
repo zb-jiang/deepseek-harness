@@ -278,6 +278,17 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_user_identity_context["user-identity-context"]
+  svc_currentUser["ctx.currentUser<br/>Latest verified employee identity"]
+  pkg_skill_sync["skill-sync"]
+  pkg_process_start["process-start"]
+  pkg_llm_access["llm-access"]
+  pkg_knowledge["knowledge"]
+  pkg_platform_user["platform-user"]
+  svc_platformUsers["ctx.platformUsers<br/>Platform-user governance read seam"]
+  pkg_platform_user_console["platform-user-console"]
+  pkg_platform_user_api["platform-user-api"]
+  svc_skillSync["ctx.skillSync<br/>Enterprise skill distribution daemon"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
@@ -359,6 +370,8 @@ flowchart LR
   pkg_otel --> svc_otel
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
+  pkg_platform_user --> svc_platformUsers
+  pkg_platform_user_console --> svc_platformUsers
   pkg_plugin_manager --> svc_pluginManager
   pkg_plugin_package_inventory_deepseek --> svc_deepseekLlmApiExtensions
   pkg_ptc_runtime --> svc_ptcRuntime
@@ -391,6 +404,7 @@ flowchart LR
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
   pkg_skill_office --> svc_skills
+  pkg_skill_sync --> svc_skillSync
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
   pkg_ssh --> svc_ssh
@@ -416,6 +430,7 @@ flowchart LR
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
   pkg_user_approval --> svc_approval
+  pkg_user_identity_context --> svc_currentUser
   pkg_user_questions --> svc_userQuestions
   pkg_web --> svc_web
   pkg_web_fetch_http --> svc_web
@@ -458,6 +473,10 @@ flowchart LR
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
+  svc_currentUser --> pkg_knowledge
+  svc_currentUser --> pkg_llm_access
+  svc_currentUser --> pkg_process_start
+  svc_currentUser --> pkg_skill_sync
   svc_deepseekAccount --> pkg_api_account_controller
   svc_deepseekAccount --> pkg_llm_deepseek
   svc_deepseekLlmApiExtensions --> pkg_llm_deepseek
@@ -484,6 +503,8 @@ flowchart LR
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
   svc_otel --> pkg_session_telemetry_otel
+  svc_platformUsers --> pkg_platform_user_api
+  svc_platformUsers --> pkg_platform_user_console
   svc_pluginManager --> pkg_plugin_manager
   svc_pluginManager --> pkg_ui_settings_plugin_inventory
   svc_pluginRegistryProbe --> pkg_client_ui_plugin_manager
@@ -671,5 +692,8 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | 提供方注册与选择，加上恰好四种操作的标准化查询执行；该 seam 不提供协议逃生口，后端必须转换为标准化请求和结果。 |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 拥有内存定义注册表、Host 半的 vm 沙箱和 request-run 往返流程；浏览器页面通过其 Remote 命名空间在线访问同一服务。 |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 注册 Host inspect 提供方、镜像 Client 提供方 manifest，并通过动态 Cordis 传输路由 Client 查询。 |
+| `ctx.currentUser` | `service` | [`user-identity-context`](../packages/enterprise/user-identity-context) | - | [`skill-sync`](../packages/enterprise/skill-sync), [`process-start`](../packages/enterprise/process-start), [`llm-access`](../packages/enterprise/llm-access), [`knowledge`](../packages/enterprise/knowledge) | - | 进程内存储，由 platform-user/verified 与 platform-user/signout 事件驱动；企业调用方读取身份与 bearer token，以登录员工的身份执行操作。 |
+| `ctx.platformUsers` | `seam` | [`platform-user`](../packages/enterprise/platform-user) | [`platform-user-console`](../packages/enterprise/platform-user-console) | [`platform-user-console`](../packages/enterprise/platform-user-console), [`platform-user-api`](../packages/enterprise/platform-user-api) | - | console provider 通过 JWKS 本地验签 Supabase Auth JWT 并解析治理记录；auth API 消费该读取入口。 |
+| `ctx.skillSync` | `service` | [`skill-sync`](../packages/enterprise/skill-sync) | - | - | - | 周期性把登录员工所需的 skill 下载到本地缓存，并为 todo 的 skillRefs 提供 ensureInstalled 入口。 |
 
 维护模式：混合模式。服务从 Cordis 声明中发现；接口、实现和消费方角色在 `scripts/gen-doc-graphs.ts` 中分类，并设有完整性守卫。

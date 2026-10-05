@@ -96,15 +96,17 @@ public class LlmEmployeeService {
         var balance = quotaRepository.findBalance(month, item.sourceType(), item.sourceId(), model.id());
         long consumed = balance.map(LlmQuotaJdbcRepository.BalanceRow::consumedTokens).orElse(0L);
         long reserved = balance.map(LlmQuotaJdbcRepository.BalanceRow::reservedTokens).orElse(0L);
+        long limit = grant.monthlyLimitTokens();
         return new EmployeeModelDto.PoolSummary(
             item.priority(),
             item.sourceType(),
             item.sourceId(),
             item.sourceName(),
-            grant.monthlyLimitTokens(),
+            limit,
             consumed,
             reserved,
-            grant.monthlyLimitTokens() - consumed - reserved
+            // -1 表示不限量,剩余原样传 -1 由员工端展示"不限量"。
+            limit < 0 ? -1 : limit - consumed - reserved
         );
     }
 }

@@ -1,8 +1,6 @@
 # 会签计票（dsh:votingRule）设计
 
-> 状态：实施完成——组 1-5 全部落地（引擎 34/34、web-console 校验 26/26 单测通过；前端 tsc 由用户手工验证）。已知风险见 §6。
-> 扩展（同日）：计票已统一到三种任务节点（普通 ServiceTask 与 DSH backend task 支持 votingRule），见 §9；多实例本身的三节点统一见 `2026-09-14-dsh-backend-task-design.md` §13。
-> 关联：`2026-09-01-process-context-design.md`（输出映射）、`2026-08-24-bpmn-components-tutorial.md`（多实例章节）、CLAUDE.md「Human task 待办产品语义」
+> 状态：实施完成——组 1-5 全部落地（引擎 34/34、web-console 校验 26/26 单测通过；前端 tsc 由用户手工验证）。已知风险见 §6。扩展（同日）：计票已统一到三种任务节点（普通 ServiceTask 与 DSH backend task 支持 votingRule），见 §9；多实例本身的三节点统一见 `2026-09-14-dsh-backend-task-design.md` §13。关联：`2026-09-01-process-context-design.md`（输出映射）、`2026-08-24-bpmn-components-tutorial.md`（多实例章节）、CLAUDE.md「Human task 待办产品语义」
 
 ## 1. 背景与问题
 

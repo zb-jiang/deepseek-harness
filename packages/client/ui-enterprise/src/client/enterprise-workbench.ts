@@ -310,9 +310,7 @@ export class EnterpriseWorkbench {
       return
     }
     const bound = this.bindings.getSnapshot().taskToSession[task.id]
-    const sessionLive = bound !== undefined
-      && this.deps.sessions.list.getSnapshot().byId[bound] !== undefined
-    if (sessionLive && bound !== undefined) {
+    if (bound !== undefined && this.deps.sessions.list.getSnapshot().byId[bound] !== undefined) {
       const sessionId = bound
       const prefillNotice = this.prefillPrompt(task, sessionId)
       this.tasks.update((draft) => { draft.prefillNotice = prefillNotice })
@@ -391,8 +389,8 @@ export class EnterpriseWorkbench {
 
   /**
    * 打开一个已完成任务:提交时的会话(内存映射或 localStorage 持久映射)
-   * 还活着则回到该会话并补全完成回执,否则在档案栏只读展示引擎历史
-   * (任务信息/完成时间/变量/执行路径)。
+   * 还活着则回到该会话并补全完成回执;否则回到「新会话」UI(不残留上一个
+   * 会话的内容),并在档案栏只读展示引擎历史(任务信息/完成时间/变量/执行路径)。
    * @param task - 侧栏"已完成"分组中选中的历史任务。
    */
   openCompletedTask(task: CompletedTask): void {
@@ -402,9 +400,7 @@ export class EnterpriseWorkbench {
     const memory = this.bindings.getSnapshot().completedByTask[task.id]
     const persisted = this.completedSessions[task.id]
     const sessionId = memory ?? persisted?.sessionId
-    const sessionLive = sessionId !== undefined
-      && this.deps.sessions.list.getSnapshot().byId[sessionId] !== undefined
-    if (sessionLive === true && sessionId !== undefined) {
+    if (sessionId !== undefined && this.deps.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
       this.tasks.update((draft) => { draft.selectedCompleted = null })
       // 刷新后内存回执丢失时从历史任务补全,档案栏才能渲染完成回执;
       // 应用归属取提交时固化的持久化条目(历史任务数据无此字段)。
@@ -423,8 +419,12 @@ export class EnterpriseWorkbench {
       this.openArchiveTab(sessionId)
     } else {
       this.tasks.update((draft) => { draft.selectedCompleted = task })
-      // 只读档案路径不切换会话:档案标签落到当前已挂载会话的表面即可。
-      this.openArchiveTab(undefined)
+      // 关联会话已不存在(本地会话被清理):回「新会话」UI,不残留上一个会话
+      // 的内容;startSession 异步建会话,此时 mounted 仍是旧会话,不能走
+      // openArchiveTab(undefined)(会把档案标签写进旧会话),直接武装补开,
+      // 新会话挂载后档案标签落到新会话表面。
+      this.deps.uiWorkspace.startSession()
+      this.armArchiveReplay(undefined)
     }
   }
 
@@ -557,7 +557,7 @@ export class EnterpriseWorkbench {
       this.note(`panel -> ${panelInfo.getSnapshot().activePanelId ?? 'null'}`)
       schedule()
     })
-    this.stuckPollTimer = setInterval(() => this.evaluateStuck(), 2000)
+    this.stuckPollTimer = setInterval(() => { this.evaluateStuck() }, 2000)
     if (typeof window !== 'undefined') {
       ;(window as unknown as Record<string, unknown>).__yunhanRightbar = () => {
         const dump = this.dumpRightbarState('manual')
@@ -695,7 +695,11 @@ export class EnterpriseWorkbench {
     await this.refresh()
   }
 
-  /** 当前会话绑定的待办(档案栏归属判断);无绑定返回 undefined。 */
+  /**
+   * 当前会话绑定的待办(档案栏归属判断);无绑定返回 undefined。
+   * @param sessionId - 会话 id。
+   * @returns 绑定的 {@link Task};无绑定时 undefined。
+   */
   taskOfSession(sessionId: SessionId): Task | undefined {
     const taskId = this.bindings.getSnapshot().sessionToTask[sessionId]
     if (taskId === undefined) return undefined
@@ -852,7 +856,7 @@ export class EnterpriseWorkbench {
   }
 
   /** 解除绑定;'completed' 时在会话上留完成回执并把映射持久化。 */
-  private unbind(task: Task, reason: 'completed'): void {
+  private unbind(task: Task, _reason: 'completed'): void {
     let persisted: SessionId | undefined
     this.bindings.update((draft) => {
       const sessionId = draft.taskToSession[task.id]
@@ -863,16 +867,14 @@ export class EnterpriseWorkbench {
       if (sessionId !== undefined) {
         const { [sessionId]: _removed2, ...rest2 } = draft.sessionToTask
         draft.sessionToTask = rest2
-        if (reason === 'completed') {
-          draft.completedBySession[sessionId] = {
-            taskId: task.id,
-            taskName: task.name ?? task.id,
-            submittedAt: Date.now(),
-            applicationId: task.applicationId,
-          }
-          draft.completedByTask[task.id] = sessionId
-          persisted = sessionId
+        draft.completedBySession[sessionId] = {
+          taskId: task.id,
+          taskName: task.name ?? task.id,
+          submittedAt: Date.now(),
+          applicationId: task.applicationId,
         }
+        draft.completedByTask[task.id] = sessionId
+        persisted = sessionId
       }
     })
     if (persisted !== undefined) {

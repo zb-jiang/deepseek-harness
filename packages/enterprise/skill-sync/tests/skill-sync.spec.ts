@@ -49,7 +49,7 @@ function stubSkills() {
 
 /** 按前缀分发的 fetch 桩。 */
 function stubFetch(routes: { match: (url: string) => boolean; response: () => Response }[]) {
-  return vi.fn(async (input: URL | RequestInfo) => {
+  return vi.fn(async (input: URL | string) => {
     const url = String(input)
     for (const route of routes) {
       if (route.match(url)) return route.response()
@@ -95,8 +95,8 @@ function stubResponse() {
       res.status = status
       res.headersSent = true
     },
-    end: (chunk?: unknown) => {
-      res.body += String(chunk ?? '')
+    end: (chunk?: string) => {
+      res.body += chunk ?? ''
     },
   }
   return res
@@ -157,8 +157,8 @@ describe('skill-sync', () => {
     ctx.provide('skills', stubSkills() as never)
     ctx.provide('currentUser', stubCurrentUser('token') as never)
     ctx.provide('webServer', stubWebServer() as never)
-    expect(() => apply(ctx, { ...config, flowableBaseUrl: volatileOf('not-a-url') })).toThrow()
-    expect(() => apply(ctx, { ...config, skillhubBaseUrl: volatileOf('nope') })).toThrow()
+    expect(() => { apply(ctx, { ...CONFIG_DEFAULTS, skillDir, flowableBaseUrl: volatileOf('not-a-url') }) }).toThrow()
+    expect(() => { apply(ctx, { ...CONFIG_DEFAULTS, skillDir, skillhubBaseUrl: volatileOf('nope') }) }).toThrow()
   })
 
   it('未登录(getToken undefined)时 sync 直接跳过,不出站请求', async () => {
@@ -173,11 +173,12 @@ describe('skill-sync', () => {
     ctx.provide('skills', stubSkills() as never)
     ctx.provide('currentUser', stubCurrentUser('jwt') as never)
     ctx.provide('webServer', stubWebServer() as never)
-    expect(() => apply(ctx, {
-      ...config,
+    expect(() => { apply(ctx, {
+      ...CONFIG_DEFAULTS,
+      skillDir,
       flowableBaseUrl: volatileOf(''),
       skillhubBaseUrl: volatileOf(''),
-    })).not.toThrow()
+    }) }).not.toThrow()
     const fetchMock = stubFetch([])
     vi.stubGlobal('fetch', fetchMock)
     await ctx.skillSync.sync()
@@ -212,7 +213,7 @@ describe('skill-sync', () => {
     await ctx.skillSync.sync()
     expect(join(skillDir, 'expense-form', 'SKILL.md')).toBeTruthy()
     await expect(readFile(join(skillDir, 'expense-form', 'SKILL.md'), 'utf8')).resolves.toContain('expense-form')
-    const state = JSON.parse(await readFile(join(skillDir, '..', 'state.json'), 'utf8'))
+    const state = JSON.parse(await readFile(join(skillDir, '..', 'state.json'), 'utf8')) as { skills: Record<string, unknown> }
     expect(state.skills['expense-form']).toEqual({ namespace: 'dsh-demo', fingerprint: 'sha256:abc' })
     expect(skills.registered[0]?.control.invalidate).toHaveBeenCalled()
   })
@@ -422,7 +423,7 @@ describe('skill-sync', () => {
     req.emit('end')
     await promise
     expect(res.status).toBe(400)
-    expect(JSON.parse(res.body).error).toContain('names')
+    expect((JSON.parse(res.body) as { error: string }).error).toContain('names')
   })
 
   it('ensure 端点:非 POST/未知路径返回 404', async () => {
@@ -459,7 +460,7 @@ describe('skill-sync', () => {
       skillDir,
     })
     // 挂载即首轮(start),之后每 20ms 一轮
-    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1))
+    await vi.waitFor(() => { expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1) })
     const calls = fetchMock.mock.calls.length
     await new Promise(resolve => setTimeout(resolve, 150))
     expect(fetchMock.mock.calls.length).toBeGreaterThan(calls)
@@ -476,7 +477,7 @@ describe('skill-sync', () => {
     await rm(skillDir, { recursive: true, force: true })
     mount('jwt', fetchMock)
     // start() 链路含真实 fs(mkdir)异步步骤,轮询等待首轮同步发起
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalled() })
   })
 
   it('清单分页:nextCursor 非空时翻页取全量', async () => {

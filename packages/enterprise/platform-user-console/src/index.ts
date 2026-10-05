@@ -72,7 +72,11 @@ export function resolveConfig(config: { supabaseUrl?: string; webConsoleBaseUrl?
   }
 }
 
-/** 解包 volatile 配置引用为普通值快照。 */
+/**
+ * 解包 volatile 配置引用为普通值快照。
+ * @param config - 插件 Config(注入的 Volatile 引用)。
+ * @returns 供 {@link resolveConfig} 消费的普通值快照。
+ */
 export function snapshotConfig(config: Config): { supabaseUrl?: string; webConsoleBaseUrl?: string } {
   return {
     supabaseUrl: config.supabaseUrl.get(),
@@ -317,12 +321,10 @@ export function apply(ctx: Context, config: Config): void {
     if (raw.supabaseUrl === undefined || raw.supabaseUrl.trim() === ''
       || raw.webConsoleBaseUrl === undefined || raw.webConsoleBaseUrl.trim() === '') {
       unregister = ctx.platformUsers.registerProvider({
-        getUserByToken: async () => {
-          throw new PlatformUserError(
-            '认证服务未配置(SUPABASE_URL 为空),请在登录页「服务配置」中完成设置',
-            'PROVIDER_REQUEST_FAILED',
-          )
-        },
+        getUserByToken: () => Promise.reject(new PlatformUserError(
+          '认证服务未配置(SUPABASE_URL 为空),请在登录页「服务配置」中完成设置',
+          'PROVIDER_REQUEST_FAILED',
+        )),
       })
       ctx.logger.warn('platform-user-console: SUPABASE_URL/WEB_CONSOLE_URL 未配置,认证 provider 以未配置模式挂载')
       return

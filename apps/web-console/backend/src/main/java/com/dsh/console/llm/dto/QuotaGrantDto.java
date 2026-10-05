@@ -7,6 +7,8 @@ import java.util.UUID;
 /**
  * 月度额度授权视图。
  * 业务含义:对应 llm_quota_grants;subjectName 为联立的用户显示名或部门名,仅供展示。
+ * periodConsumedTokens/periodRemainingTokens 为当前自然月(Asia/Shanghai)的已消耗与剩余;
+ * remaining 按余额行快照口径(无余额行取授权当前值),-1 表示不限量。
  */
 public record QuotaGrantDto(
     UUID id,
@@ -20,5 +22,7 @@ public record QuotaGrantDto(
     LocalDate effectiveFrom,
     LocalDate effectiveTo,
     OffsetDateTime createdAt,
-    OffsetDateTime updatedAt
+    OffsetDateTime updatedAt,
+    long periodConsumedTokens,
+    long periodRemainingTokens
 ) {}

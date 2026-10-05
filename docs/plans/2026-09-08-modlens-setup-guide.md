@@ -1,8 +1,6 @@
 # ModLens 视觉插件安装与配置指南（员工端发票识图）
 
-> 目的：给员工端 DSH 的纯文本模型（DeepSeek）补上图片识别能力，支撑差旅报销 DEMO 第一个待办「员工提交报销单」的发票图片逐张提取（[2026-09-05-e2e-demo-design.md](2026-09-05-e2e-demo-design.md) §6.1 skill `expense-form-assistant`）。
-> 适用环境：Windows 11 + PowerShell；DSH enterprise profile（员工端，DEMO 终端 C）。
-> 上游项目：<https://github.com/liustack/modlens> （MIT 许可，第三方插件，非 DSH 官方组件）。
+> 目的：给员工端 DSH 的纯文本模型（DeepSeek）补上图片识别能力，支撑差旅报销 DEMO 第一个待办「员工提交报销单」的发票图片逐张提取（e2e-demo 设计 §6.1 skill `expense-form-assistant`）。适用环境：Windows 11 + PowerShell；DSH enterprise profile（员工端，DEMO 终端 C）。上游项目：<https://github.com/liustack/modlens> （MIT 许可，第三方插件，非 DSH 官方组件）。
 
 ## 1. 为什么需要 ModLens
 

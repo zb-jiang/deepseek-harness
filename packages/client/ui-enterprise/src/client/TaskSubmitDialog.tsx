@@ -51,7 +51,7 @@ export function TaskSubmitDialog({
   const jsonTreeData = useMemo<object | unknown[] | null>(() => {
     if (parsedJson === null) return null
     if (typeof parsedJson !== 'object') return null
-    return parsedJson as object | unknown[]
+    return parsedJson
   }, [parsedJson])
 
   const addMapping = useCallback(() => {

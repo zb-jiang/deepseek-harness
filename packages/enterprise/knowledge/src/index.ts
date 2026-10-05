@@ -26,7 +26,7 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { CurrentUserService } from '@deepseek-ai/dsh-user-identity-context'
+import type {} from '@deepseek-ai/dsh-user-identity-context'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'knowledge'
@@ -38,7 +38,7 @@ export const name = 'knowledge'
  * 将永不就绪。登录态改为工具调用时懒读取(见 apply),enterprise profile 下
  * JWT 优先,backend profile 下回退服务密钥。
  */
-export const inject = ['webServer', 'tools'] as const
+export const inject = ['webServer', 'tools']
 
 /** kb_read 全文返回上限默认值(字符;超出截断并注明)。 */
 const DEFAULT_READ_MAX_CHARS = 40_000
@@ -355,7 +355,7 @@ export function apply(ctx: Context, config: Config): void {
     readMaxChars: config.readMaxChars,
     // 每次调用实时读取:apply 时该服务可能尚未激活,捕获快照会错过;服务缺席
     // (backend profile)返回 undefined 回退服务密钥。
-    token: () => (ctx.get('currentUser') as CurrentUserService | undefined)?.getToken(),
+    token: () => ctx.get('currentUser')?.getToken(),
     serviceKey: () => config.serviceKey,
   }
   for (const { local, upstream } of PROXY_ROUTES) {

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,8 +52,8 @@ public class LlmQuotaService {
                                      LocalDate effectiveTo, UUID operatorId) {
         validateSubject(subjectType, subjectId);
         validateModelExists(modelId);
-        if (monthlyLimitTokens < 0) {
-            throw new IllegalArgumentException("monthlyLimitTokens 不能为负");
+        if (monthlyLimitTokens < -1) {
+            throw new IllegalArgumentException("monthlyLimitTokens 仅允许 -1(不限量)、0(当月不可用)或正数");
         }
         if (effectiveFrom == null) {
             throw new IllegalArgumentException("effectiveFrom 不能为空");
@@ -73,6 +74,9 @@ public class LlmQuotaService {
                                      LocalDate effectiveTo, UUID operatorId) {
         quotaRepository.findGrantById(id)
             .orElseThrow(() -> new LlmException("LLM_GRANT_NOT_FOUND", "额度授权不存在", 404));
+        if (monthlyLimitTokens < -1) {
+            throw new IllegalArgumentException("monthlyLimitTokens 仅允许 -1(不限量)、0(当月不可用)或正数");
+        }
         if (effectiveTo != null && effectiveTo.isBefore(effectiveFrom)) {
             throw new IllegalArgumentException("effectiveTo 不能早于 effectiveFrom");
         }
@@ -121,7 +125,11 @@ public class LlmQuotaService {
             validateSubject(item.sourceType(), item.sourceId());
         }
         UUID routeId = quotaRepository.insertRoute(userId, modelId, exhaustAction);
-        quotaRepository.replaceRouteItems(routeId, items);
+        UserModelRouteDto existing = quotaRepository.findRouteById(routeId).orElseThrow();
+        // 与 updateRoute 同因:顺位未改动时跳过整体替换,避免账本外键引用被无谓删除。
+        if (!sameRouteItems(existing.items(), items)) {
+            quotaRepository.replaceRouteItems(routeId, items);
+        }
         auditService.record("LLM_ROUTE_UPSERT", "llm_user_model_route", routeId, operatorId,
             Map.of("userId", userId.toString(), "modelId", modelId.toString(),
                 "exhaustAction", exhaustAction, "itemCount", items.size()));
@@ -132,13 +140,15 @@ public class LlmQuotaService {
     public UserModelRouteDto updateRoute(UUID id, String exhaustAction, boolean enabled,
                                          List<LlmQuotaJdbcRepository.RouteItemInput> items,
                                          UUID operatorId) {
-        quotaRepository.findRouteById(id)
+        UserModelRouteDto existing = quotaRepository.findRouteById(id)
             .orElseThrow(() -> new LlmException("LLM_ROUTE_NOT_FOUND", "路由不存在", 404));
         if (!EXHAUST_ACTIONS.contains(exhaustAction)) {
             throw new IllegalArgumentException("exhaustAction 必须是 block 或 allow_overage");
         }
         quotaRepository.updateRoute(id, exhaustAction, enabled);
-        if (items != null && !items.isEmpty()) {
+        // 前端编辑对话框全量回传 items,顺位未改动时跳过整体替换:
+        // 用量账本 llm_usage_ledger.route_item_id 外键引用顺位项行,无谓的先删后插会被外键拒绝。
+        if (items != null && !items.isEmpty() && !sameRouteItems(existing.items(), items)) {
             for (LlmQuotaJdbcRepository.RouteItemInput item : items) {
                 validateSubject(item.sourceType(), item.sourceId());
             }
@@ -153,6 +163,30 @@ public class LlmQuotaService {
     private void validateModelExists(UUID modelId) {
         catalogRepository.findModelById(modelId)
             .orElseThrow(() -> new LlmException("LLM_MODEL_NOT_FOUND", "模型不存在", 404));
+    }
+
+    /**
+     * 判断提交的顺位项与库中现有顺位项是否逐项相同(按 priority+sourceType+sourceId)。
+     * 业务解释:现有侧按 priority 升序,提交侧排序后对齐;不含 id/enabled,行身份对整体替换语义无意义。
+     */
+    private boolean sameRouteItems(List<UserModelRouteDto.RouteItemDto> current,
+                                   List<LlmQuotaJdbcRepository.RouteItemInput> submitted) {
+        if (current.size() != submitted.size()) {
+            return false;
+        }
+        List<LlmQuotaJdbcRepository.RouteItemInput> sorted = submitted.stream()
+            .sorted(Comparator.comparingInt(LlmQuotaJdbcRepository.RouteItemInput::priority))
+            .toList();
+        for (int i = 0; i < current.size(); i++) {
+            UserModelRouteDto.RouteItemDto c = current.get(i);
+            LlmQuotaJdbcRepository.RouteItemInput s = sorted.get(i);
+            if (c.priority() != s.priority()
+                || !c.sourceType().equals(s.sourceType())
+                || !c.sourceId().equals(s.sourceId())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

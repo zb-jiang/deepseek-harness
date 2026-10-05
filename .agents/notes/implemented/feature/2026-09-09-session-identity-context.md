@@ -26,7 +26,7 @@ Registered only by the `enterprise-app` bundle patch; no default profile changes
 
 ## Alternatives considered
 
-**A system-prompt section.** Prompt sections are assembled per request, but the established durable mechanism for per-turn model context is the plugin snapshot message with invariant validation and section provenance (the time-context precedent); a prompt section would bypass that vocabulary and complicate the invariant story.
+**A system-prompt section.** Prompt sections are assembled per request, but the established durable mechanism for per-turn model context is the plugin snapshot message with invariant validation and per-section source metadata (the time-context precedent); a prompt section would bypass that vocabulary and complicate the invariant story.
 
 **Passing identity through tool or MCP arguments.** That makes the model an identity transport: a fabricated or injected value is indistinguishable from a real one at the tool boundary. Rejected for security; the discipline line in the block forbids it.
 
@@ -42,7 +42,7 @@ Layer 2 — propagating call-layer credentials to tools and MCP — remains the 
 
 ## Testing
 
-Package suites pin the injection timing, per-turn cadence, reject/abort pass-through, event wiring, and the loader export path; the invariant suite pins format, position, provenance, and late-registration validation. `platform-user-api` suites pin the `platform-user/verified` emission on success, no emission on failure, and the signout route's 204 plus event.
+Package suites pin the injection timing, per-turn cadence, reject/abort pass-through, event wiring, and the loader export path; the invariant suite pins format, position, source metadata, and late-registration validation. `platform-user-api` suites pin the `platform-user/verified` emission on success, no emission on failure, and the signout route's 204 plus event.
 
 ## Deferred
 
