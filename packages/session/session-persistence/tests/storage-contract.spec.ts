@@ -3,10 +3,11 @@
  * stable error vocabulary.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import {
+import SessionPersistence, {
   SessionAlreadyExistsError,
   SessionAlreadyOwnedError,
   SessionFormatUnsupportedError,
@@ -23,7 +24,7 @@ import {
   sessionFormatVersionRefusal,
   validateStoredEvents,
 } from '../src/index.ts'
-import type { SessionLocation } from '../src/index.ts'
+import type { SessionHandle, SessionLocation, SessionPersistenceSnapshot } from '../src/index.ts'
 import { meta } from './contract.ts'
 
 const LOCATION: SessionLocation = { kind: 'jsonl', path: '/store/session.jsonl' }
@@ -318,5 +319,31 @@ describe('error vocabulary', () => {
 describe('SessionPersistenceRevision', () => {
   it('brands the backend token without changing its runtime value', () => {
     expect(SessionPersistenceRevision('rev:1')).toBe('rev:1')
+  })
+})
+
+// Minimal backend for the Service-Definition-level default tests; no storage
+// operation is ever exercised through it.
+class TestPersistence extends SessionPersistence {
+  create(): Promise<SessionHandle> { return Promise.reject(new Error('not used')) }
+  open(): Promise<SessionHandle> { return Promise.reject(new Error('not used')) }
+  flush(): Promise<void> { return Promise.resolve() }
+  stat(): Promise<SessionPersistenceSnapshot | undefined> { return Promise.resolve(undefined) }
+  list(): Promise<readonly SessionPersistenceSnapshot[]> { return Promise.resolve([]) }
+}
+
+describe('SessionPersistence.discardPendingSession default', () => {
+  const contexts: Context[] = []
+  afterEach(async () => {
+    await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
+  })
+
+  it('is a silent no-op on a backend that tracks no pending registrations', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(TestPersistence)
+    // The deletion path calls this on every stored id, including ids a
+    // backend without pending registrations has never seen.
+    expect(() => ctx.sessionPersistence.discardPendingSession(SessionId('never-tracked'))).not.toThrow()
   })
 })

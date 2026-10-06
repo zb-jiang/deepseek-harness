@@ -474,6 +474,18 @@ export class JsonlBackendTracker {
   }
 
   /**
+   * Drop a pending created-but-unmaterialized entry (deletion path); refuse
+   * while a write claim or handle still holds the id, so a later materializing
+   * write cannot resurrect a session the caller already deleted.
+   * @param id - the session whose pending entry is dropped.
+   * @throws {SessionAlreadyOwnedError} when a write claim or handle holds the id.
+   */
+  discardPending(id: SessionId): void {
+    if (this.writers.has(id)) throw new SessionAlreadyOwnedError(id)
+    this.pending.delete(id)
+  }
+
+  /**
    * Track one open handle for teardown and, for a write handle, bind it as
    * the session's live event route.
    * @param handle - the just-constructed handle.

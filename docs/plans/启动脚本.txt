@@ -132,7 +132,7 @@ cd D:\works\deepseek-harness\apps\expense-ctrl\expense-sor
 mvn test
 mvn package -DskipTests
 java -jar target/expense-sor-1.0.0.jar
-
+http://localhost:8091/
 ----------------------------------------------------------------------------------------------------------------------
 
 启动new-api

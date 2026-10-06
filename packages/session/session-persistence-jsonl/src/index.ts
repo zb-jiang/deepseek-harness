@@ -904,6 +904,16 @@ class JsonlSessionPersistence extends SessionPersistence {
   }
 
   /**
+   * Drop this process's created-but-unmaterialized registration for one
+   * session (deletion path).
+   * @param id - the session whose pending registration is dropped.
+   * @throws {SessionAlreadyOwnedError} when a write claim or handle holds the id.
+   */
+  override discardPendingSession(id: SessionId): void {
+    this.tracker.discardPending(id)
+  }
+
+  /**
    * Release one handle's backend bookkeeping on close.
    * @param handle - the closing handle.
    * @param materialized - whether the session reached durable storage.

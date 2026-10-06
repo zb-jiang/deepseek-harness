@@ -1,5 +1,5 @@
 ---
-description: "HTTP endpoint that permanently deletes one archived session (JSONL artifact directory plus workspace registry bookkeeping)."
+description: "HTTP endpoint that permanently deletes one archived session (JSONL artifact directory, pending registration, projection-cache record, plus workspace registry bookkeeping)."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-session-delete` adds one route to the local webserver: `POST /api/enterprise/sessions/delete` permanently removes an archived session. Archive membership is the safety gate — an archived session has no live writes — so the endpoint deletes the JSONL artifact directory, detaches the id from every workspace's accounted list, and drops it from the registry-global archive set. Deletion converges: when the JSONL snapshot is absent (artifact already deleted externally) or the artifact directory is missing, the call skips the directory removal and clears the bookkeeping directly. The plugin carries no configuration and registers nothing model-facing.
+`dsh-session-delete` adds one route to the local webserver: `POST /api/enterprise/sessions/delete` permanently removes an archived session. Archive membership is the safety gate — an archived session has no live writes — so the endpoint drops this process's created-but-unmaterialized registration, deletes the JSONL artifact directory, drops the session's projection-cache record (without it the session listing keeps serving the deleted session), detaches the id from every workspace's accounted list, and drops it from the registry-global archive set. After every step succeeds the endpoint emits `api-session/removed`, the one signal a connected client's session-list store uses to drop a row outside its baseline — a cold delete has no live lifecycle, so without this emit the deleted session keeps showing in the client until a restart. When a write handle still holds the id (typically a live agent left over from an earlier conversation in this process), the endpoint refuses with 409 before touching the disk; restarting the app releases the handle and the retry converges. Deletion converges: when the JSONL snapshot is absent (artifact already deleted externally) or the artifact directory is missing, the call skips the directory removal and clears the bookkeeping directly. The plugin carries no configuration and registers nothing model-facing.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ Mount this package on any profile that runs the local webserver with JSONL sessi
 
 | Method | Path | Behavior |
 |---|---|---|
-| POST | `/api/enterprise/sessions/delete` | Body `{ "sessionId": "<id>" }`; deletes the archived session's JSONL artifact directory, detaches the id from every workspace, unarchives it, and answers `{ deleted: "<id>" }` |
+| POST | `/api/enterprise/sessions/delete` | Body `{ "sessionId": "<id>" }`; drops the archived session's in-process pending registration, deletes its JSONL artifact directory and projection-cache record, detaches the id from every workspace, unarchives it, emits `api-session/removed` so connected clients drop the list row immediately, and answers `{ deleted: "<id>" }` |
 
 Failures are JSON errors with one status per cause:
 
@@ -39,7 +39,7 @@ Failures are JSON errors with one status per cause:
 |---|---|
 | 400 | body missing, malformed, over 64KB, or `sessionId` is not a non-empty string |
 | 405 | method is not POST |
-| 409 | the session is not archived; only archived sessions can be deleted |
+| 409 | the session is not archived; or a write handle still holds the id (`code: "session-in-use"`) — restart the app and retry |
 | 500 | the persistence backend does not expose a JSONL root, or the resolved directory escapes the root |
 
 -----
@@ -56,9 +56,13 @@ This section explains the design decisions and points at the code; the observabl
 
 Deletion requires the id to sit in the registry's archived set ([src/index.ts](src/index.ts)). The archive gate blocks every `agent/pre-step` wake and an unforced archive refuses active sessions, so "archived" is exactly the condition under which no live write can still touch the artifact. Anything else answers 409.
 
-### Artifact first, bookkeeping second
+### Pending registration first, then artifact, then bookkeeping
 
-The delete sequence removes the JSONL directory, then detaches the id from every workspace's accounted list, then unarchives it from the registry-global set. A snapshot absent from persistence (artifact already deleted externally) or a missing directory skips the removal and clears the bookkeeping directly, so a failed or interrupted deletion always converges on retry. A containment check keeps the removed directory inside the persistence root before `rm` runs.
+The delete sequence first drops the process's created-but-unmaterialized registration — a write handle still holding the id refuses with 409 there, before the disk is touched, because a leftover handle's later writes could rebuild the deleted artifact (the ghost-session failure mode). It then removes the JSONL directory, drops the session's projection-cache record, detaches the id from every workspace's accounted list, and unarchives it from the registry-global set. A created-but-unmaterialized session has no artifact on disk: its only existence is the JSONL backend's in-process pending registration and the projection-cache checkpoint written at session creation, so skipping either cleanup leaves the id listed forever. A snapshot absent from persistence (artifact already deleted externally) or a missing directory skips the removal and clears the bookkeeping directly, so a failed or interrupted deletion always converges on retry. A containment check keeps the removed directory inside the persistence root before `rm` runs.
+
+### A cold delete announces itself through `api-session/removed`
+
+The client session-list store applies incremental removals only through the `api-session/removed` Remote event; everything else arrives via its ordered baseline. The Host emits that event when a live session is disposed, but a deleted cold session has no live lifecycle — nothing else would ever signal its disappearance. The endpoint therefore emits the event itself, after every cleanup step has succeeded, so connected clients drop the row immediately instead of serving a dead entry (clicking it would answer `session/not-found`) until the next restart rebuilds the baseline. The refusal paths (409, 500) never emit: the disk state still backs the row.
 
 ### The root is probed, not configured
 
@@ -92,6 +96,7 @@ Deletion happens after sessions have already ended; the endpoint touches artifac
 These limits define what the package does not attempt. They are current constraints, not a task backlog.
 
 - **Archived sessions only** — the route refuses anything the registry has not archived (409); deleting a live or merely closed session is out of scope by design.
+- **Write-handle liveness blocks deletion** — a live agent left over from an earlier conversation holds the write handle until the process exits; deletion then answers 409 (`code: "session-in-use"`) and needs an app restart to release the handle. Disposing the agent in-process would need a dispose-by-id seam in the agent registry; deferred.
 - **JSONL backend only** — a non-JSONL persistence backend answers 500 instead of guessing a directory layout.
 - **Retry-driven convergence** — a crash between the artifact delete and the bookkeeping writes leaves the id listed until a retry; the next call skips the directory removal (missing directory or absent snapshot) and converges.
 - **No undelete** — removal is permanent; there is no trash, soft-delete, or restore path.

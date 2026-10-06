@@ -169,6 +169,17 @@ export class SessionProjectionCache extends Service {
   }
 
   /**
+   * Drop one session's cached checkpoint record (deletion path): the record
+   * is removed durably and the id stops appearing as a cached listing row.
+   * @param id - the session whose record is removed.
+   * @returns resolution once the record is durably removed; an absent record
+   *   resolves silently.
+   */
+  async drop(id: SessionId): Promise<void> {
+    await this.requireTable().delete(id)
+  }
+
+  /**
    * Read only a predecessor checkpoint's title as a zero-I/O listing hint.
    *
    * The authoritative Session header supplies the lifecycle identity. A cache

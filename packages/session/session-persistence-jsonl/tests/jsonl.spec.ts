@@ -18,7 +18,11 @@ import {
   runPersistenceContract, meta, oneTurnLog, releasedV1OneTurnLog,
 } from '../../session-persistence/tests/contract.ts'
 import { runLiveWritePathContract } from '../../session-persistence/tests/live-write-contract.ts'
-import { LIVE_WRITE_BATCH_MAX_DELAY_MS, type JsonlSessionHandle } from '../src/storage.ts'
+import {
+  JsonlBackendTracker, LIVE_WRITE_BATCH_MAX_DELAY_MS,
+  type JsonlSessionHandle,
+} from '../src/storage.ts'
+import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import { JsonlGenerationSourceChangedError } from '../src/generation.ts'
 import SessionStore from '@deepseek-ai/dsh-session'
 
@@ -2751,5 +2755,64 @@ describe('JsonlSessionPersistence: edge cases', () => {
     }, surfaceOp: 'append' }] as unknown as SessionEvent[]
     await writeLog(ctx.sessionPersistence, m, events)
     expect((await readAll(ctx.sessionPersistence, m.id)).events).toEqual(events)
+  })
+})
+
+describe('JsonlSessionPersistence: discardPendingSession (deletion path)', () => {
+  let ctx: Context
+  beforeEach(async () => {
+    root = await freshRoot()
+    ctx = new Context()
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+  })
+  afterEach(async () => { await ctx.fiber.dispose() })
+
+  it('tracker-level: drops the pending registration when no write claim holds the id', () => {
+    const tracker = new JsonlBackendTracker('test')
+    const m = meta('tracker-pending')
+    tracker.registerCreated(m, SessionLogOffset(0))
+    // registerCreated itself claims the writer; roll the claim back so only
+    // the pending registration remains — the state the deletion path targets.
+    tracker.releaseClaim(m.id)
+    expect(tracker.hasPending(m.id)).toBe(true)
+    tracker.discardPending(m.id)
+    expect(tracker.hasPending(m.id)).toBe(false)
+    expect(tracker.pendingOf(m.id)).toBeUndefined()
+  })
+
+  it('tracker-level: refuses while a write claim holds the id, releases cleanly afterwards', () => {
+    const tracker = new JsonlBackendTracker('test')
+    const m = meta('tracker-claimed')
+    // The create claim itself holds the id: the deletion path must refuse.
+    tracker.registerCreated(m, SessionLogOffset(0))
+    expect(() => tracker.discardPending(m.id)).toThrow(SessionAlreadyOwnedError)
+    // The refused discard keeps the registration: the claim's session stays observable.
+    expect(tracker.hasPending(m.id)).toBe(true)
+    tracker.releaseClaim(m.id)
+    tracker.discardPending(m.id)
+    expect(tracker.hasPending(m.id)).toBe(false)
+  })
+
+  it('tracker-level: a discard for an unknown id is a silent no-op', () => {
+    const tracker = new JsonlBackendTracker('test')
+    expect(() => tracker.discardPending(SessionId('never-created'))).not.toThrow()
+  })
+
+  it('refuses while the created handle is still open, and is a no-op once it closed unmaterialized', async () => {
+    const m = meta('discard-lifecycle')
+    const handle = await ctx.sessionPersistence.create(m)
+    const persistence = ctx.sessionPersistence as JsonlSessionPersistence
+    // The pending registration is observable through hasPendingSession and list.
+    expect(persistence.hasPendingSession(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id)).toContain(m.id)
+    // The open write handle holds the id: the deletion path must not drop a
+    // registration whose later materializing write would resurrect the session.
+    expect(() => ctx.sessionPersistence.discardPendingSession(m.id)).toThrow(SessionAlreadyOwnedError)
+    // Closing the creator without appending erases the registration itself;
+    // the deletion-path discard then has nothing left and stays silent.
+    await handle.close()
+    expect(persistence.hasPendingSession(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id)).not.toContain(m.id)
+    expect(() => ctx.sessionPersistence.discardPendingSession(m.id)).not.toThrow()
   })
 })

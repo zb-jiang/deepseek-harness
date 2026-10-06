@@ -4,8 +4,9 @@
  * `sidebar.workspaces.session.row.action` 悬停按钮、`shell.overlay` 确认
  * 对话框。仅对已归档会话渲染(归档状态经全局 Workspace 快照 selector
  * 读取);确认后请求 Host 端点 /api/enterprise/sessions/delete 物理删除
- * 会话工件并清 Workspace 记账,Host 的 domain/changed 事件经 feed 推回,
- * 已归档列表自动移除该行。
+ * 会话工件并清 Workspace 记账,Host 侧补发 api-session/removed 让
+ * session 列表 store 立即移除条目,Workspace 域变更经 feed 推回,
+ * 已归档列表同步移除该行。
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -54,6 +55,20 @@ export type SessionDeleteDialogProps =
   & Omit<SessionDeleteDialogInjected, 'hooks'>
   & PropsHooks<SessionDeleteDialogInjected['hooks']>
 
+/** 409 code=session-in-use 时展示的定向提示（live agent 仍持有写句柄）。 */
+const SESSION_IN_USE_HINT = '该会话仍在使用中，请重启员工端后再试一次删除'
+
+/** 解析删除端点的错误响应体，识别 code=session-in-use。 */
+function isSessionInUseBody(text: string): boolean {
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return false
+  }
+  return typeof body === 'object' && body !== null && 'code' in body && body.code === 'session-in-use'
+}
+
 /**
  * 请求 Host 物理删除一个已归档会话。
  * @param sessionId - 目标会话。
@@ -65,10 +80,11 @@ export async function deleteArchivedSessionRequest(sessionId: SessionId): Promis
     headers: { 'content-type': 'application/json', authorization: `Bearer ${readToken()}` },
     body: JSON.stringify({ sessionId }),
   })
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`${response.status} ${response.statusText}${text === '' ? '' : `: ${text}`}`)
-  }
+  if (response.ok) return
+  const text = await response.text().catch(() => '')
+  // 写句柄仍活跃时 Host 已拒绝且磁盘未动,重启后重试即可完成;定向提示替代原始报文。
+  if (response.status === 409 && isSessionInUseBody(text)) throw new Error(SESSION_IN_USE_HINT)
+  throw new Error(`${response.status} ${response.statusText}${text === '' ? '' : `: ${text}`}`)
 }
 
 /**

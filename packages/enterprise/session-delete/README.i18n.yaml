@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/session-delete/README.md
 /:
-  en: 68eb2032467755aa
-  zh: 3904e2530f33532c
+  en: 659882315e3a3821
+  zh: c87f60a305e6429b
 /deepseek-ai-dsh-session-delete:
   en: 40182609b9da8f99
   zh: 6f29ef839b5e2fa9
 /deepseek-ai-dsh-session-delete/summary:
-  en: b0dee626f96a99e8
-  zh: 81e819a520d442c1
+  en: eb1941e4ba624968
+  zh: 0d255f868f54e1c5
 /deepseek-ai-dsh-session-delete/table-of-contents:
   en: d152484eb41ac6b4
   zh: f14f34fce35a8d90
@@ -18,20 +18,23 @@
   en: 47087a994f0f4e7b
   zh: bc88e46e21e99f85
 /deepseek-ai-dsh-session-delete/use-this-package/what-the-endpoint-does:
-  en: 31c1a00044381f11
-  zh: 737cb49a1fb8d312
+  en: 778c800d38171139
+  zh: b23fe7379a103815
 /deepseek-ai-dsh-session-delete/understand-the-implementation:
   en: c75599b18254aa11
   zh: d31fae373d95d6a0
 /deepseek-ai-dsh-session-delete/understand-the-implementation/archive-membership-is-the-deletion-gate:
   en: ad815bc316e70e6c
   zh: 5ba1b47871a526c0
-/deepseek-ai-dsh-session-delete/understand-the-implementation/artifact-first-bookkeeping-second:
-  en: c6b3177ee2e4d6a7
-  zh: 34095ff4d941d03f
+/deepseek-ai-dsh-session-delete/understand-the-implementation/pending-registration-first-then-artifact-then-bookkeeping:
+  en: e07d52874daef3fb
+  zh: ecfd484801894684
+/deepseek-ai-dsh-session-delete/understand-the-implementation/a-cold-delete-announces-itself-through-api-session-removed:
+  en: cf922ff226b7be90
+  zh: b48c3df5d3544ce2
 /deepseek-ai-dsh-session-delete/understand-the-implementation/the-root-is-probed-not-configured:
   en: f38ad2ec4279d3e3
-  zh: 5d201450325581c4
+  zh: 8656e4220a292858
 /deepseek-ai-dsh-session-delete/further-exploration:
   en: 0f2066130b1e710c
   zh: cd54eafd6918b531
@@ -42,8 +45,8 @@
   en: 56bfdbdcc6c72fe3
   zh: 1f35f57ce86703e5
 /deepseek-ai-dsh-session-delete/known-limitations-and-deferred-work:
-  en: d1bc2b83db787556
-  zh: f435159a23f86ccc
+  en: 94888717f42838a8
+  zh: 2750467f42241f5a
 /deepseek-ai-dsh-session-delete/known-limitations-and-deferred-work/dev-note:
   en: 0e9349b806d6a2ba
   zh: e2e1bc1516fc2482

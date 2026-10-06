@@ -809,3 +809,27 @@ describe('SessionProjectionCache cold-read seeding', () => {
     }, { timeout: 5_000 })
   })
 })
+
+describe('SessionProjectionCache drop (deletion path)', () => {
+  it('removes the durable record and the cached listing row', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
+    roots.push(root)
+    await seedRecord(root, 'dropped', {
+      'cache-test/marks': { ver: 1, seq: SessionSeq(4), val: { marks: ['t'] } },
+    })
+    const { cache } = await harness({ root })
+    const id = SessionId('dropped')
+    // Pre-state: the seeded record serves the listing read.
+    expect(cache.cachedSnapshot(headerOf(id))).toBeDefined()
+    await cache.drop(id)
+    // The id stops serving as a cached listing row, and the medium holds no
+    // record document anymore.
+    expect(cache.cachedSnapshot(headerOf(id))).toBeUndefined()
+    expect(await storedRecord(root, id)).toBeUndefined()
+  })
+
+  it('resolves silently for an id with no stored record', async () => {
+    const { cache } = await harness()
+    await expect(cache.drop(SessionId('never-cached'))).resolves.toBeUndefined()
+  })
+})

@@ -8,12 +8,21 @@
  * The request body is `{ "sessionId": "<id>" }`. Only archived sessions are
  * deletable: archive membership is the guarantee that no live write can still
  * touch the artifact (the archive gate blocks every `agent/pre-step` wake, and
- * an unforced archive refuses active sessions). Deletion removes the session's
- * JSONL artifact directory, drops the id from every workspace's accounted
- * list, and drops it from the registry-global archive set. Deletion
- * converges: when the JSONL snapshot is absent (artifact already deleted
- * externally) or the artifact directory is missing, the call skips the
- * directory removal and clears the bookkeeping directly.
+ * an unforced archive refuses active sessions). When a write handle still
+ * holds the id (typically a live agent left over from an earlier
+ * conversation in this process), the call refuses with 409 before touching
+ * the disk; restarting the app releases the handle and the retry converges.
+ * Deletion removes the session's pending registration and JSONL artifact
+ * directory, drops the session's projection-cache record (without it the
+ * listing keeps serving the deleted session), drops the id from every
+ * workspace's accounted list, and drops it from the registry-global archive
+ * set. After every step succeeds the endpoint emits `api-session/removed`
+ * so connected clients drop the list row immediately: a cold delete has no
+ * live lifecycle, and the client list store removes a row outside its
+ * baseline only through that event. Deletion converges: when the JSONL
+ * snapshot is absent (artifact already deleted externally) or the artifact
+ * directory is missing, the call skips the directory removal and clears the
+ * bookkeeping directly.
  *
  * @module @deepseek-ai/dsh-session-delete
  */
@@ -22,8 +31,11 @@ import { rm, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { sessionDir } from '@deepseek-ai/dsh-session-persistence-jsonl'
 
@@ -120,9 +132,11 @@ function persistenceRoot(persistence: SessionPersistence): string {
 }
 
 /**
- * 删除一个已归档会话：删 JSONL 工件目录 → 清 workspace 记账 → 移出归档集。
- * 持久化里找不到 snapshot（工件已被外部删除）或目录缺失时跳过目录删除，
- * 直接清记账收敛，归档 id 不会残留。
+ * 删除一个已归档会话：清 pending 登记 → 删 JSONL 工件目录 → 清投影缓存 →
+ * 清 workspace 记账 → 移出归档集。清 pending 在删盘之前：写句柄仍活跃
+ * （会话刚被对话过、live agent 持有写句柄）时拒绝删除并保留全部状态，
+ * 由调用方提示重启后重试；否则删盘后残留句柄的后续写入会重建工件
+ * （幽灵会话回归）。工件已缺失时跳过删盘直接清记账，归档 id 不残留。
  */
 async function deleteArchivedSession(ctx: Context, rawSessionId: string): Promise<void> {
   const registry = ctx.workspaceRegistry
@@ -135,6 +149,10 @@ async function deleteArchivedSession(ctx: Context, rawSessionId: string): Promis
   const snapshot = snapshots.find(entry => entry.header.id === archivedId)
   // snapshot 缺失 = 工件已被外部删除（或上次调用中断），跳过目录删除直接清记账收敛。
   if (snapshot !== undefined) {
+    // 未落盘的已创建会话只剩进程内 pending 登记与投影缓存记录；不清掉它们，
+    // list() 会继续返回该会话，表现为“删除成功但会话回到未分组”。
+    // 写句柄仍持有该 id 时这里拒绝（live agent 或未关闭的创建句柄），磁盘不动。
+    ctx.sessionPersistence.discardPendingSession(archivedId)
     const root = persistenceRoot(ctx.sessionPersistence)
     const dir = resolve(sessionDir(root, snapshot.header.cwd, snapshot.header.id))
     const resolvedRoot = resolve(root)
@@ -146,11 +164,18 @@ async function deleteArchivedSession(ctx: Context, rawSessionId: string): Promis
     }
   }
 
+  const projectionCache = ctx.get('sessionProjectionCache')
+  if (projectionCache !== undefined) await projectionCache.drop(archivedId)
+
   for (const workspace of registry.list()) {
     const attachedId = workspace.sessionIds.find(id => id === archivedId)
     if (attachedId !== undefined) await workspace.detachSession(attachedId)
   }
   await registry.unarchiveSession(archivedId)
+  // 冷会话没有 live 生命周期，session/disposed 不会触发；客户端列表 store 只认
+  // api-session/removed 这一个「会话消失」信号（baseline 之外的唯一增量移除路径），
+  // 不补发则条目残留到重启。放在全部清理完成后广播。
+  ctx.emit('api-session/removed', archivedId)
 }
 
 /**
@@ -178,6 +203,16 @@ export function apply(ctx: Context): void {
         } catch (error) {
           if (error instanceof SessionDeleteHttpError) {
             sendJson(res, error.status, { error: error.message })
+            return
+          }
+          // 写句柄仍持有该会话（典型：刚对话过、live agent 未退出）：删除
+          // 拒绝且磁盘未动，重启应用释放句柄后重试即可完成，属可恢复冲突。
+          // code=session-in-use 供前端定向提示。
+          if (error instanceof SessionAlreadyOwnedError) {
+            sendJson(res, 409, {
+              error: `session "${error.sessionId}" is still held by an active write handle; restart the app and retry`,
+              code: 'session-in-use',
+            })
             return
           }
           const message = error instanceof Error ? error.message : String(error)

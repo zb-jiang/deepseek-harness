@@ -8,9 +8,11 @@
     "src"
   ],
   "references": [
+    { "path": "../../api/session-controller/tsconfig.host.json" },
     { "path": "../../host/webserver" },
     { "path": "../../session/session-persistence" },
     { "path": "../../session/session-persistence-jsonl" },
+    { "path": "../../session/session-projection-cache" },
     { "path": "../../workspace/workspace" }
   ]
 }
