@@ -8,7 +8,10 @@
  *
  * The route is served by one {@link PiAiAdapter} (generic OpenAI-completions
  * protocol) whose profiles are rebuilt from the fetched catalog, wrapped in
- * {@link EnterpriseLlmAdapter} for employee-facing failure copy. Both the LLM
+ * {@link EnterpriseLlmAdapter} for employee-facing failure copy. The adapter
+ * injects the durable attachment service and the image-access bridge, so a
+ * model declared with image input accepts attached pictures the same way the
+ * base-mounted llm-pi-ai plugin does. Both the LLM
  * request and the catalog pull originate in the DSH backend process, so they
  * reach web-console directly — no local webserver route is involved.
  *
@@ -26,11 +29,14 @@
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import z from '@deepseek-ai/schemastery'
-import { LlmError } from '@deepseek-ai/dsh-llm'
+import { LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import type { ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
 import { authContextFrom, credentialStoreFrom } from '@deepseek-ai/dsh-llm-pi-ai/src/auth.ts'
+// 服务类型注册:resolveAttachments/resolveImageAccess 经 ctx 取 attachments 与 fs 服务
+import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-user-identity-context'
 import type {} from '@deepseek-ai/dsh-platform-user'
@@ -115,6 +121,14 @@ export function apply(ctx: Context, config: Config): void {
       return Promise.resolve(token)
     },
     auth: { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) },
+    // 图片链路注入(与 base 挂载的 llm-pi-ai 插件对称):发消息附带图片时按需取
+    // 持久附件服务,并把附件宿主路径映射进当前工具执行世界(缺任一则带图请求失败)
+    resolveAttachments: () => ctx.get('attachments'),
+    resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
+      attachments,
+      hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath),
+      ref,
+    ),
   })
   const adapter = new EnterpriseLlmAdapter(piAi, { onListModels: () => { maybeRefresh() } })
 

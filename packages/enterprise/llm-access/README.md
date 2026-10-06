@@ -72,6 +72,10 @@ The catalog refreshes on `platform-user/verified` (the event carries the fresh t
 
 A generic OpenAI-protocol adapter does the protocol work; an outer wrapper ([src/adapter.ts](src/adapter.ts)) rewrites failures into employee-facing messages. Calling an enterprise model without a signed-in identity fails with an explicit login-first error instead of a protocol diagnostic.
 
+### Image input injection
+
+The adapter injects the durable attachment service and the image-access bridge (`resolveAttachments` / `resolveImageAccess` in [src/index.ts](src/index.ts)) the same way the base-mounted llm-pi-ai plugin does: a catalog model declared with `imageInput` accepts attached pictures, and the attachment host path is mapped into the current tool execution world through the `fs` service. Without these injections a picture-bearing request fails with the pi-ai `UNSUPPORTED_CONTENT` diagnostic even when the model declares image input.
+
 </details>
 
 -----

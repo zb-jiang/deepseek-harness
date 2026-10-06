@@ -77,20 +77,20 @@ describe('fetchEnterpriseModels', () => {
     vi.unstubAllGlobals()
   })
 
-  it('成功:归一化目录,null 容量/缺失展示名回退,reasoning 仅 true 透出', async () => {
+  it('成功:归一化目录,null 容量/缺失展示名回退,reasoning/imageInput 仅 true 透出', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, {
       success: true,
       data: [
         { id: 'm1', gatewayModelName: 'enterprise-chat', displayName: '企业对话', contextWindow: 128_000, maxTokens: 8_192 },
-        { id: 'm2', gatewayModelName: 'enterprise-reasoner', displayName: null, contextWindow: null, maxTokens: null, reasoning: true },
+        { id: 'm2', gatewayModelName: 'enterprise-reasoner', displayName: null, contextWindow: null, maxTokens: null, reasoning: true, imageInput: true },
         { id: 'm3', gatewayModelName: '', displayName: '空网关名跳过' },
         { id: 'm4', gatewayModelName: 'enterprise-chat', displayName: '重复条目跳过' },
       ],
     })))
     const models = await fetchEnterpriseModels({ webConsoleBaseUrl: 'http://console:8080', token: 'jwt' })
     expect(models).toEqual([
-      { gatewayModelName: 'enterprise-chat', displayName: '企业对话', contextWindow: 128_000, maxTokens: 8_192, reasoning: false },
-      { gatewayModelName: 'enterprise-reasoner', displayName: 'enterprise-reasoner', contextWindow: undefined, maxTokens: undefined, reasoning: true },
+      { gatewayModelName: 'enterprise-chat', displayName: '企业对话', contextWindow: 128_000, maxTokens: 8_192, reasoning: false, imageInput: false },
+      { gatewayModelName: 'enterprise-reasoner', displayName: 'enterprise-reasoner', contextWindow: undefined, maxTokens: undefined, reasoning: true, imageInput: true },
     ])
   })
 
@@ -117,10 +117,10 @@ describe('buildEnterpriseProfiles', () => {
     expect(buildEnterpriseProfiles([], 'http://console:8080', DEFAULTS).size).toBe(0)
   })
 
-  it('非空:单路由,容量缺省回落默认值;reasoning 模型声明推理档位', () => {
+  it('非空:单路由,容量缺省回落默认值;reasoning 模型声明推理档位,imageInput 模型声明图片模态', () => {
     const profiles = buildEnterpriseProfiles([
-      { gatewayModelName: 'enterprise-chat', displayName: '企业对话', contextWindow: 128_000, maxTokens: 8_192, reasoning: false },
-      { gatewayModelName: 'enterprise-reasoner', displayName: '企业推理', contextWindow: undefined, maxTokens: undefined, reasoning: true },
+      { gatewayModelName: 'enterprise-chat', displayName: '企业对话', contextWindow: 128_000, maxTokens: 8_192, reasoning: false, imageInput: false },
+      { gatewayModelName: 'enterprise-reasoner', displayName: '企业推理', contextWindow: undefined, maxTokens: undefined, reasoning: true, imageInput: true },
     ], 'http://console:8080', DEFAULTS)
     expect([...profiles.keys()]).toEqual([ENTERPRISE_PROVIDER])
     const profile = profiles.get(ENTERPRISE_PROVIDER)
@@ -142,6 +142,10 @@ describe('buildEnterpriseProfiles', () => {
     const levelMap = models[1]?.thinkingLevelMap ?? {}
     const offered = Object.entries(levelMap).filter(([, wire]) => wire != null).map(([level]) => level)
     expect(offered).toEqual(['low', 'medium', 'high'])
+    // 图片能力:imageInput 模型声明 text+image 模态(发消息允许附带图片),
+    // 普通模型未声明 input,resolveProfiles 填充默认纯文本(附带图片被拒)
+    expect(models[0]?.input).toEqual(['text'])
+    expect(models[1]?.input).toEqual(['text', 'image'])
   })
 })
 

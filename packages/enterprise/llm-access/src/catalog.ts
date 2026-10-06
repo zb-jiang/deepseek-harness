@@ -9,6 +9,7 @@
 
 import { resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
 import type {
+  PiAiModality,
   PiAiModelProfile,
   ResolvedPiAiProviderProfile,
 } from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
@@ -38,6 +39,7 @@ export interface EmployeeModelDto {
   contextWindow?: number | null
   maxTokens?: number | null
   reasoning?: boolean | null
+  imageInput?: boolean | null
 }
 
 /** Normalized catalog entry for one enterprise model. */
@@ -52,6 +54,8 @@ export interface EnterpriseModel {
   readonly maxTokens: number | undefined
   /** Whether the model offers reasoning effort levels in the selector. */
   readonly reasoning: boolean
+  /** Whether the session may attach images to this model. */
+  readonly imageInput: boolean
 }
 
 /** Resolved fetch inputs for one catalog pull. */
@@ -74,6 +78,9 @@ export interface CatalogDefaults {
  * by web-console's proxy and the New API gateway unchanged.
  */
 const REASONING_EFFORTS = { low: 'low', medium: 'medium', high: 'high' } as const
+
+/** 模态声明:声明支持图片的模型在 pi-ai 档案上写入的 input 能力(text 是所有协议的底座)。 */
+const IMAGE_INPUT: PiAiModality[] = ['text', 'image']
 
 /** 当前登录员工的 JWT 失效(401);等客户端续期/重新登录后自动恢复,非故障。 */
 export class SessionExpiredError extends Error {}
@@ -136,6 +143,7 @@ export async function fetchEnterpriseModels(request: CatalogRequest): Promise<re
       contextWindow: capacityOf(entry.contextWindow),
       maxTokens: capacityOf(entry.maxTokens),
       reasoning: entry.reasoning === true,
+      imageInput: entry.imageInput === true,
     })
   }
   return models
@@ -169,6 +177,8 @@ export function buildEnterpriseProfiles(
     maxTokens: model.maxTokens ?? defaults.maxTokens,
     // 声明推理档位后选择器才显示推理等级菜单(缺省=无推理,菜单隐藏)
     ...model.reasoning ? { reasoningEfforts: REASONING_EFFORTS } : {},
+    // 声明图片模态后发消息才允许附带图片(缺省=纯文本,pi-ai 兜底 DEFAULT_INPUT)
+    ...model.imageInput ? { input: IMAGE_INPUT } : {},
   }))
   return resolveProfiles({
     [ENTERPRISE_PROVIDER]: {

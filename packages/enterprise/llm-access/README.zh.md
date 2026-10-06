@@ -72,6 +72,10 @@ kind: "package-reference"
 
 通用 OpenAI 协议适配器负责协议本身；外层包装（[src/adapter.ts](src/adapter.ts)）把失败改写为面向员工的消息。未登录调用企业模型时给出明确的「先登录」错误，而不是协议诊断信息。
 
+### 图片输入注入
+
+适配器注入持久附件服务与图片访问桥（[src/index.ts](src/index.ts) 中的 `resolveAttachments` / `resolveImageAccess`），方式与 base 挂载的 llm-pi-ai 插件一致：目录里声明了 `imageInput` 的模型接受附带图片，附件宿主路径经 `fs` 服务映射进当前工具执行世界。缺少这两个注入时，即使模型声明了图片输入，带图请求也会以 pi-ai 的 `UNSUPPORTED_CONTENT` 诊断失败。
+
 </details>
 
 -----

@@ -14,6 +14,7 @@ public record EmployeeModelDto(
     Integer contextWindow,
     Integer maxTokens,
     Boolean reasoning,
+    Boolean imageInput,
     String exhaustAction,
     List<PoolSummary> pools
 ) {

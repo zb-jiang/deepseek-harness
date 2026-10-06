@@ -60,6 +60,7 @@ public class LlmEmployeeService {
                     positiveIntParam(model.modelParams(), "contextWindow"),
                     positiveIntParam(model.modelParams(), "maxTokens"),
                     reasoningParam(model.modelParams()),
+                    imageParam(model.modelParams()),
                     route.exhaustAction(), pools));
             });
         }
@@ -87,6 +88,16 @@ public class LlmEmployeeService {
      */
     private static Boolean reasoningParam(Map<String, Object> modelParams) {
         Object value = modelParams == null ? null : modelParams.get("reasoning");
+        return Boolean.TRUE.equals(value) ? Boolean.TRUE : null;
+    }
+
+    /**
+     * 读 model_params_json 约定键 imageInput(布尔)。
+     * 业务含义:声明模型支持图片输入,员工端 DSH 据此允许会话附带图片;
+     * 缺省视为不支持(null 与 false 同效,员工端仅对 true 声明图片模态)。
+     */
+    private static Boolean imageParam(Map<String, Object> modelParams) {
+        Object value = modelParams == null ? null : modelParams.get("imageInput");
         return Boolean.TRUE.equals(value) ? Boolean.TRUE : null;
     }
 

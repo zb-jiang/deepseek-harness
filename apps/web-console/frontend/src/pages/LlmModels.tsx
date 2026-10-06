@@ -27,7 +27,7 @@ import {
 } from '../api/llm'
 import { SubmitModal } from '../components/SubmitModal'
 
-/** 企业模型表单值(新增/编辑共用);后三个键写入 modelParams,仅存有值时提交 */
+/** 企业模型表单值(新增/编辑共用);后四个键写入 modelParams,仅存有值时提交 */
 interface ModelFormValues {
   displayName: string
   gatewayModelName: string
@@ -35,6 +35,7 @@ interface ModelFormValues {
   contextWindow?: number
   maxTokens?: number
   reasoning?: boolean
+  imageInput?: boolean
 }
 
 export default function LlmModelsPage() {
@@ -94,6 +95,7 @@ export default function LlmModelsPage() {
       contextWindow: undefined,
       maxTokens: undefined,
       reasoning: false,
+      imageInput: false,
     })
     void loadNewapiModels()
   }
@@ -109,6 +111,7 @@ export default function LlmModelsPage() {
       contextWindow: typeof params.contextWindow === 'number' ? params.contextWindow : undefined,
       maxTokens: typeof params.maxTokens === 'number' ? params.maxTokens : undefined,
       reasoning: params.reasoning === true,
+      imageInput: params.imageInput === true,
     })
   }
 
@@ -119,6 +122,7 @@ export default function LlmModelsPage() {
     if (typeof values.contextWindow === 'number') modelParams.contextWindow = values.contextWindow
     if (typeof values.maxTokens === 'number') modelParams.maxTokens = values.maxTokens
     if (values.reasoning === true) modelParams.reasoning = true
+    if (values.imageInput === true) modelParams.imageInput = true
     setSubmitting(true)
     try {
       if (modelTarget) {
@@ -260,6 +264,13 @@ export default function LlmModelsPage() {
       render: (_, record) => (record.modelParams?.reasoning === true ? <Tag color="purple">支持</Tag> : '-'),
     },
     {
+      title: '图片',
+      key: 'imageInput',
+      width: 80,
+      align: 'center',
+      render: (_, record) => (record.modelParams?.imageInput === true ? <Tag color="geekblue">支持</Tag> : '-'),
+    },
+    {
       title: '额度预留',
       dataIndex: 'reservationTokens',
       key: 'reservationTokens',
@@ -386,6 +397,14 @@ export default function LlmModelsPage() {
             label="支持推理"
             valuePropName="checked"
             tooltip="开启后员工端模型选择器显示推理等级选项(low/medium/high)"
+          >
+            <Switch />
+          </Form.Item>
+          <Form.Item
+            name="imageInput"
+            label="支持图片"
+            valuePropName="checked"
+            tooltip="开启后员工端会话可附带图片;仅对具备视觉理解能力的模型开启,否则带图消息会被网关拒绝"
           >
             <Switch />
           </Form.Item>
